@@ -4,6 +4,7 @@ import { addDays, addMonths, todayIn } from "~/domain/dates"
 import { Accounts } from "~/server/services/accounts"
 import { ForecastService } from "~/server/services/forecast"
 import { Schedules, type ScheduleInput } from "~/server/services/schedules"
+import { Transactions } from "~/server/services/transactions"
 import { createHarness, type Harness } from "./harness"
 
 const today = todayIn("Europe/Paris")
@@ -41,6 +42,25 @@ describe("Schedules", () => {
     other = await create("Livret")
   }, 60_000)
   afterAll(() => h?.dispose())
+
+  it("links a manual schedule to the payment entered by hand, and leaves unpaid ones due", async () => {
+    const due = addDays(today, -2)
+    const paid = await h.run(
+      Schedules.use((s) => s.create(monthly(due, { name: "Club", payee: { kind: "name", name: "Club de sport" }, accountId: other, amount: -3_000, autoPost: false }))),
+    )
+    const unpaid = await h.run(
+      Schedules.use((s) => s.create(monthly(due, { name: "Cours", payee: { kind: "name", name: "Cours de piano" }, accountId: other, amount: -9_000, autoPost: false }))),
+    )
+    await h.run(
+      Transactions.use((t) => t.create({ accountId: other, date: addDays(due, 1), amount: -3_100, payee: { kind: "name", name: "Club de sport" }, categoryId: null })),
+    )
+    const result = await h.run(Schedules.use((s) => s.sync))
+    expect(result.matched).toBe(1)
+    expect(await booked(paid)).toEqual([addDays(due, 1)])
+    expect((await schedule(paid)).nextDate > today).toBe(true)
+    expect(await booked(unpaid)).toEqual([])
+    expect((await schedule(unpaid)).nextDate).toBe(due)
+  })
 
   it("books a due occurrence once, even when two syncs run at the same time", async () => {
     const id = await h.run(Schedules.use((s) => s.create(monthly(today))))

@@ -448,6 +448,37 @@ export class Schedules extends Context.Service<
       // caught up over the next syncs.
       const MAX_POSTS_PER_SYNC = 40
 
+      const matchTolerance = (amount: number) => Math.max(Math.round(Math.abs(amount) * 0.1), 100)
+
+      /** Manual schedules with a transaction that could pay their next occurrence, found in one query. */
+      const withCandidate = (rows: ReadonlyArray<Row>) =>
+        rows.length === 0
+          ? Effect.succeed(new Set<string>())
+          : db.use(async (_, d1) => {
+              const wanted = rows.map((r) => ({
+                id: r.id,
+                payeeId: r.payeeId,
+                accountId: r.accountId,
+                amount: r.amount,
+                tolerance: matchTolerance(r.amount),
+                from: addDays(r.nextDate, -6),
+                to: addDays(r.nextDate, 6),
+              }))
+              const { results } = await d1
+                .prepare(
+                  `SELECT s.value ->> 'id' AS id FROM json_each(?) s
+                   WHERE EXISTS (
+                     SELECT 1 FROM transactions t
+                     WHERE t.payee_id = s.value ->> 'payeeId' AND t.account_id = s.value ->> 'accountId'
+                       AND t.schedule_id IS NULL AND t.parent_id IS NULL
+                       AND ABS(t.amount - (s.value ->> 'amount')) <= s.value ->> 'tolerance'
+                       AND t.date BETWEEN s.value ->> 'from' AND s.value ->> 'to')`,
+                )
+                .bind(JSON.stringify(wanted))
+                .all<{ id: string }>()
+              return new Set(results.map((r) => r.id))
+            })
+
       const syncOne = Effect.fn("Schedules.syncOne")(function* (original: Row, today: Day, budget: { posts: number }) {
         let row = yield* readable(original)
         let posted = 0
@@ -465,7 +496,7 @@ export class Schedules extends Context.Service<
         }
         if (!row.payeeId) return { posted, matched }
         for (let i = 0; i < 12 && row.active && row.nextDate <= addDays(today, 5); i++) {
-          const tolerance = Math.max(Math.round(Math.abs(row.amount) * 0.1), 100)
+          const tolerance = matchTolerance(row.amount)
           const match = yield* db.use((_, d1) =>
             d1
               .prepare(
@@ -505,10 +536,14 @@ export class Schedules extends Context.Service<
             .where(and(eq(schedules.active, true), lte(schedules.nextDate, addDays(today, 5))))
             .orderBy(asc(schedules.nextDate)),
         )
+        // Overdue manual schedules usually have nothing to match yet: rule those out in one query
+        // instead of one per schedule.
+        const candidates = yield* withCandidate(due.filter((r) => !r.autoPost && r.payeeId))
         const budget = { posts: 0 }
         let posted = 0
         let matched = 0
         for (const row of due) {
+          if (!row.autoPost && !candidates.has(row.id)) continue
           // One broken schedule (a deleted account, a transfer to itself) must not block the others.
           const result = yield* syncOne(row, today, budget).pipe(
             Effect.catch((error) =>
