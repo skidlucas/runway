@@ -1,5 +1,5 @@
 {
-  "include": ["src/**/*.ts", "src/**/*.tsx", "tests/**/*.ts", "e2e/**/*.ts", "scripts/**/*.ts", "*.ts", "worker-configuration.d.ts"],
+  "include": ["src/**/*.ts", "src/**/*.tsx", "tests/**/*.ts", "e2e/**/*.ts", "scripts/**/*.ts", "*.ts"],
   "compilerOptions": {
     "strict": true,
     "noUncheckedIndexedAccess": true,
@@ -7,7 +7,7 @@
     "module": "ESNext",
     "moduleResolution": "Bundler",
     "lib": ["DOM", "DOM.Iterable", "ES2023"],
-    "types": ["vite/client", "node"],
+    "types": ["vite/client", "node", "@cloudflare/workers-types"],
     "isolatedModules": true,
     "resolveJsonModule": true,
     "skipLibCheck": true,

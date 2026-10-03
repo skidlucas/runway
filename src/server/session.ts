@@ -1,4 +1,4 @@
-import { env } from "cloudflare:workers"
+import { env } from "./env"
 import { useSession } from "@tanstack/react-start/server"
 
 // `key` ties the cookie to the current password: changing APP_PASSWORD signs every device out.

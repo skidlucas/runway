@@ -1,2 +1,5 @@
+# Alchemy reads .env files itself; bun loading them too would leak keys into every stage.
+env = false
+
 [install]
 exact = true

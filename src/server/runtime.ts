@@ -1,4 +1,4 @@
-import { env } from "cloudflare:workers"
+import { env } from "./env"
 import { Cause, type Effect, Exit, type Layer, ManagedRuntime, Option } from "effect"
 import { makeAppLayer } from "./app-layer"
 import { ExternalError, Invalid, NotFound } from "./errors"
@@ -9,7 +9,7 @@ type AppServices = Layer.Success<ReturnType<typeof makeAppLayer>>
 let runtime: ManagedRuntime.ManagedRuntime<AppServices, never> | undefined
 
 const getRuntime = () => {
-  runtime ??= ManagedRuntime.make(makeAppLayer(env as unknown as Cloudflare.Env))
+  runtime ??= ManagedRuntime.make(makeAppLayer(env))
   return runtime
 }
 

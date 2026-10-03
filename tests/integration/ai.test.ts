@@ -200,7 +200,7 @@ describe.runIf(live)("live providers", () => {
   let h: Harness
   beforeAll(async () => {
     const vars = Object.fromEntries(
-      readFileSync(join(process.cwd(), ".dev.vars"), "utf8")
+      readFileSync(join(process.cwd(), ".env"), "utf8")
         .split("\n")
         .map((l) => l.match(/^([A-Z_]+)=(.*)$/))
         .filter((m): m is RegExpMatchArray => m !== null)

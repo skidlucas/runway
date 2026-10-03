@@ -35,7 +35,7 @@ test("a JSON backup restores accounts, wealth and saved views", async ({ page })
 
   const path = await exportFile(page, "JSON complet")
   const buffer = await readFile(path)
-  expect(JSON.parse(buffer.toString("utf8"))).toMatchObject({ format: "runway-backup" })
+  expect(JSON.parse(buffer.toString())).toMatchObject({ format: "runway-backup" })
 
   await open(page, "/settings/data")
   await page.getByTestId("import-file").setInputFiles({ name: "sauvegarde.json", mimeType: "application/json", buffer })
