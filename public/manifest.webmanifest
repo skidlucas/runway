@@ -1,0 +1,10 @@
+{
+  "name": "runway",
+  "short_name": "runway",
+  "start_url": "/forecast",
+  "display": "standalone",
+  "background_color": "#0e0f11",
+  "theme_color": "#0e0f11",
+  "lang": "fr",
+  "icons": [{ "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml" }]
+}

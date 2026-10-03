@@ -1,0 +1,8 @@
+APP_PASSWORD=change-me
+# 32 caractères minimum, par exemple : openssl rand -hex 32
+SESSION_SECRET=
+# Facultatif : analyse rédigée des insights (AI_PROVIDER=openai|anthropic dans wrangler.jsonc)
+OPENAI_API_KEY=
+ANTHROPIC_API_KEY=
+# Facultatif : catégorisation via Jev (TypeSafe AI)
+TYPESAFE_API_KEY=

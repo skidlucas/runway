@@ -1,0 +1,257 @@
+@import "tailwindcss";
+@import "@fontsource/geist/400.css";
+@import "@fontsource/geist/500.css";
+@import "@fontsource/geist/600.css";
+@import "@fontsource/geist-mono/400.css";
+@import "@fontsource/geist-mono/500.css";
+
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+
+/* Design tokens: "Précision" direction. Dark is the reference theme. */
+:root,
+[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #0e0f11;
+  --bg-sidebar: #0b0c0d;
+  --bg-panel: #111215;
+  --bg-elevated: #16171a;
+  --bg-subtle: rgba(255, 255, 255, 0.03);
+  --bg-row-group: rgba(255, 255, 255, 0.025);
+  --bg-hover: rgba(255, 255, 255, 0.04);
+  --bg-active: rgba(255, 255, 255, 0.06);
+  --border: rgba(255, 255, 255, 0.06);
+  --border-subtle: rgba(255, 255, 255, 0.04);
+  --border-control: rgba(255, 255, 255, 0.1);
+  --border-strong: rgba(255, 255, 255, 0.16);
+  --text: #e6e7ea;
+  --text-2: #c3c6cc;
+  --text-3: #9ba0a9;
+  --text-muted: #8a8f98;
+  --text-faint: #6b707a;
+  --text-ghost: #4b4f57;
+  --accent: oklch(0.62 0.17 275);
+  --accent-hover: oklch(0.66 0.17 275);
+  --accent-soft-bg: oklch(0.62 0.17 275 / 0.14);
+  --accent-soft-border: oklch(0.62 0.17 275 / 0.35);
+  --accent-text: #b8bdf5;
+  --accent-strong-text: #ffffff;
+  --logo-dash: oklch(0.68 0.16 275);
+  --positive: oklch(0.8 0.13 155);
+  --positive-bg: oklch(0.72 0.14 155 / 0.13);
+  --negative: oklch(0.78 0.13 25);
+  --negative-bg: oklch(0.68 0.16 25 / 0.16);
+  --warning: oklch(0.82 0.12 70);
+  --warning-bg: oklch(0.75 0.14 70 / 0.12);
+  --warning-border: oklch(0.75 0.14 70 / 0.25);
+  --neutral-pill-bg: rgba(255, 255, 255, 0.05);
+  --bar-inactive: rgba(255, 255, 255, 0.14);
+  --chart-1: oklch(0.62 0.17 275);
+  --chart-2: oklch(0.72 0.14 155);
+  --chart-3: oklch(0.75 0.14 70);
+  --chart-4: oklch(0.7 0.12 220);
+  --chart-5: #8a8f98;
+  --highlight-card: #17181b;
+  --highlight-card-text: #e6e7ea;
+  --key-bg: rgba(255, 255, 255, 0.06);
+  --overlay: rgba(5, 6, 8, 0.6);
+  --shadow-modal: 0 30px 80px rgba(0, 0, 0, 0.5);
+}
+
+[data-theme="light"] {
+  color-scheme: light;
+  --bg: #fbfbfc;
+  --bg-sidebar: #f5f5f7;
+  --bg-panel: #f7f7f9;
+  --bg-elevated: #ffffff;
+  --bg-subtle: #f0f0f3;
+  --bg-row-group: #f5f5f7;
+  --bg-hover: rgba(0, 0, 0, 0.035);
+  --bg-active: rgba(0, 0, 0, 0.06);
+  --border: #ececef;
+  --border-subtle: #f0f0f3;
+  --border-control: #dcdde3;
+  --border-strong: #c9cad0;
+  --text: #17181b;
+  --text-2: #2c2e33;
+  --text-3: #55585f;
+  --text-muted: #6b707a;
+  --text-faint: #8a8f98;
+  --text-ghost: #b4b7be;
+  --accent: oklch(0.55 0.18 275);
+  --accent-hover: oklch(0.5 0.18 275);
+  --accent-soft-bg: oklch(0.62 0.17 275 / 0.1);
+  --accent-soft-border: oklch(0.62 0.17 275 / 0.3);
+  --accent-text: oklch(0.45 0.17 275);
+  --accent-strong-text: #17181b;
+  --positive: oklch(0.5 0.13 155);
+  --positive-bg: oklch(0.72 0.14 155 / 0.14);
+  --negative: oklch(0.55 0.17 25);
+  --negative-bg: oklch(0.68 0.16 25 / 0.12);
+  --warning: oklch(0.55 0.13 70);
+  --warning-bg: oklch(0.75 0.14 70 / 0.14);
+  --warning-border: oklch(0.75 0.14 70 / 0.35);
+  --neutral-pill-bg: #f0f0f3;
+  --bar-inactive: #dcdde3;
+  --highlight-card: #17181b;
+  --highlight-card-text: #e6e7ea;
+  --key-bg: #ffffff;
+  --overlay: rgba(23, 24, 27, 0.35);
+  --shadow-modal: 0 30px 80px rgba(0, 0, 0, 0.18);
+}
+
+@theme inline {
+  --font-sans: "Geist", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "Geist Mono", ui-monospace, SFMono-Regular, monospace;
+  --color-bg: var(--bg);
+  --color-sidebar: var(--bg-sidebar);
+  --color-panel: var(--bg-panel);
+  --color-elevated: var(--bg-elevated);
+  --color-subtle: var(--bg-subtle);
+  --color-row-group: var(--bg-row-group);
+  --color-hover: var(--bg-hover);
+  --color-active: var(--bg-active);
+  --color-line: var(--border);
+  --color-line-subtle: var(--border-subtle);
+  --color-line-control: var(--border-control);
+  --color-line-strong: var(--border-strong);
+  --color-fg: var(--text);
+  --color-fg-2: var(--text-2);
+  --color-fg-3: var(--text-3);
+  --color-muted: var(--text-muted);
+  --color-faint: var(--text-faint);
+  --color-ghost: var(--text-ghost);
+  --color-accent: var(--accent);
+  --color-accent-hover: var(--accent-hover);
+  --color-accent-soft: var(--accent-soft-bg);
+  --color-accent-line: var(--accent-soft-border);
+  --color-accent-fg: var(--accent-text);
+  --color-positive: var(--positive);
+  --color-positive-soft: var(--positive-bg);
+  --color-negative: var(--negative);
+  --color-negative-soft: var(--negative-bg);
+  --color-warning: var(--warning);
+  --color-warning-soft: var(--warning-bg);
+  --color-warning-line: var(--warning-border);
+  --color-pill: var(--neutral-pill-bg);
+  --color-bar: var(--bar-inactive);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --color-overlay: var(--overlay);
+  --ease-crisp: cubic-bezier(0.2, 0, 0, 1);
+}
+
+html,
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+@media (max-width: 767px) {
+  html,
+  body {
+    font-size: 15px;
+  }
+}
+
+body {
+  margin: 0;
+  overscroll-behavior-y: none;
+}
+
+.num {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+:focus-visible {
+  outline: 2px solid oklch(0.62 0.17 275 / 0.6);
+  outline-offset: 1px;
+}
+
+::selection {
+  background: oklch(0.62 0.17 275 / 0.35);
+}
+
+/* Amounts fade from the old to the new value instead of counting up. */
+@keyframes value-fade {
+  from {
+    opacity: 0.35;
+  }
+  to {
+    opacity: 1;
+  }
+}
+.value-fade {
+  animation: value-fade 150ms var(--ease-crisp);
+}
+
+@keyframes pop-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+.animate-pop {
+  animation: pop-in 200ms var(--ease-crisp);
+}
+.animate-fade {
+  animation: fade-in 180ms var(--ease-crisp);
+}
+
+@keyframes skeleton {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.55;
+  }
+}
+.skeleton {
+  background: var(--bg-hover);
+  border-radius: 4px;
+  animation: skeleton 1.4s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* Thin scrollbars that match the dark surfaces. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-strong) transparent;
+}
+
+input[type="number"]::-webkit-inner-spin-button {
+  display: none;
+}
+
+.safe-bottom {
+  padding-bottom: env(safe-area-inset-bottom);
+}

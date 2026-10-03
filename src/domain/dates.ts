@@ -1,0 +1,128 @@
+// Calendar helpers on plain ISO strings. Days are `YYYY-MM-DD`, months are `YYYY-MM`.
+// Everything is computed in UTC on purpose: the strings already carry the user's local date.
+
+export type Day = string
+export type Month = string
+
+const pad = (n: number, width = 2) => String(n).padStart(width, "0")
+
+export const isDay = (value: string): boolean => /^\d{4}-\d{2}-\d{2}$/.test(value)
+export const isMonth = (value: string): boolean => /^\d{4}-\d{2}$/.test(value)
+
+export const monthOf = (day: Day): Month => day.slice(0, 7)
+
+export const parseDay = (day: Day): { y: number; m: number; d: number } => ({
+  y: Number(day.slice(0, 4)),
+  m: Number(day.slice(5, 7)),
+  d: Number(day.slice(8, 10)),
+})
+
+export const makeDay = (y: number, m: number, d: number): Day => {
+  const date = new Date(Date.UTC(y, m - 1, d))
+  return `${pad(date.getUTCFullYear(), 4)}-${pad(date.getUTCMonth() + 1)}-${pad(date.getUTCDate())}`
+}
+
+export const addMonths = (month: Month, delta: number): Month => {
+  const y = Number(month.slice(0, 4))
+  const m = Number(month.slice(5, 7)) - 1 + delta
+  const year = y + Math.floor(m / 12)
+  const mm = ((m % 12) + 12) % 12
+  return `${pad(year, 4)}-${pad(mm + 1)}`
+}
+
+export const compareMonths = (a: Month, b: Month): number => (a < b ? -1 : a > b ? 1 : 0)
+
+/** Inclusive list of months from `from` to `to`. */
+export const monthRange = (from: Month, to: Month): Month[] => {
+  const out: Month[] = []
+  for (let m = from; m <= to; m = addMonths(m, 1)) out.push(m)
+  return out
+}
+
+export const daysInMonth = (month: Month): number => {
+  const y = Number(month.slice(0, 4))
+  const m = Number(month.slice(5, 7))
+  return new Date(Date.UTC(y, m, 0)).getUTCDate()
+}
+
+export const firstDay = (month: Month): Day => `${month}-01`
+export const lastDay = (month: Month): Day => `${month}-${pad(daysInMonth(month))}`
+
+export const addDays = (day: Day, delta: number): Day => {
+  const { y, m, d } = parseDay(day)
+  return makeDay(y, m, d + delta)
+}
+
+export const diffDays = (from: Day, to: Day): number => {
+  const a = parseDay(from)
+  const b = parseDay(to)
+  return Math.round((Date.UTC(b.y, b.m - 1, b.d) - Date.UTC(a.y, a.m - 1, a.d)) / 86_400_000)
+}
+
+/** Day of week, 0 = Monday. */
+export const weekday = (day: Day): number => {
+  const { y, m, d } = parseDay(day)
+  return (new Date(Date.UTC(y, m - 1, d)).getUTCDay() + 6) % 7
+}
+
+/** Today's date in a given IANA time zone. */
+export const todayIn = (timeZone: string, now: Date = new Date()): Day => {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(now)
+  return parts
+}
+
+// --- French labels -----------------------------------------------------------
+
+const MONTHS_LONG = [
+  "janvier",
+  "février",
+  "mars",
+  "avril",
+  "mai",
+  "juin",
+  "juillet",
+  "août",
+  "septembre",
+  "octobre",
+  "novembre",
+  "décembre",
+]
+const MONTHS_SHORT = ["janv.", "févr.", "mars", "avr.", "mai", "juin", "juil.", "août", "sept.", "oct.", "nov.", "déc."]
+
+const capitalize = (s: string) => s.charAt(0).toUpperCase() + s.slice(1)
+
+/** "Octobre 2026" */
+export const formatMonthLong = (month: Month): string =>
+  `${capitalize(MONTHS_LONG[Number(month.slice(5, 7)) - 1] ?? "")} ${month.slice(0, 4)}`
+
+/** "octobre" */
+export const formatMonthName = (month: Month): string => MONTHS_LONG[Number(month.slice(5, 7)) - 1] ?? ""
+
+/** "oct." */
+export const formatMonthShort = (month: Month): string => MONTHS_SHORT[Number(month.slice(5, 7)) - 1] ?? ""
+
+/** "2 oct." */
+export const formatDayShort = (day: Day): string => {
+  const { m, d } = parseDay(day)
+  return `${d} ${MONTHS_SHORT[m - 1]}`
+}
+
+/** "2 oct. 2026" */
+export const formatDayLong = (day: Day): string => {
+  const { y, m, d } = parseDay(day)
+  return `${d} ${MONTHS_SHORT[m - 1]} ${y}`
+}
+
+/** "Aujourd'hui", "Hier", "Demain", otherwise "2 oct.". */
+export const formatDayRelative = (day: Day, today: Day): string => {
+  const delta = diffDays(today, day)
+  if (delta === 0) return "Aujourd'hui"
+  if (delta === -1) return "Hier"
+  if (delta === 1) return "Demain"
+  return day.slice(0, 4) === today.slice(0, 4) ? formatDayShort(day) : formatDayLong(day)
+}

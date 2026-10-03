@@ -1,0 +1,97 @@
+import { createServerFn } from "@tanstack/react-start"
+import { Schema } from "effect"
+import { authMiddleware } from "../auth"
+import { runApp } from "../runtime"
+import { MarketData } from "../services/market-data"
+import { Wealth } from "../services/wealth"
+
+const v = Schema.toStandardSchemaV1
+
+const DatedAmount = Schema.NullOr(Schema.Struct({ amount: Schema.Int, date: Schema.NullOr(Schema.String) }))
+
+export const AssetSource = Schema.Union([
+  Schema.Struct({ kind: Schema.Literal("manual") }),
+  Schema.Struct({ kind: Schema.Literal("crypto"), coinId: Schema.String, quantity: Schema.Number, label: Schema.optional(Schema.String) }),
+  Schema.Struct({ kind: Schema.Literal("stock"), symbol: Schema.String, quantity: Schema.Number, label: Schema.optional(Schema.String) }),
+  Schema.Struct({
+    kind: Schema.Literal("real_estate"),
+    inseeCode: Schema.String,
+    surface: Schema.Number,
+    propertyType: Schema.Literals(["apartment", "house"]),
+    label: Schema.optional(Schema.String),
+  }),
+  Schema.Struct({
+    kind: Schema.Literal("loan"),
+    principal: Schema.Int,
+    annualRatePct: Schema.Number,
+    months: Schema.Int,
+    startDate: Schema.String,
+  }),
+])
+
+const AssetInput = Schema.Struct({
+  name: Schema.String,
+  type: Schema.Literals(["real_estate", "investment", "crypto", "vehicle", "watch", "art", "cash", "loan", "other"]),
+  subtitle: Schema.NullOr(Schema.String),
+  purchase: DatedAmount,
+  declared: DatedAmount,
+  retained: Schema.Literals(["purchase", "declared", "estimated"]),
+  source: AssetSource,
+  notes: Schema.NullOr(Schema.String),
+})
+
+export const getWealth = createServerFn({ method: "GET" })
+  .middleware([authMiddleware])
+  .handler(() => runApp(Wealth.use((w) => w.overview)))
+
+export const getAssetValuations = createServerFn({ method: "GET" })
+  .middleware([authMiddleware])
+  .validator(v(Schema.Struct({ assetId: Schema.String })))
+  .handler(({ data }) => runApp(Wealth.use((w) => w.valuations(data.assetId))))
+
+export const createAsset = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
+  .validator(v(AssetInput))
+  .handler(({ data }) => runApp(Wealth.use((w) => w.create(data))))
+
+export const updateAsset = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
+  .validator(v(Schema.Struct({ id: Schema.String, input: AssetInput })))
+  .handler(({ data }) => runApp(Wealth.use((w) => w.update(data.id, data.input))))
+
+export const deleteAsset = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
+  .validator(v(Schema.Struct({ id: Schema.String })))
+  .handler(({ data }) => runApp(Wealth.use((w) => w.remove(data.id))))
+
+export const addAssetValuation = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
+  .validator(v(Schema.Struct({ assetId: Schema.String, date: Schema.String, amount: Schema.Int })))
+  .handler(({ data }) => runApp(Wealth.use((w) => w.addValuation(data))))
+
+export const deleteAssetValuation = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
+  .validator(v(Schema.Struct({ id: Schema.String })))
+  .handler(({ data }) => runApp(Wealth.use((w) => w.removeValuation(data.id))))
+
+export const refreshValuations = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
+  .validator(v(Schema.Struct({ ids: Schema.optional(Schema.Array(Schema.String)) })))
+  .handler(({ data }) => runApp(Wealth.use((w) => w.refresh(data.ids ? { ids: data.ids } : {}))))
+
+const Query = v(Schema.Struct({ query: Schema.String }))
+
+export const searchCoins = createServerFn({ method: "GET" })
+  .middleware([authMiddleware])
+  .validator(Query)
+  .handler(({ data }) => runApp(MarketData.use((m) => m.searchCoins(data.query))))
+
+export const searchSymbols = createServerFn({ method: "GET" })
+  .middleware([authMiddleware])
+  .validator(Query)
+  .handler(({ data }) => runApp(MarketData.use((m) => m.searchSymbols(data.query))))
+
+export const searchCommunes = createServerFn({ method: "GET" })
+  .middleware([authMiddleware])
+  .validator(Query)
+  .handler(({ data }) => runApp(MarketData.use((m) => m.searchCommunes(data.query))))

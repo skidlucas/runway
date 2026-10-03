@@ -1,0 +1,480 @@
+{
+  "accounts": {
+    "Compte courant": {
+      "balance": 1157631,
+      "offBudget": false,
+      "closed": false,
+      "count": 103
+    },
+    "Livret A": {
+      "balance": 530000,
+      "offBudget": true,
+      "closed": false,
+      "count": 2
+    },
+    "Carte de crédit": {
+      "balance": -3980,
+      "offBudget": false,
+      "closed": false,
+      "count": 4
+    }
+  },
+  "months": {
+    "2026-03": {
+      "toBudget": 108000,
+      "totalIncome": 260000,
+      "totalBudgeted": -152000,
+      "categories": {
+        "Énergie": {
+          "budgeted": 6000,
+          "spent": -4000,
+          "balance": 2000
+        },
+        "Loyer": {
+          "budgeted": 85000,
+          "spent": -85000,
+          "balance": 0
+        },
+        "Santé": {
+          "budgeted": 0,
+          "spent": -4000,
+          "balance": -4000
+        },
+        "Transport": {
+          "budgeted": 8000,
+          "spent": -8368,
+          "balance": -368
+        },
+        "Courses": {
+          "budgeted": 40000,
+          "spent": -44032,
+          "balance": -4032
+        },
+        "Vieux loisir": {
+          "budgeted": 0,
+          "spent": 0,
+          "balance": 0
+        },
+        "Abonnements": {
+          "budgeted": 3000,
+          "spent": -1349,
+          "balance": 1651
+        },
+        "Restaurants": {
+          "budgeted": 10000,
+          "spent": -4792,
+          "balance": 5208
+        },
+        "Income": {
+          "budgeted": 0,
+          "spent": 0,
+          "balance": 0
+        },
+        "Starting Balances": {
+          "budgeted": 0,
+          "spent": 0,
+          "balance": 0
+        }
+      }
+    },
+    "2026-04": {
+      "toBudget": 207600,
+      "totalIncome": 260000,
+      "totalBudgeted": -152000,
+      "categories": {
+        "Énergie": {
+          "budgeted": 6000,
+          "spent": -5872,
+          "balance": 2128
+        },
+        "Loyer": {
+          "budgeted": 85000,
+          "spent": -85000,
+          "balance": 0
+        },
+        "Santé": {
+          "budgeted": 0,
+          "spent": -4000,
+          "balance": -4000
+        },
+        "Transport": {
+          "budgeted": 8000,
+          "spent": -7990,
+          "balance": 10
+        },
+        "Courses": {
+          "budgeted": 40000,
+          "spent": -45727,
+          "balance": -5727
+        },
+        "Vieux loisir": {
+          "budgeted": 0,
+          "spent": -4590,
+          "balance": -4590
+        },
+        "Abonnements": {
+          "budgeted": 3000,
+          "spent": -1349,
+          "balance": 3302
+        },
+        "Restaurants": {
+          "budgeted": 10000,
+          "spent": -3191,
+          "balance": 12017
+        },
+        "Income": {
+          "budgeted": 0,
+          "spent": 0,
+          "balance": 0
+        },
+        "Starting Balances": {
+          "budgeted": 0,
+          "spent": 0,
+          "balance": 0
+        }
+      }
+    },
+    "2026-05": {
+      "toBudget": 301283,
+      "totalIncome": 260000,
+      "totalBudgeted": -152000,
+      "categories": {
+        "Énergie": {
+          "budgeted": 6000,
+          "spent": -7749,
+          "balance": 379
+        },
+        "Loyer": {
+          "budgeted": 85000,
+          "spent": -85000,
+          "balance": 0
+        },
+        "Santé": {
+          "budgeted": 0,
+          "spent": -4000,
+          "balance": -4000
+        },
+        "Transport": {
+          "budgeted": 8000,
+          "spent": -10980,
+          "balance": -2970
+        },
+        "Courses": {
+          "budgeted": 40000,
+          "spent": -39834,
+          "balance": 166
+        },
+        "Vieux loisir": {
+          "budgeted": 0,
+          "spent": 0,
+          "balance": 0
+        },
+        "Abonnements": {
+          "budgeted": 3000,
+          "spent": -1349,
+          "balance": 4953
+        },
+        "Restaurants": {
+          "budgeted": 10000,
+          "spent": -4059,
+          "balance": 17958
+        },
+        "Income": {
+          "budgeted": 0,
+          "spent": 0,
+          "balance": 0
+        },
+        "Starting Balances": {
+          "budgeted": 0,
+          "spent": 0,
+          "balance": 0
+        }
+      }
+    },
+    "2026-06": {
+      "toBudget": 405283,
+      "totalIncome": 260000,
+      "totalBudgeted": -152000,
+      "categories": {
+        "Énergie": {
+          "budgeted": 6000,
+          "spent": -5134,
+          "balance": 1245
+        },
+        "Loyer": {
+          "budgeted": 85000,
+          "spent": -85000,
+          "balance": 0
+        },
+        "Santé": {
+          "budgeted": 0,
+          "spent": -4000,
+          "balance": -4000
+        },
+        "Transport": {
+          "budgeted": 8000,
+          "spent": -11201,
+          "balance": -6171
+        },
+        "Courses": {
+          "budgeted": 40000,
+          "spent": -37985,
+          "balance": 2181
+        },
+        "Vieux loisir": {
+          "budgeted": 0,
+          "spent": 0,
+          "balance": 0
+        },
+        "Abonnements": {
+          "budgeted": 3000,
+          "spent": -1349,
+          "balance": 6604
+        },
+        "Restaurants": {
+          "budgeted": 10000,
+          "spent": -5977,
+          "balance": 21981
+        },
+        "Income": {
+          "budgeted": 0,
+          "spent": 0,
+          "balance": 0
+        },
+        "Starting Balances": {
+          "budgeted": 0,
+          "spent": 0,
+          "balance": 0
+        }
+      }
+    },
+    "2026-07": {
+      "toBudget": 509283,
+      "totalIncome": 260000,
+      "totalBudgeted": -152000,
+      "categories": {
+        "Énergie": {
+          "budgeted": 6000,
+          "spent": -6347,
+          "balance": 898
+        },
+        "Loyer": {
+          "budgeted": 85000,
+          "spent": -85000,
+          "balance": 0
+        },
+        "Santé": {
+          "budgeted": 0,
+          "spent": -4000,
+          "balance": -4000
+        },
+        "Transport": {
+          "budgeted": 8000,
+          "spent": -10691,
+          "balance": -8862
+        },
+        "Courses": {
+          "budgeted": 40000,
+          "spent": -35479,
+          "balance": 6702
+        },
+        "Vieux loisir": {
+          "budgeted": 0,
+          "spent": 0,
+          "balance": 0
+        },
+        "Abonnements": {
+          "budgeted": 3000,
+          "spent": -1349,
+          "balance": 8255
+        },
+        "Restaurants": {
+          "budgeted": 10000,
+          "spent": -3828,
+          "balance": 28153
+        },
+        "Income": {
+          "budgeted": 0,
+          "spent": 0,
+          "balance": 0
+        },
+        "Starting Balances": {
+          "budgeted": 0,
+          "spent": 0,
+          "balance": 0
+        }
+      }
+    },
+    "2026-08": {
+      "toBudget": 613283,
+      "totalIncome": 260000,
+      "totalBudgeted": -152000,
+      "categories": {
+        "Énergie": {
+          "budgeted": 6000,
+          "spent": -7687,
+          "balance": -789
+        },
+        "Loyer": {
+          "budgeted": 85000,
+          "spent": -85000,
+          "balance": 0
+        },
+        "Santé": {
+          "budgeted": 0,
+          "spent": -4000,
+          "balance": -4000
+        },
+        "Transport": {
+          "budgeted": 8000,
+          "spent": -9404,
+          "balance": -10266
+        },
+        "Courses": {
+          "budgeted": 40000,
+          "spent": -36162,
+          "balance": 10540
+        },
+        "Vieux loisir": {
+          "budgeted": 0,
+          "spent": 0,
+          "balance": 0
+        },
+        "Abonnements": {
+          "budgeted": 3000,
+          "spent": -1349,
+          "balance": 9906
+        },
+        "Restaurants": {
+          "budgeted": 10000,
+          "spent": -2952,
+          "balance": 35201
+        },
+        "Income": {
+          "budgeted": 0,
+          "spent": 0,
+          "balance": 0
+        },
+        "Starting Balances": {
+          "budgeted": 0,
+          "spent": 0,
+          "balance": 0
+        }
+      }
+    },
+    "2026-09": {
+      "toBudget": 716494,
+      "totalIncome": 260000,
+      "totalBudgeted": -152000,
+      "categories": {
+        "Énergie": {
+          "budgeted": 6000,
+          "spent": -5496,
+          "balance": 504
+        },
+        "Loyer": {
+          "budgeted": 85000,
+          "spent": -85000,
+          "balance": 0
+        },
+        "Santé": {
+          "budgeted": 0,
+          "spent": -4000,
+          "balance": -4000
+        },
+        "Transport": {
+          "budgeted": 8000,
+          "spent": -7396,
+          "balance": -9662
+        },
+        "Courses": {
+          "budgeted": 40000,
+          "spent": -28495,
+          "balance": 22045
+        },
+        "Vieux loisir": {
+          "budgeted": 0,
+          "spent": 0,
+          "balance": 0
+        },
+        "Abonnements": {
+          "budgeted": 3000,
+          "spent": -1349,
+          "balance": 11557
+        },
+        "Restaurants": {
+          "budgeted": 10000,
+          "spent": -2836,
+          "balance": 42365
+        },
+        "Income": {
+          "budgeted": 0,
+          "spent": 0,
+          "balance": 0
+        },
+        "Starting Balances": {
+          "budgeted": 0,
+          "spent": 0,
+          "balance": 0
+        }
+      }
+    },
+    "2026-10": {
+      "toBudget": 1058494,
+      "totalIncome": 498000,
+      "totalBudgeted": -152000,
+      "categories": {
+        "Énergie": {
+          "budgeted": 6000,
+          "spent": 0,
+          "balance": 6504
+        },
+        "Loyer": {
+          "budgeted": 85000,
+          "spent": -85000,
+          "balance": 0
+        },
+        "Santé": {
+          "budgeted": 0,
+          "spent": 0,
+          "balance": 0
+        },
+        "Transport": {
+          "budgeted": 8000,
+          "spent": 0,
+          "balance": -1662
+        },
+        "Courses": {
+          "budgeted": 40000,
+          "spent": 0,
+          "balance": 62045
+        },
+        "Vieux loisir": {
+          "budgeted": 0,
+          "spent": 0,
+          "balance": 0
+        },
+        "Abonnements": {
+          "budgeted": 3000,
+          "spent": 0,
+          "balance": 14557
+        },
+        "Restaurants": {
+          "budgeted": 10000,
+          "spent": 0,
+          "balance": 52365
+        },
+        "Income": {
+          "budgeted": 0,
+          "spent": 0,
+          "balance": 0
+        },
+        "Starting Balances": {
+          "budgeted": 0,
+          "spent": 0,
+          "balance": 0
+        }
+      }
+    }
+  }
+}

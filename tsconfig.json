@@ -1,0 +1,21 @@
+{
+  "include": ["src/**/*.ts", "src/**/*.tsx", "tests/**/*.ts", "e2e/**/*.ts", "scripts/**/*.ts", "*.ts", "worker-configuration.d.ts"],
+  "compilerOptions": {
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "jsx": "react-jsx",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "lib": ["DOM", "DOM.Iterable", "ES2023"],
+    "types": ["vite/client", "node"],
+    "isolatedModules": true,
+    "resolveJsonModule": true,
+    "skipLibCheck": true,
+    "target": "ES2022",
+    "allowImportingTsExtensions": true,
+    "verbatimModuleSyntax": false,
+    "forceConsistentCasingInFileNames": true,
+    "paths": { "~/*": ["./src/*"] },
+    "noEmit": true
+  }
+}

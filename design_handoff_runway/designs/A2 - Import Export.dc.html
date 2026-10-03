@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>body{margin:0} a{color:oklch(0.68 0.16 275)} a:hover{color:oklch(0.78 0.12 275)}</style>
+</helmet>
+<div style="width:1360px; box-sizing:border-box; padding:48px 40px 56px; background:#dcdde1; font-family:'Geist',system-ui,sans-serif; color:#17181b; display:flex; flex-direction:column; gap:32px">
+  <div style="display:flex; flex-direction:column; gap:8px; max-width:760px">
+    <div style="font-family:'Geist Mono',monospace; font-size:12px; letter-spacing:0.08em; text-transform:uppercase; color:#5b5f68">Écran · Données</div>
+    <div style="font-size:36px; font-weight:600; letter-spacing:-0.03em">Import / export Actual</div>
+    <div style="font-size:15px; line-height:1.5; color:#3d4048; text-wrap:pretty">Import de l'export Actual (.zip contenant db.sqlite) avec aperçu avant écriture. Export dans le même format pour pouvoir revenir en arrière, plus CSV et JSON. Écran desktop uniquement.</div>
+  </div>
+  <div style="width:1280px; height:800px; border-radius:12px; overflow:hidden; background:#0e0f11; color:#e6e7ea; display:grid; grid-template-columns:232px 1fr; font-size:13px; box-shadow:0 30px 60px -20px rgba(0,0,0,0.35); position:relative">
+    <div style="background:#0b0c0d; border-right:1px solid rgba(255,255,255,0.06); padding:14px 10px; display:flex; flex-direction:column; gap:18px">
+      <div style="display:flex; align-items:center; gap:8px; padding:4px 8px"><div style="width:18px; height:18px; border-radius:5px; background:oklch(0.62 0.17 275)"></div><div style="font-weight:600">Réglages</div></div>
+      <div style="display:flex; flex-direction:column; gap:1px; color:#9ba0a9">
+        <div style="padding:6px 8px">Général</div>
+        <div style="padding:6px 8px">Catégories</div>
+        <div style="padding:6px 8px">Règles</div>
+        <div style="padding:6px 8px; border-radius:6px; background:rgba(255,255,255,0.06); color:#e6e7ea; font-weight:500">Données</div>
+        <div style="padding:6px 8px">Synchronisation</div>
+      </div>
+    </div>
+    <div style="display:flex; flex-direction:column; min-width:0">
+      <div style="height:48px; border-bottom:1px solid rgba(255,255,255,0.06); display:flex; align-items:center; padding:0 20px; gap:10px"><span style="color:#8a8f98">Réglages</span><span style="color:#4b4f57">/</span><span style="font-weight:500">Données</span></div>
+      <div style="padding:28px 32px; display:flex; flex-direction:column; gap:28px; max-width:760px">
+        <div style="display:flex; flex-direction:column; gap:12px">
+          <div style="display:flex; flex-direction:column; gap:4px"><span style="font-size:15px; font-weight:500">Importer</span><span style="color:#8a8f98">Depuis Actual, ou un fichier bancaire (OFX, QIF, CSV).</span></div>
+          <div style="height:120px; border:1px dashed rgba(255,255,255,0.18); border-radius:10px; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:6px; background:rgba(255,255,255,0.015)">
+            <span style="font-weight:500">Déposer un fichier ici</span><span style="color:#6b707a; font-family:'Geist Mono',monospace; font-size:12px">.zip (Actual) · .ofx · .qif · .csv</span>
+          </div>
+        </div>
+        <div style="display:flex; flex-direction:column; gap:12px">
+          <div style="display:flex; flex-direction:column; gap:4px"><span style="font-size:15px; font-weight:500">Exporter</span><span style="color:#8a8f98">Dernier export : 14 sept. 2026</span></div>
+          <div style="border:1px solid rgba(255,255,255,0.08); border-radius:10px">
+            <div style="display:flex; align-items:center; gap:12px; padding:14px 16px; border-bottom:1px solid rgba(255,255,255,0.06)"><span style="flex:1; display:flex; flex-direction:column; gap:2px"><span style="font-weight:500">Format Actual</span><span style="color:#8a8f98">Réimportable dans Actual Budget</span></span><span style="padding:5px 12px; border-radius:6px; background:#e6e7ea; color:#0e0f11; font-weight:500">Exporter .zip</span></div>
+            <div style="display:flex; align-items:center; gap:12px; padding:14px 16px; border-bottom:1px solid rgba(255,255,255,0.06)"><span style="flex:1; display:flex; flex-direction:column; gap:2px"><span style="font-weight:500">CSV</span><span style="color:#8a8f98">Opérations uniquement, une ligne par opération</span></span><span style="padding:5px 12px; border-radius:6px; border:1px solid rgba(255,255,255,0.12)">Exporter</span></div>
+            <div style="display:flex; align-items:center; gap:12px; padding:14px 16px"><span style="flex:1; display:flex; flex-direction:column; gap:2px"><span style="font-weight:500">JSON complet</span><span style="color:#8a8f98">Comptes, budget, patrimoine, règles</span></span><span style="padding:5px 12px; border-radius:6px; border:1px solid rgba(255,255,255,0.12)">Exporter</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div style="position:absolute; inset:0; background:rgba(5,6,8,0.6); display:flex; align-items:center; justify-content:center">
+      <div style="width:520px; border-radius:12px; background:#16171a; border:1px solid rgba(255,255,255,0.08); box-shadow:0 30px 80px rgba(0,0,0,0.5); display:flex; flex-direction:column">
+        <div style="padding:18px 20px 14px; display:flex; flex-direction:column; gap:4px; border-bottom:1px solid rgba(255,255,255,0.06)">
+          <span style="font-size:15px; font-weight:500">Importer « My-Finances-2f8a.zip »</span>
+          <span style="color:#8a8f98">Fichier Actual détecté · budget « Perso » · dernière modif. 30 sept.</span>
+        </div>
+        <div style="padding:8px 0">
+          <sc-for list="{{ items }}" as="i" hint-placeholder-count="6">
+            <div style="display:flex; align-items:center; gap:12px; padding:9px 20px">
+              <span style="width:16px; height:16px; border-radius:4px; background:{{ i.boxBg }}; border:{{ i.boxBorder }}; color:#fff; font-size:11px; display:flex; align-items:center; justify-content:center">{{ i.check }}</span>
+              <span style="flex:1">{{ i.label }}</span>
+              <span style="font-family:'Geist Mono',monospace; font-size:12px; color:#8a8f98">{{ i.count }}</span>
+            </div>
+          </sc-for>
+        </div>
+        <div style="margin:0 20px 16px; padding:10px 12px; border-radius:8px; background:oklch(0.75 0.14 70 / 0.1); border:1px solid oklch(0.75 0.14 70 / 0.25); color:oklch(0.85 0.1 70)">12 opérations existent déjà (même date, montant et bénéficiaire). Elles seront ignorées.</div>
+        <div style="display:flex; justify-content:space-between; align-items:center; padding:14px 20px; border-top:1px solid rgba(255,255,255,0.06)">
+          <span style="color:#6b707a">Les données actuelles seront fusionnées</span>
+          <span style="display:flex; gap:8px"><span style="padding:6px 12px; border-radius:6px; border:1px solid rgba(255,255,255,0.12)">Annuler</span><span style="padding:6px 12px; border-radius:6px; background:oklch(0.62 0.17 275); color:#fff; font-weight:500">Importer 3 800 opérations</span></span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1360,&quot;height&quot;:1150}}">
+class Component extends DCLogic {
+  renderVals() {
+    const on = { boxBg: 'oklch(0.62 0.17 275)', boxBorder: '1px solid oklch(0.62 0.17 275)', check: '✓' };
+    const off = { boxBg: 'transparent', boxBorder: '1px solid rgba(255,255,255,0.2)', check: '' };
+    return {
+      items: [
+        { label: 'Comptes', count: '4', ...on },
+        { label: 'Catégories et groupes', count: '31', ...on },
+        { label: 'Opérations', count: '3 812', ...on },
+        { label: 'Historique du budget', count: '42 mois', ...on },
+        { label: 'Bénéficiaires', count: '128', ...on },
+        { label: 'Règles', count: '24', ...off },
+      ],
+    };
+  }
+}
+</script>
+</body>
+</html>

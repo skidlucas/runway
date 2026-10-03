@@ -1,0 +1,525 @@
+import { eq } from "drizzle-orm"
+import { Context, Effect, Layer } from "effect"
+import { addMonths, type Day, diffDays, isDay, lastDay, type Month, monthOf, monthRange } from "~/domain/dates"
+import {
+  type AllocationSlice,
+  allocation,
+  type AssetType,
+  type AssetValues,
+  BUCKET_OF_TYPE,
+  type DatedAmount,
+  latestOn,
+  loanBalance,
+  type RetainedKind,
+  relativeChange,
+  retainedValueAt,
+  type WealthBucket,
+} from "~/domain/wealth"
+import { bulkInsertStatements, Db, type DbError, newId } from "../db/client"
+import { assets, assetValuations, type ValuationSource } from "../db/schema"
+import { type ExternalError, Invalid, NotFound } from "../errors"
+import { MarketData } from "./market-data"
+import { Settings } from "./settings"
+
+export type EstimateDto = {
+  amount: number
+  date: Day
+  /** Where the number comes from, shown under it ("Estimation DVF", "Cours en direct"…). */
+  label: string
+  automatic: boolean
+  unitPrice: number | null
+}
+
+export type WealthItem = {
+  id: string
+  kind: "asset" | "account"
+  name: string
+  type: AssetType
+  bucket: WealthBucket
+  subtitle: string | null
+  isLiability: boolean
+  purchase: DatedAmount | null
+  declared: DatedAmount | null
+  estimate: EstimateDto | null
+  retained: RetainedKind
+  /** The value actually used, after falling back when the retained one is missing. */
+  retainedUsed: RetainedKind | null
+  /** Signed contribution to the net worth (liabilities are negative). */
+  value: number
+  /** Retained value at each month end of `WealthOverview.months` (signed). */
+  history: number[]
+  /** A manual estimate older than six months, worth refreshing by hand. */
+  stale: boolean
+  source: ValuationSource | null
+  notes: string | null
+}
+
+export type WealthOverview = {
+  today: Day
+  months: Month[]
+  netWorth: number
+  /**
+   * Change over the history window, measured from its first non-zero month: with less than a
+   * year of data, "since March" is honest where "over 12 months" would compare against nothing.
+   */
+  change: { amount: number; ratio: number | null; since: Month } | null
+  allocation: AllocationSlice[]
+  history: number[]
+  items: WealthItem[]
+  /** Some automatic estimates are out of date: the page refreshes them in the background. */
+  needsRefresh: boolean
+}
+
+export type AssetInput = {
+  name: string
+  type: AssetType
+  subtitle: string | null
+  purchase: DatedAmount | null
+  declared: DatedAmount | null
+  retained: RetainedKind
+  source: ValuationSource
+  notes: string | null
+}
+
+export type RefreshResult = { updated: number; failures: Array<{ assetId: string; name: string; message: string }> }
+
+export type ValuationDto = { id: string; date: Day; amount: number; source: string; automatic: boolean; unitPrice: number | null }
+
+type AssetRow = typeof assets.$inferSelect
+type ValuationRow = { assetId: string; date: Day; amount: number; source: string; automatic: number; unitPrice: number | null }
+
+const HISTORY_MONTHS = 12
+const STALE_MANUAL_DAYS = 183
+const DVF_REFRESH_DAYS = 30
+
+const SOURCE_LABELS: Record<string, string> = {
+  dvf: "Estimation DVF",
+  coingecko: "Cours en direct",
+  yahoo: "Cours en direct",
+  manual: "Saisie manuelle",
+}
+
+const isAutomatic = (source: ValuationSource) => source.kind === "crypto" || source.kind === "stock" || source.kind === "real_estate"
+
+const refreshDue = (source: ValuationSource, lastAutomatic: Day | null, today: Day) =>
+  isAutomatic(source) &&
+  (lastAutomatic === null || (source.kind === "real_estate" ? diffDays(lastAutomatic, today) >= DVF_REFRESH_DAYS : lastAutomatic < today))
+
+export class Wealth extends Context.Service<
+  Wealth,
+  {
+    readonly overview: Effect.Effect<WealthOverview, DbError>
+    valuations(assetId: string): Effect.Effect<ValuationDto[], DbError>
+    create(input: AssetInput): Effect.Effect<string, DbError | Invalid>
+    update(id: string, input: AssetInput): Effect.Effect<void, DbError | Invalid | NotFound>
+    remove(id: string): Effect.Effect<void, DbError>
+    addValuation(input: { assetId: string; date: Day; amount: number }): Effect.Effect<void, DbError | Invalid | NotFound>
+    removeValuation(id: string): Effect.Effect<void, DbError>
+    /**
+     * Fetches automatic estimates (crypto, quotes, DVF) for the assets that are due, or for `ids`
+     * regardless of age. One request per source, not per asset, where the source allows it.
+     */
+    refresh(options?: { ids?: ReadonlyArray<string> }): Effect.Effect<RefreshResult, DbError>
+  }
+>()("runway/server/services/Wealth") {
+  static readonly layer = Layer.effect(
+    Wealth,
+    Effect.gen(function* () {
+      const db = yield* Db
+      const settings = yield* Settings
+      const market = yield* MarketData
+
+      const loadAssets = db.use((orm) => orm.select().from(assets).where(eq(assets.archived, false)))
+
+      // Everything in the history window, plus the last value before it (the starting point).
+      const loadValuations = (since: Day) =>
+        db.use(async (_, d1) => {
+          const { results } = await d1
+            .prepare(
+              `SELECT v.asset_id AS assetId, v.date, v.amount, v.source, v.automatic, v.unit_price AS unitPrice
+               FROM asset_valuations v
+               WHERE v.date >= ?1
+                  OR v.date = (SELECT MAX(v2.date) FROM asset_valuations v2 WHERE v2.asset_id = v.asset_id AND v2.date < ?1)
+               ORDER BY v.asset_id, v.date, v.automatic DESC`,
+            )
+            .bind(since)
+            .all<ValuationRow>()
+          return results
+        })
+
+      const lastAutomaticDates = db.use(async (_, d1) => {
+        const { results } = await d1
+          .prepare("SELECT asset_id AS assetId, MAX(date) AS date FROM asset_valuations WHERE automatic = 1 GROUP BY asset_id")
+          .all<{ assetId: string; date: Day }>()
+        return new Map(results.map((r) => [r.assetId, r.date]))
+      })
+
+      const accountRows = db.use(async (_, d1) => {
+        const [accounts, monthly] = await d1.batch([
+          d1.prepare(
+            `SELECT a.id, a.name, a.kind, a.off_budget AS offBudget, COALESCE(SUM(t.amount), 0) AS balance
+             FROM accounts a LEFT JOIN transactions t ON t.account_id = a.id AND t.parent_id IS NULL
+             WHERE a.closed = 0 GROUP BY a.id ORDER BY a.off_budget, a.sort_order, a.name COLLATE NOCASE`,
+          ),
+          d1.prepare(
+            `SELECT t.account_id AS accountId, substr(t.date, 1, 7) AS month, SUM(t.amount) AS total
+             FROM transactions t JOIN accounts a ON a.id = t.account_id
+             WHERE a.closed = 0 AND t.parent_id IS NULL GROUP BY 1, 2 ORDER BY 1, 2`,
+          ),
+        ])
+        return {
+          accounts: accounts!.results as Array<{ id: string; name: string; kind: string; offBudget: number; balance: number }>,
+          monthly: monthly!.results as Array<{ accountId: string; month: Month; total: number }>,
+        }
+      })
+
+      const overview = Effect.gen(function* () {
+        const today = yield* settings.today
+        const current = monthOf(today)
+        const months = monthRange(addMonths(current, -HISTORY_MONTHS), current)
+        // Past months are read at their last day, the current one today.
+        const days = months.map((m) => (m === current ? today : lastDay(m)))
+        const [rows, valuations, lastAuto, accountData] = yield* Effect.all(
+          [loadAssets, loadValuations(days[0]!), lastAutomaticDates, accountRows],
+          { concurrency: "unbounded" },
+        )
+
+        const byAsset = new Map<string, ValuationRow[]>()
+        for (const v of valuations) byAsset.set(v.assetId, [...(byAsset.get(v.assetId) ?? []), v])
+
+        const items: WealthItem[] = rows.map((a) => {
+          const own = byAsset.get(a.id) ?? []
+          const source = a.source
+          const estimateAt =
+            source.kind === "loan"
+              ? (day: Day): DatedAmount | null => (day < source.startDate ? null : { amount: loanBalance(source, day), date: day })
+              : (day: Day) => latestOn(own, day)
+          const values: AssetValues = {
+            purchase: a.purchaseAmount === null ? null : { amount: a.purchaseAmount, date: a.purchaseDate },
+            declared: a.declaredAmount === null ? null : { amount: a.declaredAmount, date: a.declaredDate },
+            estimateAt,
+            retained: a.retained,
+          }
+          const sign = a.isLiability ? -1 : 1
+          const now = retainedValueAt(values, today)
+          const latest = source.kind === "loan" ? null : own.at(-1)
+          const estimate: EstimateDto | null =
+            source.kind === "loan"
+              ? { amount: loanBalance(source, today), date: today, label: "Tableau d'amortissement", automatic: true, unitPrice: null }
+              : latest
+                ? {
+                    amount: latest.amount,
+                    date: latest.date,
+                    label: SOURCE_LABELS[latest.source] ?? latest.source,
+                    automatic: latest.automatic === 1,
+                    unitPrice: latest.unitPrice,
+                  }
+                : null
+          return {
+            id: a.id,
+            kind: "asset",
+            name: a.name,
+            type: a.type,
+            bucket: BUCKET_OF_TYPE[a.type],
+            subtitle: a.subtitle,
+            isLiability: a.isLiability,
+            purchase: values.purchase,
+            declared: values.declared,
+            estimate,
+            retained: a.retained,
+            retainedUsed: now?.kind ?? null,
+            value: sign * (now?.amount ?? 0),
+            history: days.map((d) => sign * (retainedValueAt(values, d)?.amount ?? 0)),
+            stale: !isAutomatic(source) && source.kind !== "loan" && estimate !== null && diffDays(estimate.date, today) > STALE_MANUAL_DAYS,
+            source,
+            notes: a.notes,
+          }
+        })
+
+        const monthlyByAccount = new Map<string, Array<{ month: Month; total: number }>>()
+        for (const r of accountData.monthly) monthlyByAccount.set(r.accountId, [...(monthlyByAccount.get(r.accountId) ?? []), r])
+        for (const account of accountData.accounts) {
+          let running = 0
+          let i = 0
+          const sums = monthlyByAccount.get(account.id) ?? []
+          const history = months.map((m) => {
+            if (m === current) return account.balance
+            while (i < sums.length && sums[i]!.month <= m) running += sums[i++]!.total
+            return running
+          })
+          const type: AssetType = account.kind === "investment" ? "investment" : "cash"
+          items.push({
+            id: account.id,
+            kind: "account",
+            name: account.name,
+            type,
+            bucket: BUCKET_OF_TYPE[type],
+            subtitle: account.offBudget ? "Compte hors budget" : "Compte du budget",
+            isLiability: false,
+            purchase: null,
+            declared: null,
+            estimate: { amount: account.balance, date: today, label: "Compte suivi", automatic: true, unitPrice: null },
+            retained: "estimated",
+            retainedUsed: "estimated",
+            value: account.balance,
+            history,
+            stale: false,
+            source: null,
+            notes: null,
+          })
+        }
+
+        const history = months.map((_, i) => items.reduce((sum, item) => sum + item.history[i]!, 0))
+        const netWorth = items.reduce((sum, item) => sum + item.value, 0)
+        const first = history.findIndex((v) => v !== 0)
+        const change =
+          first === -1 || first === history.length - 1
+            ? null
+            : { amount: netWorth - history[first]!, ratio: relativeChange(history[first]!, netWorth), since: months[first]! }
+        return {
+          today,
+          months,
+          netWorth,
+          change,
+          allocation: allocation(items),
+          history,
+          items,
+          needsRefresh: rows.some((a) => refreshDue(a.source, lastAuto.get(a.id) ?? null, today)),
+        } satisfies WealthOverview
+      })
+
+      const valuationsOf = (assetId: string) =>
+        db.use((orm) =>
+          orm
+            .select({
+              id: assetValuations.id,
+              date: assetValuations.date,
+              amount: assetValuations.amount,
+              source: assetValuations.source,
+              automatic: assetValuations.automatic,
+              unitPrice: assetValuations.unitPrice,
+            })
+            .from(assetValuations)
+            .where(eq(assetValuations.assetId, assetId))
+            .orderBy(assetValuations.date),
+        )
+
+      const validate = (input: AssetInput): Effect.Effect<AssetInput, Invalid> => {
+        const fail = (message: string) => Effect.fail(new Invalid({ message }))
+        const name = input.name.trim()
+        if (name === "") return fail("Le nom est obligatoire.")
+        for (const v of [input.purchase, input.declared]) {
+          if (v && (!Number.isInteger(v.amount) || v.amount < 0)) return fail("Les montants doivent être positifs.")
+          if (v?.date && !isDay(v.date)) return fail("Date invalide.")
+        }
+        const s = input.source
+        if (input.type === "loan" && s.kind !== "loan") return fail("Un emprunt se décrit par son capital, son taux et sa durée.")
+        if (s.kind === "loan") {
+          if (input.type !== "loan") return fail("Le tableau d'amortissement est réservé aux emprunts.")
+          if (!(s.principal > 0) || !(s.months > 0) || !(s.annualRatePct >= 0) || !isDay(s.startDate)) {
+            return fail("Renseigne le capital, le taux, la durée et la date de début de l'emprunt.")
+          }
+        }
+        if ((s.kind === "crypto" || s.kind === "stock") && !(s.quantity > 0)) return fail("La quantité doit être positive.")
+        if (s.kind === "crypto" && s.coinId.trim() === "") return fail("Choisis une crypto-monnaie.")
+        if (s.kind === "stock" && s.symbol.trim() === "") return fail("Choisis un titre coté.")
+        if (s.kind === "real_estate" && (!/^\w{5}$/.test(s.inseeCode) || !(s.surface > 0))) {
+          return fail("Choisis une commune et indique la surface.")
+        }
+        return Effect.succeed({ ...input, name, subtitle: input.subtitle?.trim() || null, notes: input.notes?.trim() || null })
+      }
+
+      const columns = (input: AssetInput) => ({
+        name: input.name,
+        type: input.type,
+        isLiability: input.type === "loan",
+        subtitle: input.subtitle,
+        purchaseAmount: input.purchase?.amount ?? null,
+        purchaseDate: input.purchase?.date ?? null,
+        declaredAmount: input.declared?.amount ?? null,
+        declaredDate: input.declared?.date ?? null,
+        retained: input.retained,
+        source: input.source,
+        notes: input.notes,
+      })
+
+      /**
+       * The first time an asset gets a market price, its past 12 month-ends are priced too, so that
+       * the net worth trend means something from day one instead of jumping on the creation day.
+       * Best effort: a source without history just leaves the past empty.
+       */
+      const backfillHistory = Effect.fn("Wealth.backfillHistory")(function* (fresh: ReadonlyArray<AssetRow>, today: Day) {
+        const rows: Array<{ assetId: string; date: Day; amount: number; source: string; unitPrice: number }> = []
+        if (fresh.length === 0) return rows
+        const current = monthOf(today)
+        const monthEnds = monthRange(addMonths(current, -HISTORY_MONTHS), addMonths(current, -1)).map(lastDay)
+        const keyOf = (s: ValuationSource) =>
+          s.kind === "crypto" ? `crypto|${s.coinId}` : s.kind === "stock" ? `stock|${s.symbol}` : s.kind === "real_estate" ? `dvf|${s.inseeCode}|${s.propertyType}` : null
+        const keys = [...new Set(fresh.flatMap((a) => keyOf(a.source) ?? []))]
+        const histories = new Map(
+          yield* Effect.forEach(
+            keys,
+            (key) => {
+              const [kind, id, type] = key.split("|") as [string, string, "apartment" | "house"]
+              const fetch = kind === "crypto" ? market.cryptoHistory(id) : kind === "stock" ? market.quoteHistory(id) : market.dvfHistory(id, type)
+              return fetch.pipe(
+                Effect.option,
+                Effect.map((o) => [key, o._tag === "Some" ? o.value : []] as const),
+              )
+            },
+            { concurrency: 4 },
+          ),
+        )
+        for (const asset of fresh) {
+          const s = asset.source
+          const key = keyOf(s)
+          if (!key || s.kind === "manual" || s.kind === "loan") continue
+          const points = histories.get(key) ?? []
+          const factor = s.kind === "real_estate" ? s.surface : s.quantity
+          const source = s.kind === "crypto" ? "coingecko" : s.kind === "stock" ? "yahoo" : "dvf"
+          for (const day of monthEnds) {
+            if (asset.purchaseDate && day < asset.purchaseDate) continue
+            const point = latestOn(points, day)
+            if (point) rows.push({ assetId: asset.id, date: day, amount: Math.round(point.price * factor * 100), source, unitPrice: point.price })
+          }
+        }
+        return rows
+      })
+
+      const refresh = Effect.fn("Wealth.refresh")(function* (options: { ids?: ReadonlyArray<string> } = {}) {
+        const today = yield* settings.today
+        const [rows, lastAuto] = yield* Effect.all([loadAssets, lastAutomaticDates])
+        const wanted = options.ids ? new Set(options.ids) : null
+        const due = rows.filter((a) =>
+          wanted ? wanted.has(a.id) && isAutomatic(a.source) : refreshDue(a.source, lastAuto.get(a.id) ?? null, today),
+        )
+        const failures: RefreshResult["failures"] = []
+        const estimates: Array<{ assetId: string; amount: number; source: string; unitPrice: number }> = []
+        const fail = (a: AssetRow, message: string) => failures.push({ assetId: a.id, name: a.name, message })
+        const errorMessage = (e: ExternalError) => e.message
+
+        const crypto = due.flatMap((a) => (a.source.kind === "crypto" ? [{ asset: a, source: a.source }] : []))
+        if (crypto.length > 0) {
+          const prices = yield* market.cryptoPrices([...new Set(crypto.map((c) => c.source.coinId))]).pipe(Effect.result)
+          for (const { asset, source } of crypto) {
+            const price = prices._tag === "Success" ? prices.success.get(source.coinId) : undefined
+            if (price === undefined) fail(asset, prices._tag === "Failure" ? errorMessage(prices.failure) : "Cours indisponible.")
+            else estimates.push({ assetId: asset.id, amount: Math.round(price * source.quantity * 100), source: "coingecko", unitPrice: price })
+          }
+        }
+
+        const stocks = due.flatMap((a) => (a.source.kind === "stock" ? [{ asset: a, source: a.source }] : []))
+        if (stocks.length > 0) {
+          const prices = yield* market.quotes([...new Set(stocks.map((s) => s.source.symbol))]).pipe(Effect.result)
+          for (const { asset, source } of stocks) {
+            const price = prices._tag === "Success" ? prices.success.get(source.symbol) : undefined
+            if (price === undefined) fail(asset, prices._tag === "Failure" ? errorMessage(prices.failure) : `Cours introuvable pour ${source.symbol}.`)
+            else estimates.push({ assetId: asset.id, amount: Math.round(price * source.quantity * 100), source: "yahoo", unitPrice: price })
+          }
+        }
+
+        const homes = due.flatMap((a) => (a.source.kind === "real_estate" ? [{ asset: a, source: a.source }] : []))
+        const dvfKeys = [...new Set(homes.map((h) => `${h.source.inseeCode}|${h.source.propertyType}`))]
+        const dvf = new Map(
+          yield* Effect.forEach(
+            dvfKeys,
+            (key) => {
+              const [insee, type] = key.split("|") as [string, "apartment" | "house"]
+              return market.dvfPricePerM2(insee, type).pipe(Effect.result, Effect.map((r) => [key, r] as const))
+            },
+            { concurrency: 4 },
+          ),
+        )
+        for (const { asset, source } of homes) {
+          const result = dvf.get(`${source.inseeCode}|${source.propertyType}`)!
+          if (result._tag === "Failure") fail(asset, errorMessage(result.failure))
+          else {
+            const price = result.success.pricePerM2
+            estimates.push({ assetId: asset.id, amount: Math.round(price * source.surface * 100), source: "dvf", unitPrice: price })
+          }
+        }
+
+        const backfill = yield* backfillHistory(
+          due.filter((a) => !lastAuto.has(a.id) && estimates.some((e) => e.assetId === a.id)),
+          today,
+        )
+
+        // One automatic estimate per asset and day: a second refresh the same day replaces it.
+        yield* db.batch(
+          estimates.flatMap((e) => [
+            db.d1.prepare("DELETE FROM asset_valuations WHERE asset_id = ? AND date = ? AND automatic = 1").bind(e.assetId, today),
+            db.d1
+              .prepare(
+                "INSERT INTO asset_valuations (id, asset_id, date, amount, source, unit_price, automatic) VALUES (?, ?, ?, ?, ?, ?, 1)",
+              )
+              .bind(newId(), e.assetId, today, e.amount, e.source, e.unitPrice),
+          ]),
+        )
+        yield* db.batch(
+          bulkInsertStatements(
+            db.d1,
+            "asset_valuations",
+            ["id", "asset_id", "date", "amount", "source", "unit_price", "automatic"],
+            backfill.map((b) => [newId(), b.assetId, b.date, b.amount, b.source, b.unitPrice, 1]),
+          ),
+        )
+        return { updated: estimates.length, failures }
+      })
+
+      const create = Effect.fn("Wealth.create")(function* (raw: AssetInput) {
+        const input = yield* validate(raw)
+        const id = newId()
+        yield* db.use((orm) => orm.insert(assets).values({ id, ...columns(input) }))
+        // Best effort: the asset exists even when the source is unreachable right now.
+        if (isAutomatic(input.source)) yield* refresh({ ids: [id] }).pipe(Effect.ignore)
+        return id
+      })
+
+      const update = Effect.fn("Wealth.update")(function* (id: string, raw: AssetInput) {
+        const input = yield* validate(raw)
+        const [before] = yield* db.use((orm) => orm.select({ source: assets.source }).from(assets).where(eq(assets.id, id)))
+        if (!before) return yield* new NotFound({ entity: "Bien", id })
+        yield* db.use((orm) => orm.update(assets).set(columns(input)).where(eq(assets.id, id)))
+        if (isAutomatic(input.source) && JSON.stringify(before.source) !== JSON.stringify(input.source)) {
+          yield* refresh({ ids: [id] }).pipe(Effect.ignore)
+        }
+      })
+
+      const remove = (id: string) => db.use((orm) => orm.delete(assets).where(eq(assets.id, id))).pipe(Effect.asVoid)
+
+      const addValuation = Effect.fn("Wealth.addValuation")(function* (input: { assetId: string; date: Day; amount: number }) {
+        if (!isDay(input.date) || !Number.isInteger(input.amount) || input.amount < 0) {
+          return yield* new Invalid({ message: "Indique une date et un montant positif." })
+        }
+        const today = yield* settings.today
+        if (input.date > today) return yield* new Invalid({ message: "Une estimation ne peut pas être datée dans le futur." })
+        const [asset] = yield* db.use((orm) => orm.select({ id: assets.id }).from(assets).where(eq(assets.id, input.assetId)))
+        if (!asset) return yield* new NotFound({ entity: "Bien", id: input.assetId })
+        yield* db.use((orm) =>
+          orm.insert(assetValuations).values({
+            id: newId(),
+            assetId: input.assetId,
+            date: input.date,
+            amount: input.amount,
+            source: "manual",
+            automatic: false,
+          }),
+        )
+      })
+
+      const removeValuation = (id: string) =>
+        db.use((orm) => orm.delete(assetValuations).where(eq(assetValuations.id, id))).pipe(Effect.asVoid)
+
+      return Wealth.of({
+        overview,
+        valuations: valuationsOf,
+        create,
+        update,
+        remove,
+        addValuation,
+        removeValuation,
+        refresh,
+      })
+    }),
+  )
+}

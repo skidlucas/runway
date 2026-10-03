@@ -1,0 +1,21 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "runway",
+  "compatibility_date": "2026-09-30",
+  "compatibility_flags": ["nodejs_compat"],
+  "main": "@tanstack/react-start/server-entry",
+  "observability": { "enabled": true },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "runway",
+      // Remplacer par l'id renvoyé par `wrangler d1 create runway` avant le premier déploiement.
+      "database_id": "00000000-0000-0000-0000-000000000000",
+      "migrations_dir": "drizzle"
+    }
+  ],
+  "vars": {
+    "AI_PROVIDER": "openai",
+    "AI_MODEL": "gpt-5.4-mini"
+  }
+}
