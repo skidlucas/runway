@@ -134,7 +134,7 @@ export class Reports extends Context.Service<
         // Same day of the month, clamped to the end of a shorter previous month.
         const previousToDate = previousSeries[Math.min(current.length, previousSeries.length) - 1] ?? 0
         return { month, previous, today, current, previousSeries, total, previousToDate } satisfies SpendingComparisonReport
-      })
+      }).pipe(Effect.withSpan("Reports.spendingComparison"))
 
       const categorySpending = Effect.fn("Reports.categorySpending")(function* (months: number) {
         const w = yield* window(months)

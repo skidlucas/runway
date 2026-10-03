@@ -360,15 +360,12 @@ export class ImportExport extends Context.Service<
             return yield* new Invalid({ message: `Ligne invalide (${r.date} · ${r.amount})` })
           }
         }
-        const known = yield* db.use(async (_, d1) => {
-          const [accs, cats, pays] = await d1.batch([
-            d1.prepare("SELECT id FROM accounts"),
-            d1.prepare("SELECT id FROM categories"),
-            d1.prepare("SELECT id FROM payees"),
-          ])
-          const ids = (r: D1Result | undefined) => new Set(((r?.results ?? []) as Array<{ id: string }>).map((x) => x.id))
-          return { accounts: ids(accs), categories: ids(cats), payees: ids(pays) }
-        })
+        const ids = (r: D1Result | undefined) => new Set(((r?.results ?? []) as Array<{ id: string }>).map((x) => x.id))
+        const known = yield* db
+          .use((_, d1) =>
+            d1.batch([d1.prepare("SELECT id FROM accounts"), d1.prepare("SELECT id FROM categories"), d1.prepare("SELECT id FROM payees")]),
+          )
+          .pipe(Effect.map(([accs, cats, pays]) => ({ accounts: ids(accs), categories: ids(cats), payees: ids(pays) })))
         const named = input.filter((r) => !r.payeeId && r.payeeName?.trim()).map((r) => r.payeeName!.trim())
         const resolved = named.length ? yield* payeesService.resolveNames(named) : new Map<string, string>()
 
@@ -386,17 +383,11 @@ export class ImportExport extends Context.Service<
         // when only one of them was already imported.
         let duplicates = 0
         const skip = new Set<string>()
-        const existingIds = yield* db.use(async (_, d1) => {
-          const out = new Set<string>()
-          for (const chunk of chunkRows(rows.map((r) => r.id))) {
-            const { results } = await d1
-              .prepare("SELECT id FROM transactions WHERE id IN (SELECT value FROM json_each(?))")
-              .bind(JSON.stringify(chunk))
-              .all<{ id: string }>()
-            for (const x of results) out.add(x.id)
-          }
-          return out
-        })
+        const lookups = chunkRows(rows.map((r) => r.id)).map((chunk) =>
+          db.d1.prepare("SELECT id FROM transactions WHERE id IN (SELECT value FROM json_each(?))").bind(JSON.stringify(chunk)),
+        )
+        const found = lookups.length === 0 ? [] : yield* db.use((_, d1) => d1.batch(lookups))
+        const existingIds = new Set(found.flatMap((r) => (r.results as Array<{ id: string }>).map((x) => x.id)))
         for (const r of rows) {
           if (existingIds.has(r.id)) {
             skip.add(r.id)
@@ -441,10 +432,9 @@ export class ImportExport extends Context.Service<
 
         if (options.applyRules) {
           const match = yield* rulesService.matcher
-          const names = yield* db.use(async (_, d1) => {
-            const { results } = await d1.prepare("SELECT id, name, transfer_account_id AS t FROM payees").all<{ id: string; name: string; t: string | null }>()
-            return new Map(results.map((p) => [p.id, p]))
-          })
+          const names = yield* db
+            .use((_, d1) => d1.prepare("SELECT id, name, transfer_account_id AS t FROM payees").all<{ id: string; name: string; t: string | null }>())
+            .pipe(Effect.map(({ results }) => new Map(results.map((p) => [p.id, p]))))
           const pending: typeof kept = []
           for (const r of kept) {
             if (r.categoryId || r.isParent || r.transferId || (r.payeeId && names.get(r.payeeId)?.t)) continue
@@ -672,7 +662,7 @@ export class ImportExport extends Context.Service<
           dashboards,
           transactionCount: count[0]?.n ?? 0,
         } satisfies ExportMeta
-      })
+      }).pipe(Effect.withSpan("ImportExport.exportMeta"))
 
       // Keyset pagination on the (date, created_at, id) index: each page is an index seek, where
       // OFFSET re-read every previous row.

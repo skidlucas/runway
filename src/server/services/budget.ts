@@ -127,7 +127,10 @@ export class Budget extends Context.Service<
         )
 
       const compute = (until: Month) =>
-        loadInputs(until).pipe(Effect.map(({ tree, inputs }) => ({ tree, months: computeBudget(inputs, until) })))
+        loadInputs(until).pipe(
+          Effect.map(({ tree, inputs }) => ({ tree, months: computeBudget(inputs, until) })),
+          Effect.withSpan("Budget.compute"),
+        )
 
       // Money entering or leaving the budget: transfers between budget accounts move nothing.
       const BUDGET_FLOWS = `FROM transactions t JOIN accounts a ON a.id = t.account_id

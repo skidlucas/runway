@@ -292,7 +292,7 @@ export class Categories extends Context.Service<
         }
         yield* settings.set("startingBalanceCategoryId", id)
         return id
-      })
+      }).pipe(Effect.withSpan("Categories.startingBalanceCategory"))
 
       const createStarterSet = Effect.gen(function* () {
         const existing = yield* db.use((orm) => orm.select({ id: categoryGroups.id }).from(categoryGroups).limit(1))
@@ -309,7 +309,7 @@ export class Categories extends Context.Service<
           ...bulkInsertStatements(db.d1, "categories", ["id", "group_id", "name", "sort_order"], catRows),
         ])
         yield* startingBalanceCategory
-      })
+      }).pipe(Effect.withSpan("Categories.createStarterSet"))
 
       return Categories.of({
         tree,

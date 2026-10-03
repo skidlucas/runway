@@ -1,5 +1,5 @@
 import { asc, eq } from "drizzle-orm"
-import { Context, Effect, Layer, Schema } from "effect"
+import { Clock, Context, Effect, Layer, Schema } from "effect"
 import { addMonths, type Day, diffDays, lastDay, type Month, monthRange, parseDay } from "~/domain/dates"
 import {
   type CategoryInsightInput,
@@ -337,6 +337,7 @@ export class Insights extends Context.Service<
             }),
           }),
         ),
+        Effect.withSpan("Insights.findings"),
       )
 
       const analysis = Effect.gen(function* () {
@@ -390,7 +391,7 @@ export class Insights extends Context.Service<
           prompt: JSON.stringify(facts),
         })
         return { ...result, month: d.month } satisfies AiAnalysis
-      })
+      }).pipe(Effect.withSpan("Insights.analysis"))
 
       const interpret = Effect.fn("Insights.interpret")(function* (question: string) {
         const trimmed = question.trim().slice(0, 300)
@@ -459,7 +460,8 @@ export class Insights extends Context.Service<
         if (!trimmed) return yield* new Invalid({ message: "Donne un nom à la vue" })
         yield* validate(config)
         const id = newId()
-        yield* db.use((orm) => orm.insert(savedViews).values({ id, name: trimmed, config, sortOrder: Date.now() }))
+        const now = yield* Clock.currentTimeMillis
+        yield* db.use((orm) => orm.insert(savedViews).values({ id, name: trimmed, config, sortOrder: now }))
         return { id, name: trimmed, config }
       })
 

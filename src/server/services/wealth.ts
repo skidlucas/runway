@@ -174,12 +174,13 @@ export class Wealth extends Context.Service<
           return results
         })
 
-      const lastAutomaticDates = db.use(async (_, d1) => {
-        const { results } = await d1
-          .prepare("SELECT asset_id AS assetId, MAX(date) AS date FROM asset_valuations WHERE automatic = 1 GROUP BY asset_id")
-          .all<{ assetId: string; date: Day }>()
-        return new Map(results.map((r) => [r.assetId, r.date]))
-      })
+      const lastAutomaticDates = db
+        .use((_, d1) =>
+          d1
+            .prepare("SELECT asset_id AS assetId, MAX(date) AS date FROM asset_valuations WHERE automatic = 1 GROUP BY asset_id")
+            .all<{ assetId: string; date: Day }>(),
+        )
+        .pipe(Effect.map(({ results }) => new Map(results.map((r) => [r.assetId, r.date]))))
 
       // Balances stop at today like the accounts pages; the monthly sums only cover the window.
       const accountRows = (since: Day, today: Day) =>
@@ -330,7 +331,7 @@ export class Wealth extends Context.Service<
           items,
           needsRefresh: rows.some((a) => refreshDue(a.source, lastAuto.get(a.id) ?? null, today)),
         } satisfies WealthOverview
-      })
+      }).pipe(Effect.withSpan("Wealth.overview"))
 
       const valuationsOf = (assetId: string) =>
         db.use((orm) =>

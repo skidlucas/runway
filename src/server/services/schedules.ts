@@ -195,7 +195,7 @@ export class Schedules extends Context.Service<
             overdue: r.active === 1 && r.next_date < today,
           }
         })
-      })
+      }).pipe(Effect.withSpan("Schedules.list"))
 
       const validate = (input: ScheduleInput) => {
         if (!isDay(input.startDate)) return Effect.fail(new Invalid({ message: "Date de début invalide" }))
@@ -307,7 +307,7 @@ export class Schedules extends Context.Service<
               d1.prepare("DELETE FROM schedules WHERE id = ?").bind(id),
             ])
           })
-          .pipe(Effect.asVoid)
+          .pipe(Effect.asVoid, Effect.withSpan("Schedules.remove"))
 
       /**
        * Moves the schedule past its current occurrence, only if nobody did it meanwhile
@@ -421,6 +421,7 @@ export class Schedules extends Context.Service<
                 }))
               }),
             ),
+            Effect.withSpan("Schedules.occurrences"),
           )
 
       // Bounds the work of one request (Workers cap queries per invocation): a long absence is
@@ -491,7 +492,7 @@ export class Schedules extends Context.Service<
           matched += result.matched
         }
         return { posted, matched }
-      })
+      }).pipe(Effect.withSpan("Schedules.sync"))
 
       const suggestions = Effect.gen(function* () {
         const today = yield* settings.today
@@ -520,16 +521,14 @@ export class Schedules extends Context.Service<
         })
         const [existing, names] = yield* Effect.all([
           db.use((orm) => orm.select({ payeeId: schedules.payeeId, accountId: schedules.accountId }).from(schedules)),
-          db.use(async (_, d1) => {
-            const [acc, cat] = await d1.batch([
-              d1.prepare("SELECT id, name FROM accounts"),
-              d1.prepare("SELECT id, name FROM categories"),
-            ])
-            return {
-              accounts: new Map(((acc?.results ?? []) as Array<{ id: string; name: string }>).map((a) => [a.id, a.name])),
-              categories: new Map(((cat?.results ?? []) as Array<{ id: string; name: string }>).map((c) => [c.id, c.name])),
-            }
-          }),
+          db
+            .use((_, d1) => d1.batch([d1.prepare("SELECT id, name FROM accounts"), d1.prepare("SELECT id, name FROM categories")]))
+            .pipe(
+              Effect.map(([acc, cat]) => ({
+                accounts: new Map(((acc?.results ?? []) as Array<{ id: string; name: string }>).map((a) => [a.id, a.name])),
+                categories: new Map(((cat?.results ?? []) as Array<{ id: string; name: string }>).map((c) => [c.id, c.name])),
+              })),
+            ),
         ], { concurrency: "unbounded" })
         const scheduled = new Set(existing.map((e) => `${e.payeeId}|${e.accountId}`))
         return detectRecurring(history, today)
@@ -540,7 +539,7 @@ export class Schedules extends Context.Service<
             accountName: names.accounts.get(c.accountId) ?? "",
             categoryName: c.categoryId ? (names.categories.get(c.categoryId) ?? null) : null,
           }))
-      })
+      }).pipe(Effect.withSpan("Schedules.suggestions"))
 
       return Schedules.of({ list, create, update, remove, skip, post, occurrences, sync, suggestions })
     }),

@@ -3,7 +3,6 @@ import { addMonths, daysInMonth, type Day, monthRange } from "~/domain/dates"
 import { bulkInsertStatements, Db, type DbError, newId } from "../db/client"
 import { Invalid, type NotFound } from "../errors"
 import { Accounts } from "./accounts"
-import { Budget } from "./budget"
 import { Categories } from "./categories"
 import { Payees } from "./payees"
 import { Schedules } from "./schedules"
@@ -45,7 +44,6 @@ export class Demo extends Context.Service<
       const categories = yield* Categories
       const accounts = yield* Accounts
       const payees = yield* Payees
-      const budget = yield* Budget
       const schedules = yield* Schedules
       const transactions = yield* Transactions
 
@@ -116,11 +114,14 @@ export class Demo extends Context.Service<
         yield* db.batch(
           bulkInsertStatements(db.d1, "transactions", ["id", "account_id", "date", "amount", "payee_id", "category_id", "cleared"], rows),
         )
-        for (const month of monthRange(firstMonth, currentMonth)) {
-          for (const [name, amount] of Object.entries(BUDGETS)) {
+        const budgetRows = monthRange(firstMonth, currentMonth).flatMap((month) =>
+          Object.entries(BUDGETS).flatMap(([name, amount]) => {
             const id = cat(name)
-            if (id) yield* budget.setAmount(month, id, amount)
-          }
+            return id ? [[month, id, amount]] : []
+          }),
+        )
+        yield* db.batch(bulkInsertStatements(db.d1, "budgets", ["month", "category_id", "amount"], budgetRows))
+        for (const month of monthRange(firstMonth, currentMonth)) {
           // Put 500 € a month aside on the Livret A.
           const date = `${month}-03`
           if (date <= today) {
@@ -157,7 +158,7 @@ export class Demo extends Context.Service<
           })
         }
         return { transactions: rows.length }
-      })
+      }).pipe(Effect.withSpan("Demo.seed"))
 
       return Demo.of({ seed })
     }),

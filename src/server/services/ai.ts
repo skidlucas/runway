@@ -1,7 +1,7 @@
 import { AnthropicClient, AnthropicLanguageModel } from "@effect/ai-anthropic"
 import { OpenAiClient, OpenAiLanguageModel } from "@effect/ai-openai"
 import { TypeSafeClient, TypeSafeDecisionModel } from "@effect/ai-typesafe"
-import { Context, type Duration, Effect, Layer, Redacted, Schema } from "effect"
+import { Clock, Context, type Duration, Effect, Layer, Redacted, Schema } from "effect"
 import { type AiError, Decision, DecisionModel, LanguageModel } from "effect/ai"
 import { FetchHttpClient } from "effect/http"
 import { Db, type DbError } from "../db/client"
@@ -113,6 +113,9 @@ export class Ai extends Context.Service<
     Effect.gen(function* () {
       const providers = yield* AiConfig
       const db = yield* Db
+      // Built once for the life of the runtime rather than on every call.
+      const languageModel = providers.languageModel ? yield* Layer.build(providers.languageModel) : null
+      const decisionModel = providers.decisionModel ? yield* Layer.build(providers.decisionModel) : null
 
       const status: AiStatus = {
         provider: providers.provider,
@@ -134,54 +137,54 @@ export class Ai extends Context.Service<
         message: "Aucune clé d'API IA configurée (OPENAI_API_KEY ou ANTHROPIC_API_KEY)",
       })
 
-      const generate = <S extends Schema.Codec<any, Record<string, any>>>(args: {
+      const generate = Effect.fn("Ai.generate")(function* <S extends Schema.Codec<any, Record<string, any>>>(args: {
         readonly schema: S
         readonly objectName: string
         readonly system: string
         readonly prompt: string
-      }) =>
-        Effect.gen(function* () {
-          const layer = providers.languageModel
-          if (!layer) return yield* notConfigured
-          const key = yield* Effect.promise(() =>
-            sha256(JSON.stringify([providers.provider, providers.model, args.objectName, args.system, args.prompt])),
-          )
-          const cached = yield* db.use((_, d1) =>
-            d1.prepare("SELECT value FROM ai_cache WHERE key = ?").bind(key).first<{ value: string }>(),
-          )
-          if (cached) {
-            // A corrupt entry is a cache miss, not an error for the next 60 days.
-            const decoded = Schema.decodeUnknownOption(Schema.fromJsonString(args.schema))(cached.value)
-            if (decoded._tag === "Some") return decoded.value as S["Type"]
-          }
-          const response = yield* LanguageModel.generateObject({
-            prompt: [
-              { role: "system", content: args.system },
-              { role: "user", content: args.prompt },
-            ],
-            schema: args.schema,
-            objectName: args.objectName,
-          }).pipe(
-            Effect.provide(layer),
-            Effect.mapError(
-              (error) => new ExternalError({ service: providers.provider, message: describeAiError(error), cause: error }),
-            ),
-            giveUpAfter("60 seconds", providers.provider),
-          )
-          const value = response.value as S["Type"]
-          const encoded = yield* Schema.encodeUnknownEffect(args.schema)(value).pipe(Effect.orElseSucceed(() => value))
-          yield* db.use((_, d1) =>
-            d1.batch([
-              d1.prepare("INSERT OR REPLACE INTO ai_cache (key, value, created_at) VALUES (?, ?, ?)").bind(key, JSON.stringify(encoded), Date.now()),
-              // Entries are keyed by content, so old ones are never read again once the data moves on.
-              d1.prepare("DELETE FROM ai_cache WHERE created_at < ?").bind(Date.now() - 60 * 24 * 3600 * 1000),
-            ]),
-          )
-          return value
-        })
+      }) {
+        const layer = languageModel
+        if (!layer) return yield* notConfigured
+        const key = yield* Effect.promise(() =>
+          sha256(JSON.stringify([providers.provider, providers.model, args.objectName, args.system, args.prompt])),
+        )
+        const cached = yield* db.use((_, d1) =>
+          d1.prepare("SELECT value FROM ai_cache WHERE key = ?").bind(key).first<{ value: string }>(),
+        )
+        if (cached) {
+          // A corrupt entry is a cache miss, not an error for the next 60 days.
+          const decoded = Schema.decodeUnknownOption(Schema.fromJsonString(args.schema))(cached.value)
+          if (decoded._tag === "Some") return decoded.value as S["Type"]
+        }
+        const response = yield* LanguageModel.generateObject({
+          prompt: [
+            { role: "system", content: args.system },
+            { role: "user", content: args.prompt },
+          ],
+          schema: args.schema,
+          objectName: args.objectName,
+        }).pipe(
+          Effect.provide(layer),
+          Effect.mapError(
+            (error) => new ExternalError({ service: providers.provider, message: describeAiError(error), cause: error }),
+          ),
+          giveUpAfter("60 seconds", providers.provider),
+        )
+        const value = response.value as S["Type"]
+        const encoded = yield* Schema.encodeUnknownEffect(args.schema)(value).pipe(Effect.orElseSucceed(() => value))
+        const now = yield* Clock.currentTimeMillis
+        yield* db.use((_, d1) =>
+          d1.batch([
+            d1.prepare("INSERT OR REPLACE INTO ai_cache (key, value, created_at) VALUES (?, ?, ?)").bind(key, JSON.stringify(encoded), now),
+            // Entries are keyed by content, so old ones are never read again once the data moves on.
+            d1.prepare("DELETE FROM ai_cache WHERE created_at < ?").bind(now - 60 * 24 * 3600 * 1000),
+          ]),
+        )
+        return value
+      })
 
       const classifyWithDecisions = <L extends string>(
-        layer: Layer.Layer<DecisionModel.DecisionModel>,
+        layer: Context.Context<DecisionModel.DecisionModel>,
         args: ClassifyArgs<L>,
       ) => {
         const Input = Schema.Record(Schema.String, Schema.NullOr(Schema.Union([Schema.String, Schema.Number])))
@@ -214,7 +217,7 @@ export class Ai extends Context.Service<
       }
 
       const classifyWithLanguageModel = <L extends string>(
-        layer: Layer.Layer<LanguageModel.LanguageModel>,
+        layer: Context.Context<LanguageModel.LanguageModel>,
         args: ClassifyArgs<L>,
       ) =>
         LanguageModel.generateObject({
@@ -246,10 +249,13 @@ export class Ai extends Context.Service<
           giveUpAfter("60 seconds", providers.provider),
         )
 
-      const classify = <L extends string>(args: ClassifyArgs<L>): Effect.Effect<Map<string, Classification<L>>, ExternalError> => {
+      const classify = <L extends string>(args: ClassifyArgs<L>): Effect.Effect<Map<string, Classification<L>>, ExternalError> =>
+        classifyWith(args).pipe(Effect.withSpan("Ai.classify", { attributes: { items: args.items.length } }))
+
+      const classifyWith = <L extends string>(args: ClassifyArgs<L>): Effect.Effect<Map<string, Classification<L>>, ExternalError> => {
         if (args.items.length === 0 || Object.keys(args.criteria).length < 2) return Effect.succeed(new Map())
-        if (providers.decisionModel) return classifyWithDecisions(providers.decisionModel, args)
-        if (providers.languageModel) return classifyWithLanguageModel(providers.languageModel, args)
+        if (decisionModel) return classifyWithDecisions(decisionModel, args)
+        if (languageModel) return classifyWithLanguageModel(languageModel, args)
         return Effect.fail(
           new ExternalError({ service: "ai", message: "Aucun modèle configuré (TYPESAFE_API_KEY, OPENAI_API_KEY ou ANTHROPIC_API_KEY)" }),
         )

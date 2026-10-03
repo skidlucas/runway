@@ -1,5 +1,5 @@
 import { asc, eq } from "drizzle-orm"
-import { Context, Effect, Layer } from "effect"
+import { Clock, Context, Effect, Layer } from "effect"
 import { Db, type DbError, newId } from "../db/client"
 import { type DashboardWidget, dashboards } from "../db/schema"
 import { Invalid, NotFound } from "../errors"
@@ -60,6 +60,7 @@ export class Dashboards extends Context.Service<
       const create = Effect.fn("Dashboards.create")(function* (name: string) {
         const trimmed = yield* cleanName(name)
         const id = newId()
+        const now = yield* Clock.currentTimeMillis
         // The default dashboard only exists virtually while nothing is stored: keep it next to the new one.
         yield* db.batch([
           db.d1
@@ -70,7 +71,7 @@ export class Dashboards extends Context.Service<
             .bind(MAIN_DASHBOARD_ID, JSON.stringify(DEFAULT_WIDGETS)),
           db.d1
             .prepare("INSERT INTO dashboards (id, name, widgets, sort_order) VALUES (?, ?, '[]', ?)")
-            .bind(id, trimmed, Date.now()),
+            .bind(id, trimmed, now),
         ])
         return { id, name: trimmed, widgets: [] } satisfies DashboardDto
       })

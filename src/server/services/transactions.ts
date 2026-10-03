@@ -1,5 +1,5 @@
 import { eq, getTableColumns } from "drizzle-orm"
-import { Context, Effect, Layer } from "effect"
+import { Clock, Context, Effect, Layer } from "effect"
 import { isDay } from "~/domain/dates"
 import { bulkInsertStatements, chunkIds, chunkRows, Db, type DbError, newId } from "../db/client"
 import { accounts, payees, transactions } from "../db/schema"
@@ -266,20 +266,21 @@ export class Transactions extends Context.Service<
 
         const parentIds = rows.filter((r) => r.isParent === 1).map((r) => r.id)
         const children: Record<string, TxRow[]> = {}
-        for (const chunk of chunkIds(parentIds)) {
-          const childRows = yield* db.use(async (_, d1) => {
-            const { results } = await d1
-              .prepare(
-                `SELECT ${SELECT_ROW}, NULL AS balance ${FROM_ROW} WHERE t.parent_id IN (${chunk.map(() => "?").join(",")}) ORDER BY t.amount`,
+        const childResults =
+          parentIds.length === 0
+            ? []
+            : yield* db.use((_, d1) =>
+                d1.batch(
+                  chunkIds(parentIds).map((chunk) =>
+                    d1
+                      .prepare(`SELECT ${SELECT_ROW}, NULL AS balance ${FROM_ROW} WHERE t.parent_id IN (${chunk.map(() => "?").join(",")}) ORDER BY t.amount`)
+                      .bind(...chunk),
+                  ),
+                ),
               )
-              .bind(...chunk)
-              .all<RawRow>()
-            return results
-          })
-          for (const child of childRows) {
-            const key = child.parentId ?? ""
-            ;(children[key] ??= []).push(toRow(child))
-          }
+        for (const child of childResults.flatMap((r) => r.results as RawRow[])) {
+          const key = child.parentId ?? ""
+          ;(children[key] ??= []).push(toRow(child))
         }
         return { rows: rows.map(toRow), total, children }
       })
@@ -403,7 +404,7 @@ export class Transactions extends Context.Service<
 
         const id = keep?.id ?? newId()
         const isParent = (input.splits?.length ?? 0) > 0
-        const createdAt = keep?.createdAt ?? new Date().toISOString()
+        const createdAt = keep?.createdAt ?? new Date(yield* Clock.currentTimeMillis).toISOString()
         const base = {
           accountId: account.id,
           date: input.date,
@@ -581,7 +582,7 @@ export class Transactions extends Context.Service<
 
       const remove = Effect.fn("Transactions.remove")(function* (ids: ReadonlyArray<string>) {
         const undoId = newId()
-        const now = Date.now()
+        const now = yield* Clock.currentTimeMillis
         // Same rows as `deleteStatements`: the transactions, their split lines, their transfer
         // mirrors and the mirrors' lines.
         const trash = chunkRows(ids).map((chunk) =>
@@ -608,10 +609,11 @@ export class Transactions extends Context.Service<
       })
 
       const restore = Effect.fn("Transactions.restore")(function* (undoId: string) {
+        const now = yield* Clock.currentTimeMillis
         const found = yield* db.use((_, d1) =>
           d1
             .prepare("SELECT COUNT(*) AS n FROM transaction_trash WHERE undo_id = ? AND deleted_at >= ?")
-            .bind(undoId, Date.now() - TRASH_KEPT_MS)
+            .bind(undoId, now - TRASH_KEPT_MS)
             .first<{ n: number }>(),
         )
         const restored = found?.n ?? 0

@@ -125,3 +125,16 @@ describe("Unexpected responses", () => {
     }
   })
 })
+
+describe("requests", () => {
+  it("abort the fetch when the effect is interrupted", async () => {
+    let received: AbortSignal | undefined
+    const hanging = ((_: RequestInfo | URL, init?: RequestInit) => {
+      received = init?.signal ?? undefined
+      return new Promise<Response>(() => {})
+    }) as typeof fetch
+    const market = makeLiveMarketData(hanging)
+    await run(market.cryptoPrices(["bitcoin"]).pipe(Effect.timeoutOption("20 millis")))
+    expect(received?.aborted).toBe(true)
+  })
+})

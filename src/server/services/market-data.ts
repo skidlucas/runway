@@ -45,12 +45,13 @@ const MIN_DVF_SALES = 5
 export const makeLiveMarketData = (fetchFn: typeof fetch): MarketData["Service"] => {
   // Responses are decoded against the fields we read: an API that changes shape yields an
   // ExternalError (the asset keeps its last value), never a crash.
-  const getJson = <S extends Schema.Top>(service: string, url: string, schema: S) =>
+  const getJson = <T>(service: string, url: string, schema: Schema.Decoder<T>): Effect.Effect<T, ExternalError> =>
     Effect.tryPromise({
-      try: async () => {
+      // Interrupting the effect (a caller's timeout, a cancelled request) aborts the fetch too.
+      try: async (signal) => {
         const response = await fetchFn(url, {
           headers: { accept: "application/json", "user-agent": "Mozilla/5.0 (compatible; runway-budget)" },
-          signal: AbortSignal.timeout(10_000),
+          signal: AbortSignal.any([signal, AbortSignal.timeout(10_000)]),
         })
         if (!response.ok) throw new Error(`HTTP ${response.status}`)
         return (await response.json()) as unknown
@@ -62,7 +63,8 @@ export const makeLiveMarketData = (fetchFn: typeof fetch): MarketData["Service"]
       Effect.mapError((error) =>
         error instanceof ExternalError ? error : new ExternalError({ service, message: `${service} : réponse inattendue`, cause: error }),
       ),
-    ) as Effect.Effect<S["Type"], ExternalError>
+      Effect.withSpan("MarketData.getJson", { attributes: { service, url } }),
+    )
 
   const cryptoPrices = (ids: ReadonlyArray<string>) =>
     ids.length === 0

@@ -65,8 +65,8 @@ export class Accounts extends Context.Service<
 
       const list = Effect.gen(function* () {
         const today = yield* settings.today
-        return yield* db.use(async (_, d1) => {
-          const { results } = await d1
+        const rows = yield* db.use((_, d1) =>
+          d1
             .prepare(
               `SELECT a.id, a.name, a.kind, a.off_budget AS offBudget, a.closed, a.in_forecast AS inForecast,
                       a.sort_order AS sortOrder, a.last_reconciled_at AS lastReconciledAt,
@@ -80,15 +80,15 @@ export class Accounts extends Context.Service<
                ORDER BY a.closed, a.off_budget, a.sort_order, a.name COLLATE NOCASE`,
             )
             .bind(today)
-            .all<Omit<AccountDto, "offBudget" | "closed" | "inForecast"> & { offBudget: number; closed: number; inForecast: number }>()
-          return results.map((r) => ({
-            ...r,
-            offBudget: r.offBudget === 1,
-            closed: r.closed === 1,
-            inForecast: r.inForecast === 1,
-          }))
-        })
-      })
+            .all<Omit<AccountDto, "offBudget" | "closed" | "inForecast"> & { offBudget: number; closed: number; inForecast: number }>(),
+        )
+        return rows.results.map((r) => ({
+          ...r,
+          offBudget: r.offBudget === 1,
+          closed: r.closed === 1,
+          inForecast: r.inForecast === 1,
+        }))
+      }).pipe(Effect.withSpan("Accounts.list"))
 
       const find = (id: string) =>
         db

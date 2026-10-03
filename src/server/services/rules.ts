@@ -218,7 +218,7 @@ export class Rules extends Context.Service<
           }))
           .sort((a, b) => b.uncategorized - a.uncategorized || b.matching - a.matching)
           .slice(0, 50)
-      })
+      }).pipe(Effect.withSpan("Rules.suggestions"))
 
       return Rules.of({ list, create, update, remove, reorder, matcher, applyToUncategorized, suggestions })
     }),
