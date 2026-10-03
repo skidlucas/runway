@@ -23,7 +23,7 @@ test("the tab bar reaches every section without horizontal scroll", async ({ pag
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390)
 })
 
-test("the budget shows one to-budget chip and category cards", async ({ page }) => {
+test("the budget shows one to-budget chip and category rows", async ({ page }) => {
   await open(page, "/budget")
   await expect(visible(page.getByTestId("to-budget"))).toHaveCount(1)
   await expect(page.getByRole("main").getByText("Courses", { exact: true })).toBeVisible()

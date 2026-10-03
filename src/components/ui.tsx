@@ -612,7 +612,7 @@ export const Money = ({
   </span>
 )
 
-export const AmountPill = ({ value, className }: { value: number; className?: string }) => (
+export const AmountPill = ({ value, currency, className }: { value: number; currency?: boolean; className?: string }) => (
   <span
     key={value}
     className={cx(
@@ -623,7 +623,7 @@ export const AmountPill = ({ value, className }: { value: number; className?: st
       className,
     )}
   >
-    {formatMoney(value)}
+    {formatMoney(value, { currency })}
   </span>
 )
 

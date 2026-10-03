@@ -789,16 +789,26 @@ function MoveMoneyDialog({
 
 // --- Mobile list -----------------------------------------------------------------
 
+const MOBILE_GRID = "grid grid-cols-[minmax(0,1fr)_68px_68px_84px] gap-x-2 px-4 [&_.num]:whitespace-nowrap"
+
 function MobileBudget({ budget, month, showHidden }: { budget: BudgetMonthDto; month: string; showHidden: boolean }) {
   const [editing, setEditing] = React.useState<BudgetCategoryRow | null>(null)
   const groups = budget.groups.filter((g) => !g.isIncome && (showHidden || !g.hidden))
   return (
     <div className="flex flex-col">
+      <div className={cx(MOBILE_GRID, "sticky top-0 z-10 border-b border-line bg-bg py-2 text-[11px] text-muted")}>
+        <span>Catégorie</span>
+        <span className="text-right">Budgété</span>
+        <span className="text-right">Dépensé</span>
+        <span className="text-right">Disponible</span>
+      </div>
       {groups.map((g) => (
-        <section key={g.id} className="mt-3">
-          <div className="flex justify-between px-5 py-1.5 text-[13px] text-muted">
-            <span>{g.name}</span>
-            <span className="num">{formatMoney(g.available)}</span>
+        <section key={g.id}>
+          <div className={cx(MOBILE_GRID, "items-center border-b border-line-subtle bg-row-group py-2 text-[13px] font-medium text-fg-2")}>
+            <span className="truncate">{g.name}</span>
+            <span className="num text-right text-[12px]">{formatMoney(g.budgeted, { currency: false })}</span>
+            <span className="num text-right text-[12px] text-muted">{formatMoney(-g.spent, { currency: false })}</span>
+            <span className="num text-right text-[12px]">{formatMoney(g.available, { currency: false })}</span>
           </div>
           {g.categories
             .filter((c) => showHidden || !c.hidden)
@@ -807,17 +817,16 @@ function MobileBudget({ budget, month, showHidden }: { budget: BudgetMonthDto; m
                 key={c.id}
                 type="button"
                 onClick={() => setEditing(c)}
-                className="flex w-full flex-col gap-1.5 border-b border-line-subtle px-5 py-3 text-left"
+                className={cx(MOBILE_GRID, "min-h-12 w-full items-center border-b border-line-subtle py-2 text-left")}
               >
-                <span className="flex w-full items-center justify-between gap-3">
-                  <span className="flex min-w-0 items-center gap-1.5">
-                    <span className="truncate">{c.name}</span>
-                    <StatusIcon status={statusOf(c)} size={13} />
-                  </span>
-                  <AmountPill value={c.available} className="text-[13px]" />
+                <span className="flex min-w-0 items-center gap-1.5">
+                  <span className="line-clamp-2 break-words text-[14px] leading-tight">{c.name}</span>
+                  <StatusIcon status={statusOf(c)} size={13} />
                 </span>
-                <span className="num text-[12px] text-faint">
-                  Budgété {formatMoney(c.budgeted)} · dépensé {formatMoney(c.spent)}
+                <span className="num text-right text-[12px]">{formatMoney(c.budgeted, { currency: false })}</span>
+                <span className="num text-right text-[12px] text-muted">{formatMoney(-c.spent, { currency: false })}</span>
+                <span className="flex justify-end">
+                  <AmountPill value={c.available} currency={false} />
                 </span>
               </button>
             ))}
