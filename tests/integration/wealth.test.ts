@@ -1,4 +1,4 @@
-import { Effect } from "effect"
+import { Effect, Result } from "effect"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import { addDays, addMonths, lastDay, monthRange, todayIn } from "~/domain/dates"
 import { ExternalError } from "~/server/errors"
@@ -36,7 +36,7 @@ describe("Wealth", () => {
         },
         quotes: (symbols) => {
           calls.quotes++
-          return Effect.succeed(new Map(symbols.filter((s) => s === "CW8.PA").map((s) => [s, 500.5])))
+          return Effect.succeed(new Map(symbols.filter((s) => s === "CW8.PA").map((s) => [s, Result.succeed(500.5)])))
         },
         // Daily prices for the last year: 40 000 € a year ago, +100 € per day.
         cryptoHistory: () => {

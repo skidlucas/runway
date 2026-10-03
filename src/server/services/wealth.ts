@@ -440,7 +440,7 @@ export class Wealth extends Context.Service<
         const [cryptoPrices, stockPrices, dvfEntries] = yield* Effect.all(
           [
             crypto.length ? market.cryptoPrices([...new Set(crypto.map((c) => c.source.coinId))]).pipe(Effect.result) : none,
-            stocks.length ? market.quotes([...new Set(stocks.map((s) => s.source.symbol))]).pipe(Effect.result) : none,
+            market.quotes([...new Set(stocks.map((s) => s.source.symbol))]),
             Effect.forEach(
               dvfKeys,
               (key) => {
@@ -459,10 +459,13 @@ export class Wealth extends Context.Service<
           else estimates.push({ assetId: asset.id, amount: Math.round(price * source.quantity * 100), source: "coingecko", unitPrice: price })
         }
         for (const { asset, source } of stocks) {
-          const price = stockPrices._tag === "Success" ? stockPrices.success.get(source.symbol) : undefined
-          if (price === undefined) {
-            fail(asset, stockPrices._tag === "Failure" ? errorMessage(stockPrices.failure) : `Cours introuvable pour ${source.symbol}.`)
-          } else estimates.push({ assetId: asset.id, amount: Math.round(price * source.quantity * 100), source: "yahoo", unitPrice: price })
+          const price = stockPrices.get(source.symbol)
+          if (price === undefined || price._tag === "Failure") {
+            fail(asset, price ? errorMessage(price.failure) : `Cours introuvable pour ${source.symbol}.`)
+          } else {
+            const unitPrice = price.success
+            estimates.push({ assetId: asset.id, amount: Math.round(unitPrice * source.quantity * 100), source: "yahoo", unitPrice })
+          }
         }
         const dvf = new Map(dvfEntries)
         for (const { asset, source } of homes) {

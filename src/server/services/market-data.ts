@@ -1,4 +1,4 @@
-import { Context, Effect, Layer, Schema } from "effect"
+import { Context, Effect, Layer, Result, Schema } from "effect"
 import { addMonths, type Day, lastDay, type Month } from "~/domain/dates"
 import { ExternalError } from "../errors"
 
@@ -23,7 +23,8 @@ export class MarketData extends Context.Service<
     /** Euros per unit, by CoinGecko id. Unknown ids are missing from the map. */
     cryptoPrices(ids: ReadonlyArray<string>): Effect.Effect<Map<string, number>, ExternalError>
     /** Euros per unit (converted from the quote currency), by Yahoo symbol. */
-    quotes(symbols: ReadonlyArray<string>): Effect.Effect<Map<string, number>, ExternalError>
+    /** Euro price of each symbol, or why it could not be priced (unknown symbol, Yahoo down, no exchange rate). */
+    quotes(symbols: ReadonlyArray<string>): Effect.Effect<Map<string, Result.Result<number, ExternalError>>>
     dvfPricePerM2(inseeCode: string, propertyType: "apartment" | "house"): Effect.Effect<DvfPrice, ExternalError>
     /** Daily euro prices over the last year, oldest first. */
     cryptoHistory(id: string): Effect.Effect<PricePoint[], ExternalError>
@@ -97,26 +98,30 @@ export const makeLiveMarketData = (fetchFn: typeof fetch): MarketData["Service"]
   // London quotes come in pence ("GBp").
   const currencyOf = (raw: string) => (raw === "GBp" ? { currency: "GBP", factor: 0.01 } : { currency: raw.toUpperCase(), factor: 1 })
 
-  /** Euro value of one unit of each currency; missing when Yahoo has no rate. */
+  /** Euro value of one unit of each currency. */
   const euroRates = (currencies: ReadonlyArray<string>) =>
     Effect.forEach(
       [...new Set(currencies)].filter((c) => c !== "EUR"),
-      (c) => rawQuote(`${c}EUR=X`).pipe(Effect.map((fx) => [c, fx.regularMarketPrice] as const), Effect.option),
+      (c) => rawQuote(`${c}EUR=X`).pipe(Effect.map((fx) => fx.regularMarketPrice), Effect.result, Effect.map((r) => [c, r] as const)),
       { concurrency: 4 },
-    ).pipe(Effect.map((found) => new Map([["EUR", 1], ...found.flatMap((f) => (f._tag === "Some" ? [f.value] : []))])))
+    ).pipe(Effect.map((found) => new Map<string, Result.Result<number, ExternalError>>([["EUR", Result.succeed(1)], ...found])))
 
   const quotes = Effect.fn("MarketData.quotes")(function* (symbols: ReadonlyArray<string>) {
-    const metas = (yield* Effect.forEach(symbols, (s) => rawQuote(s).pipe(Effect.map((m) => [s, m] as const), Effect.option), {
+    const metas = yield* Effect.forEach(symbols, (s) => rawQuote(s).pipe(Effect.result, Effect.map((m) => [s, m] as const)), {
       concurrency: 4,
-    })).flatMap((m) => (m._tag === "Some" ? [m.value] : []))
-    const rates = yield* euroRates(metas.map(([, meta]) => currencyOf(meta.currency).currency))
-    const result = new Map<string, number>()
-    for (const [symbol, meta] of metas) {
-      const { currency, factor } = currencyOf(meta.currency)
-      const rate = rates.get(currency)
-      if (rate !== undefined) result.set(symbol, meta.regularMarketPrice * factor * rate)
-    }
-    return result
+    })
+    const rates = yield* euroRates(metas.flatMap(([, m]) => (m._tag === "Success" ? [currencyOf(m.success.currency).currency] : [])))
+    return new Map(
+      metas.map(([symbol, meta]): [string, Result.Result<number, ExternalError>] => {
+        if (meta._tag === "Failure") return [symbol, Result.fail(meta.failure)]
+        const { currency, factor } = currencyOf(meta.success.currency)
+        const rate = rates.get(currency)
+        if (rate === undefined || rate._tag === "Failure") {
+          return [symbol, Result.fail(new ExternalError({ service: "Yahoo Finance", message: `Taux de change ${currency} → EUR indisponible` }))]
+        }
+        return [symbol, Result.succeed(meta.success.regularMarketPrice * factor * rate.success)]
+      }),
+    )
   })
 
   const DvfPage = Schema.Struct({
@@ -204,8 +209,9 @@ export const makeLiveMarketData = (fetchFn: typeof fetch): MarketData["Service"]
     if (!result?.timestamp) return []
     // Past prices are converted at today's rate: close enough for a 12-month trend line.
     const { currency, factor } = currencyOf(result.meta.currency)
-    const rate = (yield* euroRates([currency])).get(currency)
-    if (rate === undefined) return []
+    const found = (yield* euroRates([currency])).get(currency)
+    if (found === undefined || found._tag === "Failure") return []
+    const rate = found.success
     const timestamps = result.timestamp
     return timestamps.flatMap((t, i) => {
       const close = result.indicators.quote[0]?.close[i]

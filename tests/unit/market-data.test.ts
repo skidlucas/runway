@@ -1,4 +1,4 @@
-import { Effect } from "effect"
+import { Effect, Result } from "effect"
 import { describe, expect, it } from "vitest"
 import type { ExternalError } from "~/server/errors"
 import { makeLiveMarketData } from "~/server/services/market-data"
@@ -75,12 +75,13 @@ describe("quotes", () => {
     ]),
   )
 
-  it("converts to euros and skips unknown symbols", async () => {
-    const prices = await run(market.quotes(["CW8.PA", "AAPL", "VUSA.L", "NOPE"]))
-    expect(prices.get("CW8.PA")).toBe(500)
-    expect(prices.get("AAPL")).toBeCloseTo(180)
-    expect(prices.get("VUSA.L")).toBeCloseTo(96)
-    expect(prices.has("NOPE")).toBe(false)
+  it("converts to euros and says why a symbol has no price", async () => {
+    const quotes = await run(market.quotes(["CW8.PA", "AAPL", "VUSA.L", "NOPE"]))
+    const price = (symbol: string) => Result.getOrThrow(quotes.get(symbol)!)
+    expect(price("CW8.PA")).toBe(500)
+    expect(price("AAPL")).toBeCloseTo(180)
+    expect(price("VUSA.L")).toBeCloseTo(96)
+    expect(quotes.get("NOPE")).toMatchObject({ _tag: "Failure", failure: { _tag: "ExternalError" } })
   })
 
   it("dates monthly closes at the month end, in euros", async () => {
