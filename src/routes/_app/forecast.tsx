@@ -1,3 +1,8 @@
+import { barY, defineChart, ruleY } from "@tanstack/charts"
+import { Chart } from "@tanstack/charts/react"
+import { scaleBand } from "@tanstack/charts/scales/band"
+import { scaleLinear } from "@tanstack/charts/scales/linear"
+import { tooltip } from "@tanstack/charts/tooltip"
 import { useQuery } from "@tanstack/react-query"
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router"
 import * as React from "react"
@@ -183,57 +188,53 @@ function ProjectionHint({ f }: { f: ForecastDto }) {
   return <>{parts.length ? parts.join(" · ") : f.withBudget ? "aucune échéance hors budget" : "aucune échéance"}</>
 }
 
+type ForecastDay = ForecastDto["days"][number]
+
+const dayColor = (d: ForecastDay) =>
+  d.balance < 0
+    ? "var(--negative)"
+    : d.kind !== "future"
+      ? "var(--text-2)"
+      : d.hasSchedule
+        ? "oklch(0.62 0.17 275 / 0.85)"
+        : "oklch(0.62 0.17 275 / 0.45)"
+
 function DailyChart({ f }: { f: ForecastDto }) {
-  const [hover, setHover] = React.useState<number | null>(null)
-  const values = f.days.map((d) => d.balance)
-  const max = Math.max(...values)
-  const min = Math.min(...values)
-  // While the balance stays positive, bars grow from a floor under the lowest one so day-to-day
-  // variations stay readable. Once it goes below zero, zero is the axis and overdrafts hang under it.
-  const base = min < 0 ? 0 : Math.max(0, min - Math.max((max - min) * 0.6, Math.abs(max) * 0.02))
-  const lo = Math.min(min, base)
-  const span = Math.max(1, Math.max(max, base) - lo)
-  const pct = (v: number) => ((v - lo) / span) * 100
+  const definition = React.useMemo(() => {
+    const values = f.days.map((d) => d.balance)
+    const max = Math.max(...values)
+    const min = Math.min(...values)
+    // While the balance stays positive, bars grow from a floor under the lowest one so day-to-day
+    // variations stay readable. Once it goes below zero, zero is the axis and overdrafts hang under it.
+    const base = min < 0 ? 0 : Math.max(0, min - Math.max((max - min) * 0.6, Math.abs(max) * 0.02))
+    return defineChart({
+      marks: [
+        ruleY(min < 0 ? [0] : [], { stroke: "var(--border-strong)", strokeWidth: 1 }),
+        barY(f.days, { x: "date", y1: base, y2: "balance", fill: dayColor, radius: { end: 2 } }),
+      ],
+      scales: {
+        x: { scale: () => scaleBand<string>().padding(0.15), axis: { line: { stroke: "var(--border-control)" }, ticks: false } },
+        y: { scale: () => scaleLinear().domain([Math.min(min, base), Math.max(max, base)]), axis: false },
+      },
+      margin: 0,
+      tooltip: {
+        use: tooltip,
+        sticky: false,
+        content: (points) => {
+          const d = points[0]?.datum as ForecastDay | undefined
+          if (!d) return { rows: [] }
+          return {
+            title: formatDayShort(d.date),
+            rows: [{ label: d.kind === "future" ? "projeté" : "réel", value: formatMoney(d.balance), color: dayColor(d) }],
+          }
+        },
+      },
+    })
+  }, [f.days])
   const todayIndex = f.days.findIndex((d) => d.kind === "today")
-  const hovered = hover !== null ? f.days[hover] : null
   return (
     <div className="px-5 pt-3.5">
-      <div className="relative h-[200px] border-b border-line-control" onMouseLeave={() => setHover(null)}>
-        {min < 0 ? <div className="absolute inset-x-0 h-px bg-[var(--border-strong)]" style={{ bottom: `${pct(0)}%` }} aria-hidden /> : null}
-        <div className="grid h-full gap-[3px]" style={{ gridTemplateColumns: `repeat(${f.days.length}, minmax(0, 1fr))` }}>
-          {f.days.map((d, i) => {
-            const color =
-              d.kind !== "future"
-                ? "var(--text-2)"
-                : d.hasSchedule
-                  ? "oklch(0.62 0.17 275 / 0.85)"
-                  : "oklch(0.62 0.17 275 / 0.45)"
-            return (
-              <div key={d.date} className="relative h-full" onMouseEnter={() => setHover(i)}>
-                <div
-                  className={cx(
-                    "absolute inset-x-0 transition-opacity",
-                    d.balance < base ? "rounded-b-[2px]" : "rounded-t-[2px]",
-                    hover !== null && hover !== i && "opacity-60",
-                  )}
-                  style={{
-                    bottom: `${pct(Math.min(d.balance, base))}%`,
-                    height: `max(1px, ${Math.abs(pct(d.balance) - pct(base))}%)`,
-                    background: d.balance < 0 ? "var(--negative)" : color,
-                  }}
-                />
-              </div>
-            )
-          })}
-        </div>
-        {hovered ? (
-          <div className="pointer-events-none absolute right-0 top-0 rounded-[6px] border border-line-control bg-elevated px-2.5 py-1.5 text-[12px]">
-            <span className="text-muted">{formatDayShort(hovered.date)} · </span>
-            <span className="num">{formatMoney(hovered.balance)}</span>
-            <span className="text-faint"> {hovered.kind === "future" ? "projeté" : "réel"}</span>
-          </div>
-        ) : null}
-      </div>
+      <Chart definition={definition} height={200} initialWidth={720} ariaLabel="Solde jour par jour" />
       <div className="num mt-1.5 flex justify-between text-[11px] text-faint">
         <span>{formatDayShort(f.days[0]?.date ?? "")}</span>
         {todayIndex >= 0 ? <span>aujourd'hui · {parseDay(f.today).d}</span> : null}

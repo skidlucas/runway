@@ -1,6 +1,10 @@
+import { areaY, defineChart, lineY, ruleY } from "@tanstack/charts"
+import { crosshair } from "@tanstack/charts/crosshair"
+import { Chart } from "@tanstack/charts/react"
+import { scaleLinear } from "@tanstack/charts/scales/linear"
+import { tooltip } from "@tanstack/charts/tooltip"
 import * as React from "react"
 import { formatMoney } from "~/domain/money"
-import { cx } from "./ui"
 
 export type LineSeries = {
   label: string
@@ -11,93 +15,80 @@ export type LineSeries = {
   dashed?: boolean
 }
 
-/**
- * Lines over evenly spaced slots, drawn in a stretched 100×100 SVG so it fills any card width.
- * Hovering a slot shows every series' value there.
- */
+type Slot = { slot: number; value: number; series: string }
+
 export function LineChart({
   series,
   labels,
   height = 150,
   className,
+  ariaLabel,
 }: {
   series: ReadonlyArray<LineSeries>
   /** One label per slot: the number of slots, and what the tooltip and the axis show. */
   labels: ReadonlyArray<string>
   height?: number
   className?: string
+  ariaLabel: string
 }) {
-  const [hover, setHover] = React.useState<number | null>(null)
-  const slots = labels.length
-  // The scale hugs the values so a variation stays visible; areas fill down to the bottom edge.
-  const all = series.flatMap((s) => s.values)
-  const hi = Math.max(...all, 0)
-  const lo = Math.min(...all, hi)
-  const pad = (hi - lo) * 0.08 || 1
-  const top = hi + pad
-  const bottom = lo - pad
-  const x = (i: number) => (slots <= 1 ? 50 : (i / (slots - 1)) * 100)
-  const y = (v: number) => 100 - ((v - bottom) / (top - bottom)) * 100
-  const points = (values: ReadonlyArray<number>) => values.map((v, i) => `${x(i)},${y(v)}`).join(" ")
+  const definition = React.useMemo(() => {
+    const rows = series.map((s) => s.values.map((value, slot): Slot => ({ slot, value, series: s.label })))
+    // The scale hugs the values so a variation stays visible; areas fill down to the bottom edge.
+    const all = series.flatMap((s) => s.values)
+    const hi = Math.max(...all, 0)
+    const lo = Math.min(...all, hi)
+    const pad = (hi - lo) * 0.08 || 1
+    const bottom = lo - pad
+    return defineChart({
+      marks: [
+        ruleY(lo < 0 && hi > 0 ? [0] : [], { stroke: "var(--border-control)", strokeWidth: 1 }),
+        ...series.flatMap((s, i) =>
+          s.area ? [areaY(rows[i] ?? [], { x: "slot", y1: bottom, y2: "value", fill: s.color, fillOpacity: 0.12 })] : [],
+        ),
+        ...series.map((s, i) =>
+          lineY(rows[i] ?? [], {
+            x: "slot",
+            y: "value",
+            stroke: s.color,
+            strokeWidth: 1.75,
+            strokeDasharray: s.dashed ? "4 3" : undefined,
+          }),
+        ),
+        crosshair({ y: false, stroke: "var(--border-strong)", strokeWidth: 1 }),
+      ],
+      scales: {
+        x: { scale: () => scaleLinear().domain([0, Math.max(1, labels.length - 1)]) },
+        y: { scale: () => scaleLinear().domain([bottom, hi + pad]) },
+      },
+      guides: false,
+      margin: 0,
+      focus: "group-x",
+      maxFocusDistance: Number.POSITIVE_INFINITY,
+      tooltip: {
+        use: tooltip,
+        sticky: false,
+        anchor: { x: "value", y: "plot-top" },
+        placement: ["right", "left"],
+        content: (points) => {
+          // The area and the line of a series share their rows, so each series is focused twice.
+          const bySeries = new Map(points.map((p) => [(p.datum as Slot).series, p.datum as Slot]))
+          const slot = points[0] ? (points[0].datum as Slot).slot : 0
+          return {
+            title: labels[slot] ?? "",
+            rows: series.flatMap((s) => {
+              const row = bySeries.get(s.label)
+              return row ? [{ label: s.label, value: formatMoney(row.value), color: s.color }] : []
+            }),
+          }
+        },
+      },
+    })
+  }, [series, labels])
 
+  const slots = labels.length
   return (
     <div className={className}>
-      <div className="relative" style={{ height }} onMouseLeave={() => setHover(null)}>
-        <svg className="absolute inset-0 h-full w-full overflow-visible" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden>
-          {lo < 0 && hi > 0 ? (
-            <line x1={0} x2={100} y1={y(0)} y2={y(0)} stroke="var(--border-control)" strokeWidth={1} vectorEffect="non-scaling-stroke" />
-          ) : null}
-          {series.map((s) =>
-            s.area && s.values.length > 1 ? (
-              <polygon
-                key={`${s.label}-area`}
-                points={`${x(0)},100 ${points(s.values)} ${x(s.values.length - 1)},100`}
-                fill={s.color}
-                opacity={0.12}
-              />
-            ) : null,
-          )}
-          {series.map((s) => (
-            <polyline
-              key={s.label}
-              points={points(s.values)}
-              fill="none"
-              stroke={s.color}
-              strokeWidth={1.75}
-              strokeDasharray={s.dashed ? "4 3" : undefined}
-              strokeLinejoin="round"
-              vectorEffect="non-scaling-stroke"
-            />
-          ))}
-          {hover !== null ? (
-            <line x1={x(hover)} x2={x(hover)} y1={0} y2={100} stroke="var(--border-strong)" strokeWidth={1} vectorEffect="non-scaling-stroke" />
-          ) : null}
-        </svg>
-        <div className="absolute inset-0 grid" style={{ gridTemplateColumns: `repeat(${Math.max(1, slots)}, minmax(0, 1fr))` }}>
-          {labels.map((label, i) => (
-            <div key={`${label}-${i}`} onMouseEnter={() => setHover(i)} />
-          ))}
-        </div>
-        {hover !== null ? (
-          <div
-            className={cx(
-              "pointer-events-none absolute top-0 z-10 flex flex-col rounded-[6px] border border-line-control bg-elevated px-2.5 py-1.5 text-[12px]",
-              x(hover) > 50 ? "left-0" : "right-0",
-            )}
-          >
-            <span className="text-muted">{labels[hover]}</span>
-            {series.map((s) =>
-              s.values[hover] === undefined ? null : (
-                <span key={s.label} className="flex items-center gap-1.5">
-                  <span className="h-2 w-2 rounded-[2px]" style={{ background: s.color }} />
-                  <span className="text-muted">{s.label}</span>
-                  <span className="num ml-auto pl-2">{formatMoney(s.values[hover] ?? 0)}</span>
-                </span>
-              ),
-            )}
-          </div>
-        ) : null}
-      </div>
+      <Chart definition={definition} height={height} initialWidth={480} ariaLabel={ariaLabel} />
       <div className="num mt-1.5 flex justify-between text-[11px] text-faint">
         <span>{labels[0]}</span>
         {slots > 2 ? <span>{labels[Math.floor((slots - 1) / 2)]}</span> : null}

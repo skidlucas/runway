@@ -1,3 +1,8 @@
+import { barY, defineChart, group } from "@tanstack/charts"
+import { Chart } from "@tanstack/charts/react"
+import { scaleBand } from "@tanstack/charts/scales/band"
+import { scaleLinear } from "@tanstack/charts/scales/linear"
+import { tooltip } from "@tanstack/charts/tooltip"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router"
 import { ArrowLeft, ArrowRight, Check, ChevronDown, MoreHorizontal, Pencil, Plus, Trash2 } from "lucide-react"
@@ -8,7 +13,7 @@ import { PageHeader } from "~/components/shell"
 import { toastError } from "~/components/toast"
 import { Button, cx, Dialog, EmptyState, Field, IconButton, Input, Menu, type MenuItem, Money } from "~/components/ui"
 import { UpcomingList } from "~/components/upcoming-list"
-import { formatDayShort, formatMonthLong, formatMonthShort } from "~/domain/dates"
+import { formatDayShort, formatMonthLong, formatMonthShort, type Month } from "~/domain/dates"
 import { formatMoney } from "~/domain/money"
 import { REPORT_MONTHS, UPCOMING_DAYS } from "~/domain/reports"
 import { capitalize } from "~/domain/text"
@@ -16,6 +21,7 @@ import { queryToSearch } from "~/lib/insight-search"
 import { q } from "~/lib/queries"
 import type { DashboardWidget, DashboardWidgetKind, InsightViewConfig } from "~/server/db/schema"
 import { createDashboard, deleteDashboard, saveDashboard } from "~/server/fns/reports"
+import type { CashFlowReport } from "~/server/services/reports"
 
 export const Route = createFileRoute("/_app/dashboard")({
   validateSearch: (s: Record<string, unknown>): { id?: string } => (typeof s.id === "string" && s.id ? { id: s.id } : {}),
@@ -397,6 +403,7 @@ function NetWorthWidget({ months }: { months: number }) {
       <LineChart
         series={[{ label: "Total des comptes", values: r.months.map((m) => m.value), color: "var(--chart-1)", area: true }]}
         labels={r.months.map((m) => capitalize(formatMonthShort(m.month)))}
+        ariaLabel="Évolution du total des comptes"
         className="mt-auto"
       />
     </>
@@ -421,6 +428,7 @@ function WealthWidget({ months }: { months: number }) {
       <LineChart
         series={[{ label: "Patrimoine net", values, color: "var(--chart-2)", area: true }]}
         labels={w.months.slice(-months).map((m) => capitalize(formatMonthShort(m)))}
+        ariaLabel="Évolution du patrimoine net"
         className="mt-auto"
       />
     </>
@@ -462,18 +470,7 @@ function CashFlowWidget({ months }: { months: number }) {
         </div>
       ) : (
         <div className="mt-auto">
-          <div className="grid h-[120px] items-end gap-1.5" style={{ gridTemplateColumns: `repeat(${r.months.length}, minmax(0, 1fr))` }}>
-            {r.months.map((m) => (
-              <div
-                key={m.month}
-                className="flex h-full items-end justify-center gap-[2px]"
-                title={`${capitalize(formatMonthLong(m.month))} · revenus ${formatMoney(m.income)} · dépenses ${formatMoney(m.expenses)}`}
-              >
-                <div className="w-1/2 rounded-t-[2px] bg-positive" style={{ height: `${(m.income / max) * 100}%` }} />
-                <div className="w-1/2 rounded-t-[2px] bg-[var(--bar-inactive)]" style={{ height: `${(m.expenses / max) * 100}%` }} />
-              </div>
-            ))}
-          </div>
+          <CashFlowBars months={r.months} />
           <div className="num mt-1.5 flex justify-between text-[11px] text-faint">
             <span>{capitalize(formatMonthShort(r.months[0]?.month ?? ""))}</span>
             <span>{capitalize(formatMonthShort(r.months.at(-1)?.month ?? ""))}</span>
@@ -482,6 +479,46 @@ function CashFlowWidget({ months }: { months: number }) {
       )}
     </>
   )
+}
+
+type FlowBar = { month: Month; kind: "Revenus" | "Dépenses"; value: number }
+
+const FLOW_COLOR: Record<FlowBar["kind"], string> = { Revenus: "var(--positive)", Dépenses: "var(--bar-inactive)" }
+
+function CashFlowBars({ months }: { months: CashFlowReport["months"] }) {
+  const definition = React.useMemo(() => {
+    const rows = months.flatMap((m): FlowBar[] => [
+      { month: m.month, kind: "Revenus", value: m.income },
+      { month: m.month, kind: "Dépenses", value: m.expenses },
+    ])
+    return defineChart({
+      marks: [
+        barY(rows, {
+          x: "month",
+          y: "value",
+          z: "kind",
+          fill: (b: FlowBar) => FLOW_COLOR[b.kind],
+          layout: group({ padding: 0.1 }),
+          radius: { end: 2 },
+        }),
+      ],
+      scales: { x: { scale: () => scaleBand<Month>().padding(0.25), axis: false }, y: { scale: scaleLinear, axis: false } },
+      margin: 0,
+      focus: "group-x",
+      tooltip: {
+        use: tooltip,
+        sticky: false,
+        content: (points) => ({
+          title: capitalize(formatMonthLong((points[0]?.datum as FlowBar | undefined)?.month ?? months[0]?.month ?? "")),
+          rows: points
+            .map((p) => p.datum as FlowBar)
+            .sort((a, b) => (a.kind === b.kind ? 0 : a.kind === "Revenus" ? -1 : 1))
+            .map((b) => ({ label: b.kind, value: formatMoney(b.value), color: FLOW_COLOR[b.kind] })),
+        }),
+      },
+    })
+  }, [months])
+  return <Chart definition={definition} height={120} initialWidth={360} ariaLabel="Revenus et dépenses par mois" />
 }
 
 function SpendingComparisonWidget() {
@@ -502,6 +539,7 @@ function SpendingComparisonWidget() {
           { label: capitalize(formatMonthLong(r.month)), values: r.current, color: "var(--chart-1)" },
         ]}
         labels={Array.from({ length: slots }, (_, i) => `Jour ${i + 1}`)}
+        ariaLabel="Dépenses cumulées du mois comparées au mois précédent"
         className="mt-auto"
       />
     </>

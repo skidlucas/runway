@@ -166,6 +166,19 @@ body {
   overscroll-behavior-y: none;
 }
 
+.ts-chart-host {
+  color: var(--text-muted);
+  --ts-chart-tooltip-background: var(--bg-elevated);
+  --ts-chart-tooltip-color: var(--text);
+  --ts-chart-tooltip-border: 1px solid var(--border-control);
+  --ts-chart-tooltip-border-radius: 6px;
+  --ts-chart-tooltip-shadow: none;
+  --ts-chart-tooltip-padding: 6px 10px;
+  --ts-chart-tooltip-font: 12px / 1.45 var(--font-sans);
+  --ts-chart-tooltip-active-row-background: transparent;
+  --ts-chart-tooltip-active-row-font-weight: inherit;
+}
+
 .num {
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;

@@ -18,7 +18,11 @@ test("the forecast reconciles today's balance with the projection", async ({ pag
 
 test("insights chart a year of spending and break it down by payee", async ({ page }) => {
   await open(page, "/insights")
-  await expect(visible(page.getByTestId("insight-bar"))).toHaveCount(12)
+  const chart = visible(page.getByRole("img", { name: "Toutes les dépenses par mois" }))
+  const bars = chart.locator(".ts-chart__bar-y path")
+  await expect(bars).toHaveCount(12)
+  await bars.last().hover()
+  await expect(page.locator(".ts-chart-tooltip").filter({ visible: true })).toContainText("Total")
   await expect(visible(page.getByText(/Par bénéficiaire/)).first()).toBeVisible()
   // No AI key in the e2e server: the page says how to enable the written analysis.
   await expect(visible(page.getByText(/OPENAI_API_KEY ou ANTHROPIC_API_KEY/)).first()).toBeVisible()
