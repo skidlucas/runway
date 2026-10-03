@@ -18,6 +18,9 @@ import { toast, toastError } from "~/components/toast"
 
 export const TX_PAGE = 200
 
+/** Reports only change with a write, and every write refreshes them: refocusing the tab need not refetch. */
+const REPORT_STALE = 5 * 60_000
+
 export const q = {
   accounts: () => queryOptions({ queryKey: ["accounts"], queryFn: () => getAccounts() }),
   categories: () => queryOptions({ queryKey: ["categories"], queryFn: () => getCategories() }),
@@ -56,11 +59,18 @@ export const q = {
   savedViews: () => queryOptions({ queryKey: ["savedViews"], queryFn: () => getSavedViews() }),
   wealth: () => queryOptions({ queryKey: ["wealth"], queryFn: () => getWealth() }),
   dashboards: () => queryOptions({ queryKey: ["dashboards"], queryFn: () => getDashboards() }),
-  netWorth: (months: number) => queryOptions({ queryKey: ["netWorth", months], queryFn: () => getNetWorth({ data: { months } }) }),
-  cashFlow: (months: number) => queryOptions({ queryKey: ["cashFlow", months], queryFn: () => getCashFlow({ data: { months } }) }),
-  spendingComparison: () => queryOptions({ queryKey: ["spendingComparison"], queryFn: () => getSpendingComparison() }),
+  netWorth: (months: number) =>
+    queryOptions({ queryKey: ["netWorth", months], queryFn: () => getNetWorth({ data: { months } }), staleTime: REPORT_STALE }),
+  cashFlow: (months: number) =>
+    queryOptions({ queryKey: ["cashFlow", months], queryFn: () => getCashFlow({ data: { months } }), staleTime: REPORT_STALE }),
+  spendingComparison: () =>
+    queryOptions({ queryKey: ["spendingComparison"], queryFn: () => getSpendingComparison(), staleTime: REPORT_STALE }),
   categorySpending: (months: number) =>
-    queryOptions({ queryKey: ["categorySpending", months], queryFn: () => getCategorySpending({ data: { months } }) }),
+    queryOptions({
+      queryKey: ["categorySpending", months],
+      queryFn: () => getCategorySpending({ data: { months } }),
+      staleTime: REPORT_STALE,
+    }),
   aiStatus: () => queryOptions({ queryKey: ["aiStatus"], queryFn: () => getAiStatus(), staleTime: Infinity }),
 }
 

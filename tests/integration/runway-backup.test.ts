@@ -3,6 +3,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import { runBundleImport } from "~/lib/import-client"
 import { backupToBundle, type RunwayBackup } from "~/lib/runway-backup"
 import { Categories } from "~/server/services/categories"
+import { Dashboards, DEFAULT_WIDGETS, MAIN_DASHBOARD_ID } from "~/server/services/dashboards"
 import { Demo } from "~/server/services/demo"
 import { ImportExport } from "~/server/services/import-export"
 import { Insights } from "~/server/services/insights"
@@ -104,5 +105,21 @@ describe("Runway backup", () => {
     const watch = wealth.items.find((i) => i.name === "Rolex")!
     expect(await target.run(Wealth.use((w) => w.valuations(watch.id)))).toHaveLength(1)
     expect(await target.run(Insights.use((i) => i.savedViews))).toHaveLength(4)
+  })
+
+  it("drops invalid widgets and keeps the default dashboard when restoring dashboards", async () => {
+    const fresh = await createHarness()
+    try {
+      const valid = { id: "ok", kind: "upcoming" as const, size: 1 as const, days: 7 }
+      const invalid = { id: "ko", kind: "net_worth" as const, size: 2 as const, months: 7 }
+      await restore(fresh, { ...backup, dashboards: [{ id: "perso", name: "Perso", widgets: [valid, invalid], sortOrder: 5 }] })
+      const list = await fresh.run(Dashboards.use((d) => d.list))
+      expect(list.map((d) => [d.id === MAIN_DASHBOARD_ID ? "main" : d.name, d.widgets])).toEqual([
+        ["main", DEFAULT_WIDGETS],
+        ["Perso", [valid]],
+      ])
+    } finally {
+      await fresh.dispose()
+    }
   })
 })

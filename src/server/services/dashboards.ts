@@ -19,9 +19,9 @@ export const DEFAULT_WIDGETS: DashboardWidget[] = [
   { id: "accounts", kind: "account_balances", size: 1 },
 ]
 
-const MAX_WIDGETS = 30
+export const MAX_WIDGETS = 30
 
-const validWidget = (w: DashboardWidget) =>
+export const validWidget = (w: DashboardWidget) =>
   [1, 2, 3].includes(w.size) &&
   (w.months === undefined || (REPORT_MONTHS as ReadonlyArray<number>).includes(w.months)) &&
   (w.days === undefined || (UPCOMING_DAYS as ReadonlyArray<number>).includes(w.days)) &&
@@ -60,7 +60,18 @@ export class Dashboards extends Context.Service<
       const create = Effect.fn("Dashboards.create")(function* (name: string) {
         const trimmed = yield* cleanName(name)
         const id = newId()
-        yield* db.use((orm) => orm.insert(dashboards).values({ id, name: trimmed, widgets: [], sortOrder: Date.now() }))
+        // The default dashboard only exists virtually while nothing is stored: keep it next to the new one.
+        yield* db.batch([
+          db.d1
+            .prepare(
+              `INSERT INTO dashboards (id, name, widgets, sort_order) SELECT ?, 'Principal', ?, 0
+               WHERE NOT EXISTS (SELECT 1 FROM dashboards)`,
+            )
+            .bind(MAIN_DASHBOARD_ID, JSON.stringify(DEFAULT_WIDGETS)),
+          db.d1
+            .prepare("INSERT INTO dashboards (id, name, widgets, sort_order) VALUES (?, ?, '[]', ?)")
+            .bind(id, trimmed, Date.now()),
+        ])
         return { id, name: trimmed, widgets: [] } satisfies DashboardDto
       })
 
@@ -73,6 +84,7 @@ export class Dashboards extends Context.Service<
         if (widgets && (widgets.length > MAX_WIDGETS || !widgets.every(validWidget))) {
           return yield* new Invalid({ message: "Widget invalide" })
         }
+        if (name === undefined && widgets === undefined) return
         const current = yield* db.use((orm) => orm.select().from(dashboards).where(eq(dashboards.id, id)).get())
         if (!current) {
           if (id !== MAIN_DASHBOARD_ID) return yield* new NotFound({ entity: "Tableau de bord", id })
@@ -80,7 +92,10 @@ export class Dashboards extends Context.Service<
             orm
               .insert(dashboards)
               .values({ id, name: name ?? "Principal", widgets: widgets ?? DEFAULT_WIDGETS, sortOrder: 0 })
-              .onConflictDoNothing(),
+              .onConflictDoUpdate({
+                target: dashboards.id,
+                set: { ...(name === undefined ? {} : { name }), ...(widgets === undefined ? {} : { widgets }) },
+              }),
           )
           return
         }

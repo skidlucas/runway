@@ -31,6 +31,8 @@ export function LineChart({
   className?: string
   ariaLabel: string
 }) {
+  // Callers build `series` and `labels` inline: keyed on their content, the chart is only rebuilt when the data changes.
+  const content = JSON.stringify([series, labels])
   const definition = React.useMemo(() => {
     const rows = series.map((s) => s.values.map((value, slot): Slot => ({ slot, value, series: s.label })))
     // The scale hugs the values so a variation stays visible; areas fill down to the bottom edge.
@@ -83,7 +85,7 @@ export function LineChart({
         },
       },
     })
-  }, [series, labels])
+  }, [content])
 
   const slots = labels.length
   return (

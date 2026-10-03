@@ -3,7 +3,7 @@ import { Chart } from "@tanstack/charts/react"
 import { scaleBand } from "@tanstack/charts/scales/band"
 import { scaleLinear } from "@tanstack/charts/scales/linear"
 import { tooltip } from "@tanstack/charts/tooltip"
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { type QueryClient, useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router"
 import { ArrowLeft, ArrowRight, Check, ChevronDown, MoreHorizontal, Pencil, Plus, Trash2 } from "lucide-react"
 import * as React from "react"
@@ -25,9 +25,36 @@ import type { CashFlowReport } from "~/server/services/reports"
 
 export const Route = createFileRoute("/_app/dashboard")({
   validateSearch: (s: Record<string, unknown>): { id?: string } => (typeof s.id === "string" && s.id ? { id: s.id } : {}),
-  loader: ({ context }) => context.queryClient.ensureQueryData(q.dashboards()),
+  loaderDeps: ({ search }) => ({ id: search.id }),
+  loader: async ({ context, deps }) => {
+    const list = await context.queryClient.ensureQueryData(q.dashboards())
+    const current = list.find((d) => d.id === deps.id) ?? list[0]
+    // Started together instead of one by one as each widget mounts.
+    for (const widget of current?.widgets ?? []) void prefetchWidget(context.queryClient, widget)
+  },
   component: DashboardPage,
 })
+
+const prefetchWidget = (client: QueryClient, widget: DashboardWidget) => {
+  switch (widget.kind) {
+    case "net_worth":
+      return client.prefetchQuery(q.netWorth(widget.months ?? 12))
+    case "wealth":
+      return client.prefetchQuery(q.wealth())
+    case "cash_flow":
+      return client.prefetchQuery(q.cashFlow(widget.months ?? 1))
+    case "spending_comparison":
+      return client.prefetchQuery(q.spendingComparison())
+    case "category_spending":
+      return client.prefetchQuery(q.categorySpending(widget.months ?? 1))
+    case "account_balances":
+      return client.prefetchQuery(q.accounts())
+    case "upcoming":
+      return client.prefetchQuery(q.upcoming({ days: widget.days ?? 7 }))
+    case "insight_view":
+      return undefined
+  }
+}
 
 const TITLES: Record<DashboardWidgetKind, string> = {
   net_worth: "Total des comptes",
@@ -65,10 +92,15 @@ const periodsOf = (kind: DashboardWidgetKind) =>
 
 const periodLabel = (months: number) => (months === 1 ? "Ce mois" : `${months} mois`)
 
+const SAVE_DASHBOARD = ["saveDashboard"]
+
 function useSaveDashboard() {
   const client = useQueryClient()
   const key = q.dashboards().queryKey
   return useMutation({
+    mutationKey: SAVE_DASHBOARD,
+    // Each save sends the whole widget list: they must reach the server in order.
+    scope: { id: "dashboards" },
     mutationFn: (input: { id: string; name?: string; widgets?: DashboardWidget[] }) => saveDashboard({ data: input }),
     // Applied at once: moving or resizing a widget should not wait for the server.
     onMutate: async (input) => {
@@ -85,7 +117,8 @@ function useSaveDashboard() {
       if (context?.previous) client.setQueryData(key, context.previous)
       toastError(error)
     },
-    onSettled: () => client.invalidateQueries({ queryKey: key }),
+    // Refetching while later saves are queued would briefly show an older layout.
+    onSettled: () => (client.isMutating({ mutationKey: SAVE_DASHBOARD }) === 1 ? client.invalidateQueries({ queryKey: key }) : undefined),
   })
 }
 
@@ -99,6 +132,7 @@ function DashboardPage() {
   const current = list.find((d) => d.id === search.id) ?? list[0]
   const [editing, setEditing] = React.useState(false)
   const [naming, setNaming] = React.useState<null | "create" | "rename">(null)
+  const [moved, setMoved] = React.useState<{ id: string; delta: number; message: string } | null>(null)
   const save = useSaveDashboard()
 
   const create = useMutation({
@@ -146,10 +180,10 @@ function DashboardPage() {
           <Menu
             align="start"
             trigger={
-              <button type="button" className="flex items-center gap-1 hover:text-fg" aria-label="Changer de tableau de bord">
+              <Button variant="ghost" size="sm" className="-ml-2.5" title="Changer de tableau de bord">
                 {current.name}
                 <ChevronDown size={13} />
-              </button>
+              </Button>
             }
             items={[
               ...list.map((d) => ({
@@ -203,10 +237,14 @@ function DashboardPage() {
               onChange={(next) => setWidgets(current.widgets.map((w) => (w.id === widget.id ? next : w)))}
               onMove={(delta) => {
                 const widgets = [...current.widgets]
-                const [moved] = widgets.splice(index, 1)
-                if (moved) widgets.splice(Math.max(0, Math.min(widgets.length, index + delta)), 0, moved)
+                const [item] = widgets.splice(index, 1)
+                if (!item) return
+                const to = Math.max(0, Math.min(widgets.length, index + delta))
+                widgets.splice(to, 0, item)
                 setWidgets(widgets)
+                setMoved({ id: widget.id, delta, message: `${TITLES[widget.kind]} déplacé en position ${to + 1} sur ${widgets.length}` })
               }}
+              focusArrow={moved?.id === widget.id ? moved : null}
               onRemove={() => setWidgets(current.widgets.filter((w) => w.id !== widget.id))}
               first={index === 0}
               last={index === current.widgets.length - 1}
@@ -214,6 +252,9 @@ function DashboardPage() {
           ))}
         </div>
       )}
+      <span className="sr-only" aria-live="polite">
+        {moved?.message}
+      </span>
       {naming ? (
         <NameDialog
           title={naming === "create" ? "Nouveau tableau de bord" : "Renommer le tableau de bord"}
@@ -247,7 +288,7 @@ function NameDialog({
   onSubmit: (name: string) => void
 }) {
   const [name, setName] = React.useState(initial)
-  const submit = () => name.trim() && onSubmit(name.trim())
+  const submit = () => !pending && name.trim() && onSubmit(name.trim())
   return (
     <Dialog
       open
@@ -282,6 +323,7 @@ function WidgetCard({
   onRemove,
   first,
   last,
+  focusArrow,
 }: {
   widget: DashboardWidget
   editing: boolean
@@ -290,7 +332,16 @@ function WidgetCard({
   onRemove: () => void
   first: boolean
   last: boolean
+  /** The arrow just used on this widget: it keeps the focus while the widget changes place. */
+  focusArrow: { delta: number } | null
 }) {
+  const before = React.useRef<HTMLButtonElement>(null)
+  const after = React.useRef<HTMLButtonElement>(null)
+  React.useEffect(() => {
+    if (focusArrow === null) return
+    const target = (focusArrow.delta < 0 && !first) || last ? before.current : after.current
+    target?.focus()
+  }, [focusArrow, first, last])
   const views = useQuery({ ...q.savedViews(), enabled: widget.kind === "insight_view" })
   const view = widget.kind === "insight_view" ? views.data?.find((v) => v.id === widget.viewId) : undefined
   const title = view?.name ?? TITLES[widget.kind]
@@ -337,10 +388,24 @@ function WidgetCard({
         </span>
         {editing ? (
           <span className="ml-auto flex items-center gap-0.5">
-            <IconButton label="Déplacer avant" size="sm" disabled={first} onClick={() => onMove(-1)}>
+            <IconButton
+              ref={before}
+              label="Déplacer avant"
+              size="sm"
+              aria-disabled={first}
+              className={cx(first && "opacity-40")}
+              onClick={() => !first && onMove(-1)}
+            >
               <ArrowLeft size={13} />
             </IconButton>
-            <IconButton label="Déplacer après" size="sm" disabled={last} onClick={() => onMove(1)}>
+            <IconButton
+              ref={after}
+              label="Déplacer après"
+              size="sm"
+              aria-disabled={last}
+              className={cx(last && "opacity-40")}
+              onClick={() => !last && onMove(1)}
+            >
               <ArrowRight size={13} />
             </IconButton>
             <Menu

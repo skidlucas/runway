@@ -1,3 +1,4 @@
+import { Effect } from "effect"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import { addMonths, todayIn } from "~/domain/dates"
 import { Accounts } from "~/server/services/accounts"
@@ -83,5 +84,37 @@ describe("Reports and dashboards", () => {
     await expect(h.run(Dashboards.use((d) => d.save(other.id, { widgets: [{ id: "x", kind: "net_worth", size: 2, months: 7 }] })))).rejects.toThrow(
       "Widget invalide",
     )
+  })
+})
+
+describe("Default dashboard", () => {
+  let h: Harness
+  beforeAll(async () => {
+    h = await createHarness()
+  }, 60_000)
+  afterAll(() => h?.dispose())
+
+  it("keeps the default dashboard when another one is created first", async () => {
+    await h.run(Dashboards.use((d) => d.create("Budget")))
+    expect((await h.run(Dashboards.use((d) => d.list))).map((d) => [d.id, d.widgets.length])).toEqual([
+      [MAIN_DASHBOARD_ID, DEFAULT_WIDGETS.length],
+      [expect.any(String), 0],
+    ])
+  })
+
+  it("applies both of two saves of the default dashboard made at the same time", async () => {
+    const fresh = await createHarness()
+    try {
+      const one = [{ id: "a", kind: "upcoming" as const, size: 1 as const, days: 7 }]
+      const two = [...one, { id: "b", kind: "spending_comparison" as const, size: 1 as const }]
+      await fresh.run(
+        Effect.all([Dashboards.use((d) => d.save(MAIN_DASHBOARD_ID, { widgets: one })), Dashboards.use((d) => d.save(MAIN_DASHBOARD_ID, { widgets: two }))], {
+          concurrency: "unbounded",
+        }),
+      )
+      expect((await fresh.run(Dashboards.use((d) => d.list)))[0]?.widgets).toEqual(two)
+    } finally {
+      await fresh.dispose()
+    }
   })
 })

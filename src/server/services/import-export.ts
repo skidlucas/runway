@@ -7,6 +7,7 @@ import { type BundleExtras, type BundleStructure, type IdMaps, orderStamps } fro
 import { bulkInsertStatements, chunkRows, Db, type DbError, newId } from "../db/client"
 import * as schema from "../db/schema"
 import { Invalid, type NotFound } from "../errors"
+import { DEFAULT_WIDGETS, MAIN_DASHBOARD_ID, MAX_WIDGETS, validWidget } from "./dashboards"
 import { Payees } from "./payees"
 import { ruleInputError, Rules } from "./rules"
 import { Settings } from "./settings"
@@ -517,12 +518,15 @@ export class ImportExport extends Context.Service<
           dashboardNames.add(normalizeText(board.name))
           // A widget showing a saved view that was not imported would point nowhere.
           const widgets = board.widgets.flatMap((w) => {
+            if (!validWidget(w)) return []
             if (w.kind !== "insight_view") return [w]
             const viewId = w.viewId ? viewIds.get(w.viewId) : undefined
             return viewId ? [{ ...w, viewId }] : []
           })
-          return [[newId(), board.name, JSON.stringify(widgets), board.sortOrder]]
+          return [[newId(), board.name, JSON.stringify(widgets.slice(0, MAX_WIDGETS)), board.sortOrder]]
         })
+        // Storing a first dashboard would hide the default one, which only exists while none is stored.
+        const keepMain = existingDashboards.length === 0 && boards.length > 0 && !dashboardNames.has(normalizeText("Principal"))
         yield* db.batch([
           ...bulkInsertStatements(
             db.d1,
@@ -556,7 +560,10 @@ export class ImportExport extends Context.Service<
             "ignore",
           ),
           ...bulkInsertStatements(db.d1, "saved_views", ["id", "name", "config", "sort_order"], views),
-          ...bulkInsertStatements(db.d1, "dashboards", ["id", "name", "widgets", "sort_order"], boards),
+          ...bulkInsertStatements(db.d1, "dashboards", ["id", "name", "widgets", "sort_order"], [
+            ...(keepMain ? [[MAIN_DASHBOARD_ID, "Principal", JSON.stringify(DEFAULT_WIDGETS), 0]] : []),
+            ...boards,
+          ]),
         ])
         return { assets: extras.assets.length, views: views.length }
       })

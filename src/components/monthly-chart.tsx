@@ -16,7 +16,7 @@ type Bar = InsightViewDto["bars"][number]
 /** Monthly totals of an insight view, with its rolling average as a dashed line. */
 export function MonthlyChart({ v, compact }: { v: InsightViewDto; compact?: boolean }) {
   const navigate = useNavigate()
-  const bars = compact ? v.bars.slice(-6) : v.bars
+  const bars = React.useMemo(() => (compact ? v.bars.slice(-6) : v.bars), [v.bars, compact])
   const hasAverage = bars.some((b) => b.average !== null)
   const categoryId = v.query.target.kind === "category" ? v.query.target.id : null
 
@@ -51,6 +51,8 @@ export function MonthlyChart({ v, compact }: { v: InsightViewDto; compact?: bool
         },
         margin: { left: 0, right: 0, top: 4 },
         focus: "group-x",
+        // A compact chart sits inside a link: it must not add its own tab stop.
+        keyboard: !compact,
         tooltip: {
           use: tooltip,
           sticky: false,
@@ -67,7 +69,7 @@ export function MonthlyChart({ v, compact }: { v: InsightViewDto; compact?: bool
           },
         },
       }),
-    [bars],
+    [bars, compact],
   )
 
   return (

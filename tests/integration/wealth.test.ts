@@ -4,6 +4,7 @@ import { addDays, addMonths, lastDay, monthRange, todayIn } from "~/domain/dates
 import { ExternalError } from "~/server/errors"
 import { Accounts } from "~/server/services/accounts"
 import { Settings } from "~/server/services/settings"
+import { Transactions } from "~/server/services/transactions"
 import { type AssetInput, Wealth } from "~/server/services/wealth"
 import { createHarness, type Harness } from "./harness"
 
@@ -194,5 +195,18 @@ describe("Wealth", () => {
     await expect(
       h.run(Wealth.use((w) => w.addValuation({ assetId: first!.id, date: `${Number(tomorrow.slice(0, 4)) + 1}-01-01`, amount: 1 }))),
     ).rejects.toThrow(/futur/)
+  })
+
+  it("reads account balances at today and months inside the window only", async () => {
+    const [courant] = await h.run(Accounts.use((a) => a.list))
+    const add = (date: string, amount: number) =>
+      h.run(Transactions.use((t) => t.create({ accountId: courant!.id, date, amount, payee: { kind: "name", name: "Test" }, categoryId: null })))
+    await add(`${addMonths(month, -5)}-10`, 100_00)
+    await add(addDays(today, 3), -500_00)
+    const item = (await h.run(Wealth.use((w) => w.overview))).items.find((i) => i.id === courant!.id)!
+    expect(item.value).toBe(2_100_00)
+    expect(item.history[6]).toBe(2_000_00)
+    expect(item.history[7]).toBe(2_100_00)
+    expect(item.history[12]).toBe(2_100_00)
   })
 })

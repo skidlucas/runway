@@ -181,24 +181,32 @@ export class Wealth extends Context.Service<
         return new Map(results.map((r) => [r.assetId, r.date]))
       })
 
-      const accountRows = db.use(async (_, d1) => {
-        const [accounts, monthly] = await d1.batch([
-          d1.prepare(
-            `SELECT a.id, a.name, a.kind, a.off_budget AS offBudget, COALESCE(SUM(t.amount), 0) AS balance
-             FROM accounts a LEFT JOIN transactions t ON t.account_id = a.id AND t.parent_id IS NULL
-             WHERE a.closed = 0 GROUP BY a.id ORDER BY a.off_budget, a.sort_order, a.name COLLATE NOCASE`,
-          ),
-          d1.prepare(
-            `SELECT t.account_id AS accountId, substr(t.date, 1, 7) AS month, SUM(t.amount) AS total
-             FROM transactions t JOIN accounts a ON a.id = t.account_id
-             WHERE a.closed = 0 AND t.parent_id IS NULL GROUP BY 1, 2 ORDER BY 1, 2`,
-          ),
-        ])
-        return {
-          accounts: accounts!.results as Array<{ id: string; name: string; kind: string; offBudget: number; balance: number }>,
-          monthly: monthly!.results as Array<{ accountId: string; month: Month; total: number }>,
-        }
-      })
+      // Balances stop at today like the accounts pages; the monthly sums only cover the window.
+      const accountRows = (since: Day, today: Day) =>
+        db.use(async (_, d1) => {
+          const [accounts, monthly] = await d1.batch([
+            d1
+              .prepare(
+                `SELECT a.id, a.name, a.kind, a.off_budget AS offBudget,
+                   COALESCE(SUM(CASE WHEN t.date <= ?2 THEN t.amount END), 0) AS balance,
+                   COALESCE(SUM(CASE WHEN t.date < ?1 THEN t.amount END), 0) AS opening
+                 FROM accounts a LEFT JOIN transactions t ON t.account_id = a.id AND t.parent_id IS NULL
+                 WHERE a.closed = 0 GROUP BY a.id ORDER BY a.off_budget, a.sort_order, a.name COLLATE NOCASE`,
+              )
+              .bind(since, today),
+            d1
+              .prepare(
+                `SELECT t.account_id AS accountId, substr(t.date, 1, 7) AS month, SUM(t.amount) AS total
+                 FROM transactions t JOIN accounts a ON a.id = t.account_id
+                 WHERE a.closed = 0 AND t.parent_id IS NULL AND t.date >= ?1 AND t.date <= ?2 GROUP BY 1, 2 ORDER BY 1, 2`,
+              )
+              .bind(since, today),
+          ])
+          return {
+            accounts: (accounts?.results ?? []) as Array<{ id: string; name: string; kind: string; offBudget: number; balance: number; opening: number }>,
+            monthly: (monthly?.results ?? []) as Array<{ accountId: string; month: Month; total: number }>,
+          }
+        })
 
       const overview = Effect.gen(function* () {
         const today = yield* settings.today
@@ -207,7 +215,7 @@ export class Wealth extends Context.Service<
         // Past months are read at their last day, the current one today.
         const days = months.map((m) => (m === current ? today : lastDay(m)))
         const [rows, valuations, lastAuto, accountData] = yield* Effect.all(
-          [loadAssets, loadValuations(days[0]!), lastAutomaticDates, accountRows],
+          [loadAssets, loadValuations(days[0]!), lastAutomaticDates, accountRows(`${months[0]!}-01`, today)],
           { concurrency: "unbounded" },
         )
 
@@ -269,9 +277,13 @@ export class Wealth extends Context.Service<
         })
 
         const monthlyByAccount = new Map<string, Array<{ month: Month; total: number }>>()
-        for (const r of accountData.monthly) monthlyByAccount.set(r.accountId, [...(monthlyByAccount.get(r.accountId) ?? []), r])
+        for (const r of accountData.monthly) {
+          const own = monthlyByAccount.get(r.accountId)
+          if (own) own.push(r)
+          else monthlyByAccount.set(r.accountId, [r])
+        }
         for (const account of accountData.accounts) {
-          let running = 0
+          let running = account.opening
           let i = 0
           const sums = monthlyByAccount.get(account.id) ?? []
           const history = months.map((m) => {
