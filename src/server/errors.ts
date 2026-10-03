@@ -19,9 +19,3 @@ export class ExternalError extends Schema.TaggedError<ExternalError>()("External
   message: Schema.String,
   cause: Schema.optional(Schema.Defect()),
 }) {}
-
-export class Unauthorized extends Schema.TaggedError<Unauthorized>()("Unauthorized", {}) {
-  override get message() {
-    return "Non connecté"
-  }
-}

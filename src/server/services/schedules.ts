@@ -1,14 +1,18 @@
 import { and, asc, eq, lte } from "drizzle-orm"
-import { Context, Effect, Layer } from "effect"
+import { Context, Effect, Layer, Schema } from "effect"
 import { addDays, addMonths, type Day, diffDays, isDay } from "~/domain/dates"
 import { describeRecurrence, nextOnOrAfter, occurrencesBetween, type Recurrence } from "~/domain/recurrence"
 import { detectRecurring, type HistoryTransaction, type RecurringCandidate } from "~/domain/recurring-detection"
 import { Db, type DbError, newId } from "../db/client"
 import { schedules } from "../db/schema"
 import { Invalid, NotFound } from "../errors"
+import { Recurrence as RecurrenceSchema } from "../schemas"
 import { Payees } from "./payees"
 import { Settings } from "./settings"
 import { type TxPayeeInput, Transactions } from "./transactions"
+
+// Raw SQL reads the JSON column as text: a malformed value fails loudly instead of computing wrong dates.
+const decodeRecurrence = Schema.decodeUnknownSync(Schema.fromJsonString(RecurrenceSchema))
 
 export type ScheduleDto = {
   id: string
@@ -170,7 +174,7 @@ export class Schedules extends Context.Service<
           return results
         })
         return rows.map((r): ScheduleDto => {
-          const recurrence = JSON.parse(r.recurrence) as Recurrence
+          const recurrence = decodeRecurrence(r.recurrence)
           return {
             id: r.id,
             name: r.name,
@@ -401,7 +405,7 @@ export class Schedules extends Context.Service<
           .pipe(
             Effect.map((rows) =>
               rows.flatMap((r) => {
-                const t = { startDate: r.start_date, endDate: r.end_date, recurrence: JSON.parse(r.recurrence) as Recurrence }
+                const t = { startDate: r.start_date, endDate: r.end_date, recurrence: decodeRecurrence(r.recurrence) }
                 const start = r.next_date > from ? r.next_date : from
                 // Overdue occurrences (before `from`) still count: they have not been paid yet.
                 const overdue = r.next_date < from ? [r.next_date] : []

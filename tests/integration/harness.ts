@@ -1,7 +1,7 @@
 import { mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { Effect, Layer, ManagedRuntime } from "effect"
+import { Cause, Effect, Exit, Layer, ManagedRuntime, Option } from "effect"
 import { getPlatformProxy } from "wrangler"
 import { makeCoreLayer } from "~/server/app-layer"
 import { ExternalError } from "~/server/errors"
@@ -55,6 +55,13 @@ export const createHarness = async (options: { ai?: AiProviders; market?: Partia
   return {
     d1,
     run: <A, E>(effect: Effect.Effect<A, E, Services>): Promise<A> => runtime.runPromise(effect),
+    /** The typed failure of an effect expected to fail, to assert on its `_tag`. */
+    fail: async <A, E>(effect: Effect.Effect<A, E, Services>): Promise<E> => {
+      const exit = await runtime.runPromiseExit(effect)
+      const error = Exit.isFailure(exit) ? Cause.findErrorOption(exit.cause) : Option.none()
+      if (Option.isNone(error)) throw new Error(`Expected a failure, got ${Exit.isSuccess(exit) ? "a success" : Cause.pretty(exit.cause)}`)
+      return error.value
+    },
     dispose: async () => {
       await runtime.dispose()
       await proxy.dispose()

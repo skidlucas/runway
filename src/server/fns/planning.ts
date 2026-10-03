@@ -1,32 +1,25 @@
 import { createServerFn } from "@tanstack/react-start"
 import { Effect, Schema } from "effect"
 import { addDays } from "~/domain/dates"
-import { RECURRENCE_UNITS } from "~/domain/recurrence"
 import { authMiddleware } from "../auth"
 import { Invalid } from "../errors"
 import { runApp } from "../runtime"
+import { Cents, Day, Id, Month, PayeeInput, Recurrence } from "../schemas"
 import { ForecastService } from "../services/forecast"
 import { registerRows, Schedules } from "../services/schedules"
 import { Settings } from "../services/settings"
 
 const v = Schema.toStandardSchemaV1
 
-const PayeeInput = Schema.Union([
-  Schema.Struct({ kind: Schema.Literal("name"), name: Schema.String }),
-  Schema.Struct({ kind: Schema.Literal("id"), id: Schema.String }),
-  Schema.Struct({ kind: Schema.Literal("transfer"), accountId: Schema.String }),
-  Schema.Struct({ kind: Schema.Literal("none") }),
-])
-
 const ScheduleInput = Schema.Struct({
   name: Schema.optional(Schema.NullOr(Schema.String)),
   payee: PayeeInput,
-  accountId: Schema.String,
-  categoryId: Schema.NullOr(Schema.String),
-  amount: Schema.Int,
-  recurrence: Schema.Struct({ unit: Schema.Literals(RECURRENCE_UNITS), interval: Schema.Int }),
-  startDate: Schema.String,
-  endDate: Schema.optional(Schema.NullOr(Schema.String)),
+  accountId: Id,
+  categoryId: Schema.NullOr(Id),
+  amount: Cents,
+  recurrence: Recurrence,
+  startDate: Day,
+  endDate: Schema.optional(Schema.NullOr(Day)),
   autoPost: Schema.Boolean,
 })
 
@@ -35,7 +28,7 @@ export const getForecast = createServerFn({ method: "GET" })
   .validator(
     v(
       Schema.Struct({
-        month: Schema.optional(Schema.String),
+        month: Schema.optional(Month),
         accountId: Schema.optional(Schema.String),
       }),
     ),
@@ -94,7 +87,7 @@ export const skipSchedule = createServerFn({ method: "POST" })
 
 export const postSchedule = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
-  .validator(v(Schema.Struct({ id: Schema.String, date: Schema.optional(Schema.String) })))
+  .validator(v(Schema.Struct({ id: Id, date: Schema.optional(Day) })))
   .handler(({ data }) => runApp(Schedules.use((s) => s.post(data.id, data.date))))
 
 const isTimeZone = (tz: string) => {

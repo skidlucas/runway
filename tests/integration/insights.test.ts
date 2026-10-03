@@ -92,9 +92,9 @@ describe("insights view", () => {
   })
 
   it("rejects unknown targets and options", async () => {
-    await expect(
-      h.run(Insights.use((s) => s.view({ measure: "expenses", target: { kind: "category", id: "nope" }, months: 3, rolling: 0 }))),
-    ).rejects.toThrow()
+    expect(
+      await h.fail(Insights.use((s) => s.view({ measure: "expenses", target: { kind: "category", id: "nope" }, months: 3, rolling: 0 }))),
+    ).toMatchObject({ _tag: "NotFound" })
     await expect(
       h.run(Insights.use((s) => s.view({ measure: "expenses", target: { kind: "all" }, months: 5, rolling: 0 }))),
     ).rejects.toThrow(/invalide/)

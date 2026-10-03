@@ -4,6 +4,7 @@ import { Accounts } from "~/server/services/accounts"
 import { Budget } from "~/server/services/budget"
 import { Categories } from "~/server/services/categories"
 import { Rules } from "~/server/services/rules"
+import { Settings } from "~/server/services/settings"
 import { Transactions } from "~/server/services/transactions"
 import { createHarness, type Harness } from "./harness"
 
@@ -182,5 +183,14 @@ describe("demo data", () => {
     } finally {
       await fresh.dispose()
     }
+  })
+})
+
+describe("settings", () => {
+  it("falls back to the default for a stored value of the wrong shape", async () => {
+    await h.d1.prepare(`INSERT OR REPLACE INTO settings (key, value) VALUES ('aiEnabled', '"oui"'), ('timeZone', '42')`).run()
+    expect(await h.run(Settings.use((s) => s.get("aiEnabled")))).toBe(true)
+    expect(await h.run(Settings.use((s) => s.all))).toMatchObject({ aiEnabled: true, timeZone: "Europe/Paris" })
+    await h.d1.prepare(`DELETE FROM settings WHERE key IN ('aiEnabled', 'timeZone')`).run()
   })
 })

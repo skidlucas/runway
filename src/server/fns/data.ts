@@ -1,8 +1,8 @@
 import { createServerFn } from "@tanstack/react-start"
 import { Schema } from "effect"
-import { RECURRENCE_UNITS } from "~/domain/recurrence"
 import { authMiddleware } from "../auth"
 import { runApp } from "../runtime"
+import { AssetType, Recurrence, RetainedValue, RuleAction, RuleCondition, RulesOp } from "../schemas"
 import { Demo } from "../services/demo"
 import { ImportExport } from "../services/import-export"
 import { InsightQuery } from "./insights"
@@ -18,17 +18,6 @@ export const seedDemo = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
   .handler(() => runApp(Demo.use((s) => s.seed)))
 
-const RuleCondition = Schema.Struct({
-  field: Schema.Literals(["payee", "imported_payee", "notes", "amount", "account"]),
-  op: Schema.Literals(["is", "contains", "starts_with", "matches", "gt", "lt", "between"]),
-  value: Schema.Union([Schema.String, Schema.Finite, Schema.Tuple([Schema.Finite, Schema.Finite])]),
-})
-const RuleAction = Schema.Union([
-  Schema.Struct({ type: Schema.Literal("set_category"), categoryId: Str }),
-  Schema.Struct({ type: Schema.Literal("set_payee"), payeeId: Str }),
-  Schema.Struct({ type: Schema.Literal("set_notes"), notes: Str }),
-])
-
 const Structure = Schema.Struct({
   source: Schema.Literals(["actual", "runway"]),
   name: Str,
@@ -41,7 +30,7 @@ const Structure = Schema.Struct({
   budgets: Schema.Array(Schema.Struct({ month: Str, categoryId: Str, amount: Schema.Int, carryover: Schema.Boolean })),
   buffered: Schema.Array(Schema.Struct({ month: Str, amount: Schema.Int })),
   rules: Schema.Array(
-    Schema.Struct({ conditionsOp: Schema.Literals(["and", "or"]), conditions: Schema.Array(RuleCondition), actions: Schema.Array(RuleAction) }),
+    Schema.Struct({ conditionsOp: RulesOp, conditions: Schema.Array(RuleCondition), actions: Schema.Array(RuleAction) }),
   ),
   schedules: Schema.Array(
     Schema.Struct({
@@ -51,7 +40,7 @@ const Structure = Schema.Struct({
       accountId: Str,
       categoryId: NStr,
       amount: Schema.Int,
-      recurrence: Schema.Struct({ unit: Schema.Literals(RECURRENCE_UNITS), interval: Schema.Int }),
+      recurrence: Recurrence,
       startDate: Str,
       nextDate: Str,
       endDate: NStr,
@@ -97,14 +86,14 @@ const Extras = Schema.Struct({
     Schema.Struct({
       id: Str,
       name: Str,
-      type: Schema.Literals(["real_estate", "investment", "crypto", "vehicle", "watch", "art", "cash", "loan", "other"]),
+      type: AssetType,
       isLiability: Schema.Boolean,
       subtitle: NStr,
       purchaseAmount: Schema.NullOr(Schema.Int),
       purchaseDate: NStr,
       declaredAmount: Schema.NullOr(Schema.Int),
       declaredDate: NStr,
-      retained: Schema.Literals(["purchase", "declared", "estimated"]),
+      retained: RetainedValue,
       source: AssetSource,
       notes: NStr,
       archived: Schema.Boolean,

@@ -1,6 +1,7 @@
 import { env } from "cloudflare:workers"
-import { Cause, type Effect, Exit, type Layer, ManagedRuntime } from "effect"
+import { Cause, type Effect, Exit, type Layer, ManagedRuntime, Option } from "effect"
 import { makeAppLayer } from "./app-layer"
+import { ExternalError, Invalid, NotFound } from "./errors"
 
 type AppServices = Layer.Success<ReturnType<typeof makeAppLayer>>
 
@@ -12,7 +13,8 @@ const getRuntime = () => {
   return runtime
 }
 
-const USER_FACING = new Set(["NotFound", "Invalid", "ExternalError", "Unauthorized"])
+const isUserFacing = (error: unknown): error is NotFound | Invalid | ExternalError =>
+  error instanceof NotFound || error instanceof Invalid || error instanceof ExternalError
 
 /**
  * Runs an effect for a server function. Business errors keep their French message;
@@ -21,10 +23,8 @@ const USER_FACING = new Set(["NotFound", "Invalid", "ExternalError", "Unauthoriz
 export const runApp = async <A, E>(effect: Effect.Effect<A, E, AppServices>): Promise<A> => {
   const exit = await getRuntime().runPromiseExit(effect)
   if (Exit.isSuccess(exit)) return exit.value
-  const error = Cause.squash(exit.cause) as { _tag?: string; message?: string } | undefined
-  if (error && typeof error === "object" && error._tag && USER_FACING.has(error._tag)) {
-    throw new Error(error.message ?? "Erreur")
-  }
+  const error = Cause.findErrorOption(exit.cause)
+  if (Option.isSome(error) && isUserFacing(error.value)) throw new Error(error.value.message)
   console.error(Cause.pretty(exit.cause))
   throw new Error("Une erreur inattendue est survenue")
 }

@@ -8,13 +8,11 @@ import { Categories } from "../services/categories"
 import { Payees } from "../services/payees"
 import { Rules } from "../services/rules"
 import { Transactions } from "../services/transactions"
+import { Cents, Day, Id, Month, PayeeInput, RuleAction, RuleCondition, RulesOp } from "../schemas"
 
 const v = Schema.toStandardSchemaV1
 
-const Id = Schema.String
 const Ids = Schema.Array(Schema.String)
-const Cents = Schema.Int
-const MonthS = Schema.String
 const NullableId = Schema.NullOr(Schema.String)
 const AccountKind = Schema.Literals(["checking", "savings", "credit", "investment", "other"])
 
@@ -33,7 +31,7 @@ export const createAccount = createServerFn({ method: "POST" })
         kind: AccountKind,
         offBudget: Schema.Boolean,
         startingBalance: Cents,
-        startingDate: Schema.optional(Schema.String),
+        startingDate: Schema.optional(Day),
       }),
     ),
   )
@@ -164,13 +162,6 @@ export const suggestPayeeCategory = createServerFn({ method: "GET" })
 
 // --- Transactions ---------------------------------------------------------------
 
-const PayeeInput = Schema.Union([
-  Schema.Struct({ kind: Schema.Literal("name"), name: Schema.String }),
-  Schema.Struct({ kind: Schema.Literal("id"), id: Id }),
-  Schema.Struct({ kind: Schema.Literal("transfer"), accountId: Id }),
-  Schema.Struct({ kind: Schema.Literal("none") }),
-])
-
 const SplitInput = Schema.Struct({
   amount: Cents,
   categoryId: NullableId,
@@ -203,7 +194,7 @@ export const createTransaction = createServerFn({ method: "POST" })
     v(
       Schema.Struct({
         accountId: Id,
-        date: Schema.String,
+        date: Day,
         amount: Cents,
         payee: PayeeInput,
         categoryId: Schema.optional(NullableId),
@@ -222,7 +213,7 @@ export const updateTransaction = createServerFn({ method: "POST" })
       Schema.Struct({
         id: Id,
         accountId: Schema.optional(Id),
-        date: Schema.optional(Schema.String),
+        date: Schema.optional(Day),
         amount: Schema.optional(Cents),
         payee: Schema.optional(PayeeInput),
         categoryId: Schema.optional(NullableId),
@@ -258,22 +249,22 @@ export const setTransactionsCategory = createServerFn({ method: "POST" })
 
 export const getBudgetMonth = createServerFn({ method: "GET" })
   .middleware([authMiddleware])
-  .validator(v(Schema.Struct({ month: MonthS })))
+  .validator(v(Schema.Struct({ month: Month })))
   .handler(({ data }) => runApp(Budget.use((s) => s.month(data.month))))
 
 export const getAgeOfMoney = createServerFn({ method: "GET" })
   .middleware([authMiddleware])
-  .validator(v(Schema.Struct({ month: MonthS })))
+  .validator(v(Schema.Struct({ month: Month })))
   .handler(({ data }) => runApp(Budget.use((s) => s.ageOfMoney(data.month))))
 
 export const setBudgetAmount = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
-  .validator(v(Schema.Struct({ month: MonthS, categoryId: Id, amount: Cents })))
+  .validator(v(Schema.Struct({ month: Month, categoryId: Id, amount: Cents })))
   .handler(({ data }) => runApp(Budget.use((s) => s.setAmount(data.month, data.categoryId, data.amount))))
 
 export const setBudgetCarryover = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
-  .validator(v(Schema.Struct({ month: MonthS, categoryId: Id, carryover: Schema.Boolean })))
+  .validator(v(Schema.Struct({ month: Month, categoryId: Id, carryover: Schema.Boolean })))
   .handler(({ data }) => runApp(Budget.use((s) => s.setCarryover(data.month, data.categoryId, data.carryover))))
 
 export const fillBudget = createServerFn({ method: "POST" })
@@ -281,7 +272,7 @@ export const fillBudget = createServerFn({ method: "POST" })
   .validator(
     v(
       Schema.Struct({
-        month: MonthS,
+        month: Month,
         mode: Schema.Union([
           Schema.Struct({ kind: Schema.Literal("copyLastMonth") }),
           Schema.Struct({ kind: Schema.Literal("average"), months: Schema.Int }),
@@ -301,30 +292,18 @@ const MoveTarget = Schema.Union([
 
 export const moveBudget = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
-  .validator(v(Schema.Struct({ month: MonthS, from: MoveTarget, to: MoveTarget, amount: Cents })))
+  .validator(v(Schema.Struct({ month: Month, from: MoveTarget, to: MoveTarget, amount: Cents })))
   .handler(({ data }) => runApp(Budget.use((s) => s.move(data.month, data.from, data.to, data.amount))))
 
 export const setBudgetBuffered = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
-  .validator(v(Schema.Struct({ month: MonthS, amount: Cents })))
+  .validator(v(Schema.Struct({ month: Month, amount: Cents })))
   .handler(({ data }) => runApp(Budget.use((s) => s.setBuffered(data.month, data.amount))))
 
 // --- Rules ----------------------------------------------------------------------
 
-const RuleCondition = Schema.Struct({
-  field: Schema.Literals(["payee", "imported_payee", "notes", "amount", "account"]),
-  op: Schema.Literals(["is", "contains", "starts_with", "matches", "gt", "lt", "between"]),
-  value: Schema.Union([Schema.String, Schema.Finite, Schema.Tuple([Schema.Finite, Schema.Finite])]),
-})
-
-const RuleAction = Schema.Union([
-  Schema.Struct({ type: Schema.Literal("set_category"), categoryId: Id }),
-  Schema.Struct({ type: Schema.Literal("set_payee"), payeeId: Id }),
-  Schema.Struct({ type: Schema.Literal("set_notes"), notes: Schema.String }),
-])
-
 const RuleInput = Schema.Struct({
-  conditionsOp: Schema.Literals(["and", "or"]),
+  conditionsOp: RulesOp,
   conditions: Schema.Array(RuleCondition),
   actions: Schema.Array(RuleAction),
   enabled: Schema.optional(Schema.Boolean),

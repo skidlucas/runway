@@ -138,7 +138,10 @@ describe("Schedules", () => {
   })
 
   it("refuses to forecast a month that has not started", async () => {
-    await expect(h.run(ForecastService.use((f) => f.month({ month: addMonths(today.slice(0, 7), 1) })))).rejects.toThrow(/mois en cours/)
+    expect(await h.fail(ForecastService.use((f) => f.month({ month: addMonths(today.slice(0, 7), 1) })))).toMatchObject({
+      _tag: "Invalid",
+      message: "La prévision commence au mois en cours",
+    })
   })
 
   it("forecasts one account from its schedules and lists the next days", async () => {
@@ -176,6 +179,16 @@ describe("Schedules", () => {
       ["Assurance", soon, -80_000],
       ["Vers livret perso", soon, -80_000],
     ])
-    await expect(h.run(ForecastService.use((f) => f.month({ accountId: "nope" })))).rejects.toThrow()
+    expect(await h.fail(ForecastService.use((f) => f.month({ accountId: "nope" })))).toMatchObject({ _tag: "NotFound" })
+  })
+
+  it("refuses a stored rhythm it does not know instead of guessing dates", async () => {
+    const id = await h.run(Schedules.use((s) => s.create(monthly(addDays(today, 3), { name: "Rythme abîmé" }))))
+    await h.d1.prepare(`UPDATE schedules SET recurrence = '{"unit":"fortnight","interval":1}' WHERE id = ?`).bind(id).run()
+    try {
+      await expect(h.run(Schedules.use((s) => s.list))).rejects.toThrow()
+    } finally {
+      await h.run(Schedules.use((s) => s.remove(id)))
+    }
   })
 })

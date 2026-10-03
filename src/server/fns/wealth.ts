@@ -2,6 +2,7 @@ import { createServerFn } from "@tanstack/react-start"
 import { Schema } from "effect"
 import { authMiddleware } from "../auth"
 import { runApp } from "../runtime"
+import { AssetType, RetainedValue } from "../schemas"
 import { MarketData } from "../services/market-data"
 import { Wealth } from "../services/wealth"
 
@@ -31,11 +32,11 @@ export const AssetSource = Schema.Union([
 
 const AssetInput = Schema.Struct({
   name: Schema.String,
-  type: Schema.Literals(["real_estate", "investment", "crypto", "vehicle", "watch", "art", "cash", "loan", "other"]),
+  type: AssetType,
   subtitle: Schema.NullOr(Schema.String),
   purchase: DatedAmount,
   declared: DatedAmount,
-  retained: Schema.Literals(["purchase", "declared", "estimated"]),
+  retained: RetainedValue,
   source: AssetSource,
   notes: Schema.NullOr(Schema.String),
 })

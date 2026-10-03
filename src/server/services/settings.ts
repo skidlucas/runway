@@ -1,5 +1,5 @@
 import { eq } from "drizzle-orm"
-import { Context, Effect, Layer } from "effect"
+import { Clock, Context, Effect, Layer, Schema } from "effect"
 import { type Day, todayIn } from "~/domain/dates"
 import { Db, type DbError } from "../db/client"
 import { settings } from "../db/schema"
@@ -16,6 +16,16 @@ const DEFAULTS: AppSettings = {
   startingBalanceCategoryId: null,
   aiEnabled: true,
 }
+
+// A stored value of the wrong shape (older version, manual edit) falls back to the default.
+const isValid = {
+  timeZone: Schema.is(Schema.String),
+  startingBalanceCategoryId: Schema.is(Schema.NullOr(Schema.String)),
+  aiEnabled: Schema.is(Schema.Boolean),
+} satisfies { [K in keyof AppSettings]: (value: unknown) => value is AppSettings[K] }
+
+const valueOf = <K extends keyof AppSettings>(key: K, value: unknown): AppSettings[K] =>
+  (isValid[key] as (value: unknown) => value is AppSettings[K])(value) ? value : DEFAULTS[key]
 
 export class Settings extends Context.Service<
   Settings,
@@ -35,24 +45,24 @@ export class Settings extends Context.Service<
         .use((orm) => orm.select().from(settings))
         .pipe(
           Effect.map((rows) => {
-            const out: AppSettings = { ...DEFAULTS }
-            for (const row of rows) {
-              if (row.key in out) (out as Record<string, unknown>)[row.key] = row.value
-            }
-            return out
+            const stored = new Map(rows.map((r) => [r.key, r.value]))
+            const keys = Object.keys(DEFAULTS) as Array<keyof AppSettings>
+            return Object.fromEntries(keys.map((key) => [key, valueOf(key, stored.get(key))])) as AppSettings
           }),
         )
       const get = <K extends keyof AppSettings>(key: K) =>
         db
           .use((orm) => orm.select().from(settings).where(eq(settings.key, key)).get())
-          .pipe(Effect.map((row) => (row ? (row.value as AppSettings[K]) : DEFAULTS[key])))
+          .pipe(Effect.map((row) => (row ? valueOf(key, row.value) : DEFAULTS[key])))
       const set = <K extends keyof AppSettings>(key: K, value: AppSettings[K]) =>
         db
           .use((orm) =>
             orm.insert(settings).values({ key, value }).onConflictDoUpdate({ target: settings.key, set: { value } }),
           )
           .pipe(Effect.asVoid)
-      const today = get("timeZone").pipe(Effect.map((tz) => todayIn(tz)))
+      const today = Effect.all([get("timeZone"), Clock.currentTimeMillis], { concurrency: "unbounded" }).pipe(
+        Effect.map(([tz, now]) => todayIn(tz, new Date(now))),
+      )
       return Settings.of({ all, get, set, today })
     }),
   )
