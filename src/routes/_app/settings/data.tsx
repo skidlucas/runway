@@ -20,7 +20,7 @@ import {
   parseOfx,
   parseQif,
 } from "~/lib/importers/bank"
-import { q } from "~/lib/queries"
+import { q, useAction } from "~/lib/queries"
 import { backupToBundle, isRunwayBackup, type RunwayBackup } from "~/lib/runway-backup"
 import { downloadFile, loadSqlJs } from "~/lib/sqljs"
 import {
@@ -617,6 +617,7 @@ function DangerZone() {
   const [confirm, setConfirm] = React.useState("")
   const [open, setOpen] = React.useState(false)
   const [busy, setBusy] = React.useState(false)
+  const demo = useAction(seedDemo, { success: (r) => `Démo chargée : ${count(r.transactions, "opération")}` })
   return (
     <section className="flex flex-col gap-3">
       <div className="flex flex-col gap-1">
@@ -624,17 +625,7 @@ function DangerZone() {
         <p className="text-muted">Pour repartir de zéro, ou tester avec des données de démonstration.</p>
       </div>
       <div className="flex flex-wrap gap-2">
-        <Button
-          onClick={async () => {
-            try {
-              const r = await seedDemo()
-              await client.invalidateQueries()
-              toast(`Démo chargée : ${count(r.transactions, "opération")}`)
-            } catch (error) {
-              toastError(error)
-            }
-          }}
-        >
+        <Button onClick={() => demo.mutate(undefined)} loading={demo.isPending}>
           Charger des données de démonstration
         </Button>
         <Button

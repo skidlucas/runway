@@ -47,9 +47,21 @@ export class Demo extends Context.Service<
       const schedules = yield* Schedules
       const transactions = yield* Transactions
 
-      const seed = Effect.gen(function* () {
-        const existing = yield* accounts.list
-        if (existing.length > 0) return yield* new Invalid({ message: "Les données de démo ne s'ajoutent qu'à un budget vide" })
+      // The budget had no account before the seed: whatever hangs off an account is the demo's.
+      // Without this, a seed failing halfway would leave accounts behind and the empty-budget
+      // check would refuse every retry.
+      const undo = db
+        .batch(
+          [
+            "DELETE FROM transactions",
+            "DELETE FROM schedules",
+            "DELETE FROM payees WHERE transfer_account_id IS NOT NULL",
+            "DELETE FROM accounts",
+          ].map((sql) => db.d1.prepare(sql)),
+        )
+        .pipe(Effect.ignore({ log: "Warn", message: "Démo non nettoyée après un échec" }))
+
+      const populate = Effect.gen(function* () {
         const today = yield* settings.today
         const currentMonth = today.slice(0, 7)
         const firstMonth = addMonths(currentMonth, -12)
@@ -120,7 +132,7 @@ export class Demo extends Context.Service<
             return id ? [[month, id, amount]] : []
           }),
         )
-        yield* db.batch(bulkInsertStatements(db.d1, "budgets", ["month", "category_id", "amount"], budgetRows))
+        yield* db.batch(bulkInsertStatements(db.d1, "budgets", ["month", "category_id", "amount"], budgetRows, "replace"))
         for (const month of monthRange(firstMonth, currentMonth)) {
           // Put 500 € a month aside on the Livret A.
           const date = `${month}-03`
@@ -158,6 +170,12 @@ export class Demo extends Context.Service<
           })
         }
         return { transactions: rows.length }
+      }).pipe(Effect.onError(() => undo))
+
+      const seed = Effect.gen(function* () {
+        const existing = yield* accounts.list
+        if (existing.length > 0) return yield* new Invalid({ message: "Les données de démo ne s'ajoutent qu'à un budget vide" })
+        return yield* populate
       }).pipe(Effect.withSpan("Demo.seed"))
 
       return Demo.of({ seed })

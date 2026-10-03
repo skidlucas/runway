@@ -186,6 +186,20 @@ describe("demo data", () => {
       await fresh.dispose()
     }
   })
+
+  it("can be loaded again after failing halfway", async () => {
+    const fresh = await createHarness()
+    try {
+      const { Demo } = await import("~/server/services/demo")
+      await fresh.d1.prepare("CREATE TRIGGER no_schedules BEFORE INSERT ON schedules BEGIN SELECT RAISE(ABORT, 'boom'); END").run()
+      await expect(fresh.run(Demo.use((d) => d.seed))).rejects.toThrow()
+      expect(await fresh.run(Accounts.use((a) => a.list))).toHaveLength(0)
+      await fresh.d1.prepare("DROP TRIGGER no_schedules").run()
+      expect((await fresh.run(Demo.use((d) => d.seed))).transactions).toBeGreaterThan(150)
+    } finally {
+      await fresh.dispose()
+    }
+  })
 })
 
 describe("settings", () => {
