@@ -37,7 +37,7 @@ export const q = {
       initialPageParam: 0,
       getNextPageParam: (last, pages) => {
         const loaded = pages.reduce((n, p) => n + p.rows.length, 0)
-        return last.rows.length > 0 && loaded < last.total ? loaded : undefined
+        return last.rows.length > 0 && loaded < (pages[0]?.total ?? 0) ? loaded : undefined
       },
       placeholderData: (prev) => prev,
     }),

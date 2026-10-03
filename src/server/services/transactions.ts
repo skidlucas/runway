@@ -113,7 +113,8 @@ export type TxFilter = {
   readonly offset?: number
 }
 
-export type TxPage = { rows: TxRow[]; total: number; children: Record<string, TxRow[]> }
+/** `total` is only counted for the first page: the register keeps it while scrolling, and a count over the whole filter costs as much as the page itself. */
+export type TxPage = { rows: TxRow[]; total: number | null; children: Record<string, TxRow[]> }
 
 const SELECT_ROW = `
   t.id, t.account_id AS accountId, a.name AS accountName, t.date, t.amount,
@@ -237,11 +238,11 @@ export class Transactions extends Context.Service<
                  ORDER BY t.date DESC, t.created_at DESC, t.id DESC LIMIT ? OFFSET ?`,
               )
               .bind(...params, limit, offset),
-            d1.prepare(`SELECT COUNT(*) AS n ${countFrom} ${whereSql}`).bind(...params),
+            ...(offset === 0 ? [d1.prepare(`SELECT COUNT(*) AS n ${countFrom} ${whereSql}`).bind(...params)] : []),
           ])
           return {
             rows: (page?.results as RawRow[] | undefined) ?? [],
-            total: ((count?.results?.[0] as { n: number } | undefined)?.n ?? 0) as number,
+            total: count ? (((count.results?.[0] as { n: number } | undefined)?.n ?? 0) as number) : null,
           }
         })
 

@@ -149,6 +149,14 @@ describe("core flows on D1", () => {
     expect(spent(ids.transport)).toBe(5830 + 4000)
   })
 
+  it("counts the register only on its first page", async () => {
+    const first = await h.run(Transactions.use((t) => t.list({ accountId: ids.checking, limit: 2 })))
+    const next = await h.run(Transactions.use((t) => t.list({ accountId: ids.checking, limit: 2, offset: 2 })))
+    expect(first.total).toBeGreaterThan(2)
+    expect(next.rows).toHaveLength(2)
+    expect(next.total).toBeNull()
+  })
+
   it("reconciles an account and books the difference", async () => {
     await h.run(Transactions.use((t) => t.list({ accountId: ids.checking })).pipe(Effect.flatMap((p) => Transactions.use((t) => t.setCleared(p.rows.map((r) => r.id), true)))))
     const before = (await h.run(Accounts.use((a) => a.list))).find((a) => a.id === ids.checking)!
