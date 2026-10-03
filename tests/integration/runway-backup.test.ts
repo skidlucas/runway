@@ -2,12 +2,15 @@ import { Effect } from "effect"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import { runBundleImport } from "~/lib/import-client"
 import { backupToBundle, type RunwayBackup } from "~/lib/runway-backup"
+import { Accounts } from "~/server/services/accounts"
 import { Categories } from "~/server/services/categories"
 import { Dashboards, DEFAULT_WIDGETS, MAIN_DASHBOARD_ID } from "~/server/services/dashboards"
 import { Demo } from "~/server/services/demo"
 import { ImportExport } from "~/server/services/import-export"
 import { Insights } from "~/server/services/insights"
 import { Payees } from "~/server/services/payees"
+import { Rules } from "~/server/services/rules"
+import { Schedules } from "~/server/services/schedules"
 import { Wealth } from "~/server/services/wealth"
 import { createHarness, type Harness } from "./harness"
 
@@ -120,6 +123,64 @@ describe("Runway backup", () => {
       ])
     } finally {
       await fresh.dispose()
+    }
+  })
+})
+
+describe("Runway backup settings", () => {
+  it("brings back rule order and state, schedule links and account settings", async () => {
+    const source = await createHarness()
+    const target = await createHarness()
+    try {
+      const account = await source.run(
+        Accounts.use((a) => a.create({ name: "Courant", kind: "checking", offBudget: false, startingBalance: 0, startingDate: "2026-01-01" })),
+      )
+      await source.d1.prepare("UPDATE accounts SET in_forecast = 0, last_reconciled_at = '2026-09-30' WHERE id = ?").bind(account).run()
+      const [store] = await source.run(Payees.use((p) => p.resolveNames(["Amazon"]))).then((m) => [...m.values()])
+      const rule = (value: string) =>
+        source.run(
+          Rules.use((r) =>
+            r.create({ conditionsOp: "and", conditions: [{ field: "imported_payee", op: "contains", value }], actions: [{ type: "set_payee", payeeId: store! }] }),
+          ),
+        )
+      const broad = await rule("amazon")
+      const narrow = await rule("amazon prime")
+      await source.run(Rules.use((r) => r.reorder([narrow.id, broad.id])))
+      await source.d1.prepare("UPDATE rules SET enabled = 0 WHERE id = ?").bind(broad.id).run()
+      const schedule = await source.run(
+        Schedules.use((s) =>
+          s.create({
+            name: "Loyer",
+            payee: { kind: "name", name: "Propriétaire" },
+            accountId: account,
+            categoryId: null,
+            amount: -80_000,
+            recurrence: { unit: "month", interval: 1 },
+            startDate: "2026-09-05",
+            autoPost: false,
+          }),
+        ),
+      )
+      await source.run(Schedules.use((s) => s.post(schedule, "2026-09-05")))
+
+      const meta = await source.run(ImportExport.use((s) => s.exportMeta))
+      const transactions = await source.run(ImportExport.use((s) => s.exportTransactions(null, 20_000)))
+      await restore(target, { ...meta, format: "runway-backup", transactions })
+
+      const rules = await target.run(Rules.use((r) => r.list))
+      expect(rules.map((r) => [r.conditions[0]?.value, r.enabled])).toEqual([
+        ["amazon prime", true],
+        ["amazon", false],
+      ])
+      const booked = await target.d1.prepare("SELECT schedule_id AS s FROM transactions WHERE amount = -80000").first<{ s: string | null }>()
+      expect(booked?.s).toBe(schedule)
+      const restored = await target.d1
+        .prepare("SELECT in_forecast AS f, last_reconciled_at AS r FROM accounts WHERE name = 'Courant'")
+        .first<{ f: number; r: string | null }>()
+      expect(restored).toEqual({ f: 0, r: "2026-09-30" })
+    } finally {
+      await source.dispose()
+      await target.dispose()
     }
   })
 })

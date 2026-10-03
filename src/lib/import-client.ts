@@ -38,6 +38,7 @@ export const toImportRows = (transactions: ReadonlyArray<BundleTransaction>, map
         importedId: t.importedId,
         importedPayee: t.importedPayee,
         startingBalance: t.startingBalance,
+        scheduleId: t.scheduleId ?? null,
         createdAt: t.createdAt ?? null,
       },
     ]

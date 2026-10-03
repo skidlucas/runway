@@ -5,7 +5,16 @@ import type { ExportMeta } from "~/server/services/import-export"
 // Source-agnostic description of data to import. Ids are the source ids: they are
 // kept when free, which makes re-importing the same file idempotent.
 
-export type BundleAccount = { id: string; name: string; offBudget: boolean; closed: boolean; kind?: string }
+export type BundleAccount = {
+  id: string
+  name: string
+  offBudget: boolean
+  closed: boolean
+  kind?: string
+  /** Runway backups only. */
+  inForecast?: boolean
+  lastReconciledAt?: string | null
+}
 export type BundleGroup = { id: string; name: string; isIncome: boolean; hidden: boolean; sortOrder: number }
 export type BundleCategory = {
   id: string
@@ -32,6 +41,8 @@ export type BundleTransaction = {
   importedId: string | null
   importedPayee: string | null
   startingBalance: boolean
+  /** Runway backups only: the schedule this operation was booked from. */
+  scheduleId?: string | null
   /** Orders the operations of a same day; the server stamps them itself when absent. */
   createdAt?: string | null
 }
@@ -41,6 +52,8 @@ export type BundleRule = {
   conditions: RuleCondition[]
   /** Payee and category ids in actions are source ids. */
   actions: RuleAction[]
+  /** Runway backups only; imported rules are enabled otherwise. */
+  enabled?: boolean
 }
 export type BundleSchedule = {
   id: string

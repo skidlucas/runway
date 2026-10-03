@@ -31,6 +31,8 @@ export type ImportRow = {
   importedId?: string | null
   importedPayee?: string | null
   startingBalance?: boolean
+  /** Dropped when no such schedule exists. */
+  scheduleId?: string | null
   /** Orders the operations of a same day: newest stamp first in the register. */
   createdAt?: string | null
 }
@@ -85,6 +87,7 @@ const TX_COLUMNS = [
   "imported_id",
   "imported_payee",
   "starting_balance",
+  "schedule_id",
   "created_at",
 ] as const
 
@@ -169,10 +172,24 @@ export class ImportExport extends Context.Service<
           accountMap[a.id] = id
           accountByName.set(normalizeText(a.name), id)
           const kind = ACCOUNT_KINDS.has(a.kind ?? "") ? a.kind : a.offBudget ? "savings" : "checking"
-          newAccounts.push([id, a.name, kind, bool(a.offBudget), bool(a.closed), bool(!a.offBudget), ++order])
+          newAccounts.push([
+            id,
+            a.name,
+            kind,
+            bool(a.offBudget),
+            bool(a.closed),
+            bool(a.inForecast ?? !a.offBudget),
+            ++order,
+            a.lastReconciledAt ?? null,
+          ])
         }
         writes.push(
-          ...bulkInsertStatements(db.d1, "accounts", ["id", "name", "kind", "off_budget", "closed", "in_forecast", "sort_order"], newAccounts),
+          ...bulkInsertStatements(
+            db.d1,
+            "accounts",
+            ["id", "name", "kind", "off_budget", "closed", "in_forecast", "sort_order", "last_reconciled_at"],
+            newAccounts,
+          ),
         )
 
         // Groups and categories: matched by name (categories within their group first).
@@ -300,7 +317,7 @@ export class ImportExport extends Context.Service<
             // A rule Runway cannot run (empty condition, broken regex) is left behind rather than failing the import.
             if (seen.has(key) || ruleInputError({ conditionsOp: rule.conditionsOp, conditions, actions })) continue
             seen.add(key)
-            newRules.push([newId(), rule.conditionsOp, JSON.stringify(conditions), JSON.stringify(actions), 1, "imported", ++sortOrder])
+            newRules.push([newId(), rule.conditionsOp, JSON.stringify(conditions), JSON.stringify(actions), bool(rule.enabled ?? true), "imported", ++sortOrder])
           }
           writes.push(
             ...bulkInsertStatements(db.d1, "rules", ["id", "conditions_op", "conditions", "actions", "enabled", "origin", "sort_order"], newRules),
@@ -434,6 +451,19 @@ export class ImportExport extends Context.Service<
           }
         }
         const kept = rows.filter((r) => !skip.has(r.id) && !(r.parentId && skip.has(r.parentId)))
+        const scheduleIds = [...new Set(kept.flatMap((r) => (r.scheduleId ? [r.scheduleId] : [])))]
+        const schedules =
+          scheduleIds.length === 0
+            ? new Set<string>()
+            : yield* db
+                .use((_, d1) =>
+                  d1.batch(
+                    chunkRows(scheduleIds).map((chunk) =>
+                      d1.prepare("SELECT id FROM schedules WHERE id IN (SELECT value FROM json_each(?))").bind(JSON.stringify(chunk)),
+                    ),
+                  ),
+                )
+                .pipe(Effect.map((results) => new Set(results.flatMap((r) => [...ids(r)]))))
 
         if (options.applyRules) {
           const match = yield* rulesService.matcher
@@ -477,6 +507,7 @@ export class ImportExport extends Context.Service<
           r.importedId ?? null,
           r.importedPayee ?? null,
           r.startingBalance ? 1 : 0,
+          r.scheduleId && schedules.has(r.scheduleId) ? r.scheduleId : null,
           r.createdAt && STAMP.test(r.createdAt) ? r.createdAt : fallback[i],
         ])
         yield* db.batch(bulkInsertStatements(db.d1, "transactions", TX_COLUMNS, values, "ignore"))
@@ -641,7 +672,7 @@ export class ImportExport extends Context.Service<
               orm.select().from(schema.payees),
               orm.select().from(schema.budgets),
               orm.select().from(schema.budgetMonths),
-              orm.select().from(schema.rules),
+              orm.select().from(schema.rules).orderBy(schema.rules.sortOrder),
               orm.select().from(schema.schedules),
               orm.select().from(schema.assets),
               orm.select().from(schema.assetValuations),
