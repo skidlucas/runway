@@ -1,10 +1,12 @@
 import { createServerFn } from "@tanstack/react-start"
 import { Effect, Schema } from "effect"
+import { addDays } from "~/domain/dates"
 import { RECURRENCE_UNITS } from "~/domain/recurrence"
 import { authMiddleware } from "../auth"
+import { Invalid } from "../errors"
 import { runApp } from "../runtime"
 import { ForecastService } from "../services/forecast"
-import { Schedules } from "../services/schedules"
+import { registerRows, Schedules } from "../services/schedules"
 import { Settings } from "../services/settings"
 
 const v = Schema.toStandardSchemaV1
@@ -45,6 +47,21 @@ export const getUpcoming = createServerFn({ method: "GET" })
   .middleware([authMiddleware])
   .validator(v(Schema.Struct({ accountId: Schema.optional(Schema.String), days: Schema.Int })))
   .handler(({ data }) => runApp(ForecastService.use((s) => s.upcoming(data))))
+
+/** Schedule occurrences shown as forecast lines at the top of a register. */
+export const getScheduledRows = createServerFn({ method: "GET" })
+  .middleware([authMiddleware])
+  .validator(v(Schema.Struct({ accountId: Schema.optional(Schema.String), days: Schema.Int })))
+  .handler(({ data }) =>
+    runApp(
+      Effect.gen(function* () {
+        if (data.days < 0 || data.days > 366) return yield* new Invalid({ message: "Période invalide" })
+        const today = yield* (yield* Settings).today
+        const occurrences = yield* Schedules.use((s) => s.occurrences(today, addDays(today, data.days)))
+        return { today, rows: registerRows(occurrences, data.accountId ?? null) }
+      }),
+    ),
+  )
 
 export const getSchedules = createServerFn({ method: "GET" })
   .middleware([authMiddleware])

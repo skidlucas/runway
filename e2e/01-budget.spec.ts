@@ -92,7 +92,7 @@ test("keeps today's balance apart from operations dated later", async ({ page })
   const main = page.getByRole("main")
   await expect(main.getByText("Aujourd'hui", { exact: true }).locator("..")).toContainText("1 457,50 €")
   await expect(main.getByText("Avec les opérations à venir").locator("..")).toContainText("1 447,50 €")
-  await expect(main.getByRole("listitem").filter({ hasText: "Pressing" })).toContainText("−10,00 €")
+  await expect(page.getByTestId("tx-row").filter({ hasText: "Pressing" })).toContainText("−10,00 €")
 })
 
 test("moves an operation to another day from the register", async ({ page }) => {
@@ -109,7 +109,7 @@ test("moves an operation to another day from the register", async ({ page }) => 
   await page.keyboard.press("Escape")
 })
 
-test("plans a one-off schedule and shows it in the next days and the account forecast", async ({ page }) => {
+test("plans a one-off schedule and shows it in the register and the account forecast", async ({ page }) => {
   await open(page, "/schedules")
   await page.getByRole("button", { name: "Nouvelle échéance" }).first().click()
   const dialog = page.getByRole("dialog", { name: "Nouvelle échéance" })
@@ -123,9 +123,12 @@ test("plans a one-off schedule and shows it in the next days and the account for
   await waitForToast(page, "Échéance créée")
 
   await openJointAccount(page)
-  const item = page.getByRole("main").getByRole("listitem").filter({ hasText: "Dentiste" })
-  await expect(item).toContainText("Échéance")
-  await expect(item).toContainText("−60,00 €")
+  const line = page.getByTestId("scheduled-row").filter({ hasText: "Dentiste" })
+  await expect(line).toContainText("Échéance")
+  await expect(line).toContainText("−60,00 €")
+  await page.getByLabel("Rechercher une opération").fill("Pressing")
+  await expect(line).toHaveCount(0)
+  await page.getByLabel("Rechercher une opération").fill("")
 
   await open(page, "/forecast")
   await expect(page.getByText("Comptes inclus : Compte joint")).toBeVisible()

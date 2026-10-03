@@ -3,6 +3,7 @@ import { createFileRoute, Link, useNavigate } from "@tanstack/react-router"
 import { useWindowVirtualizer, type VirtualItem } from "@tanstack/react-virtual"
 import {
   CalendarClock,
+  Check,
   ChevronDown,
   ChevronRight,
   Copy,
@@ -11,6 +12,7 @@ import {
   Pencil,
   Plus,
   Search,
+  SkipForward,
   Split,
   Trash2,
   Wand2,
@@ -27,7 +29,6 @@ import {
   useCategorySuggestions,
 } from "~/components/category-suggestions"
 import { ScheduleDialog } from "~/components/schedule-dialog"
-import { UpcomingList } from "~/components/upcoming-list"
 import { PageHeader, useAppUi } from "~/components/shell"
 import {
   RuleFromTransactionDialog,
@@ -36,7 +37,7 @@ import {
   payeeValueOf,
   useDeleteTransactions,
 } from "~/components/transaction-editor"
-import { Button, Calendar, Checkbox, cx, DateInput, Dialog, EmptyState, IconButton, Input, Kpi, Menu, Money, Popover, SkeletonRows } from "~/components/ui"
+import { Button, Calendar, Checkbox, Chip, cx, DateInput, Dialog, EmptyState, IconButton, Input, Kpi, Menu, Money, Popover, SkeletonRows } from "~/components/ui"
 import { type Day, formatDayLong, formatDayShort, formatMonthLong, parseDayInput } from "~/domain/dates"
 import { amountInput, formatMoney, parseAmount } from "~/domain/money"
 import { shortcutBlocked, useDebounced, useIsMobile, useToday } from "~/lib/hooks"
@@ -49,7 +50,9 @@ import {
   setTransactionsCleared,
   updateTransaction,
 } from "~/server/fns/core"
+import { postSchedule, skipSchedule } from "~/server/fns/planning"
 import type { AccountDto } from "~/server/services/accounts"
+import type { ScheduledRow } from "~/server/services/schedules"
 import type { TxPage, TxRow } from "~/server/services/transactions"
 import { count } from "~/domain/text"
 
@@ -148,6 +151,10 @@ function AccountPage({ accountId }: { accountId: string }) {
   const categoryName = categories.data?.flatMap((g) => g.categories).find((c) => c.id === search.categoryId)?.name
   const title = all ? "Toutes les opérations" : (account?.name ?? "Compte")
   const hasFilters = search.categoryId || search.month || search.uncategorized
+  // Schedules due soon read as forecast lines among the operations, unless the list is filtered.
+  const showScheduled = !hasFilters && !debounced.trim()
+  const scheduledQuery = useQuery({ ...q.scheduledRows({ ...(all ? {} : { accountId }), days: DAYS_AHEAD }), enabled: showScheduled })
+  const scheduled = showScheduled ? (scheduledQuery.data?.rows ?? NO_SCHEDULED) : NO_SCHEDULED
   const suggestions = useCategorySuggestions(rows)
 
   return (
@@ -236,7 +243,7 @@ function AccountPage({ accountId }: { accountId: string }) {
       <SuggestionsProvider s={suggestions}>
       {!txs.data ? (
         <SkeletonRows rows={14} />
-      ) : rows.length === 0 ? (
+      ) : rows.length === 0 && scheduled.length === 0 ? (
         <EmptyState
           title={hasFilters || debounced ? "Aucune opération ne correspond." : "Aucune opération sur ce compte."}
           action={
@@ -246,10 +253,11 @@ function AccountPage({ accountId }: { accountId: string }) {
           }
         />
       ) : mobile ? (
-        <MobileList rows={rows} childrenByParent={childrenByParent} onReachEnd={loadMore} />
+        <MobileList rows={rows} scheduled={scheduled} childrenByParent={childrenByParent} onReachEnd={loadMore} />
       ) : (
         <TransactionTable
           rows={rows}
+          scheduled={scheduled}
           childrenByParent={childrenByParent}
           showAccount={all}
           showBalance={rows[0]?.balance !== null}
@@ -282,18 +290,18 @@ const FilterChip = ({ label, onClear }: { label: string; onClear: () => void }) 
   </span>
 )
 
-// --- Balances and the days ahead ----------------------------------------------------
+// --- Balances ----------------------------------------------------
 
 const DAYS_AHEAD = 7
+const NO_SCHEDULED: ScheduledRow[] = []
 
 function AccountSummary({ account }: { account: AccountDto }) {
   const forecast = useQuery(q.forecast({ accountId: account.id }))
-  const upcoming = useQuery(q.upcoming({ accountId: account.id, days: DAYS_AHEAD }))
   const booked = account.balance - account.balanceToday
   const f = forecast.data?.accountId === account.id ? forecast.data : undefined
   return (
-    <div className="grid grid-cols-[minmax(0,3fr)_minmax(0,2fr)] border-b border-line">
-      <div className="grid grid-cols-3 gap-4 border-r border-line px-5 py-4">
+    <div className="border-b border-line">
+      <div className="grid grid-cols-3 gap-4 px-5 py-4">
         <Kpi label="Aujourd'hui" value={formatMoney(account.balanceToday)} valueClassName={cx("text-[20px]", account.balanceToday < 0 && "text-negative")} />
         <Kpi
           label="Avec les opérations à venir"
@@ -316,17 +324,12 @@ function AccountSummary({ account }: { account: AccountDto }) {
           }
         />
       </div>
-      <div className="flex min-w-0 flex-col px-5 py-3">
-        <span className="pb-1 text-[12px] text-faint">{DAYS_AHEAD} prochains jours</span>
-        <UpcomingList items={upcoming.data?.items} today={upcoming.data?.today} limit={4} />
-      </div>
     </div>
   )
 }
 
 function MobileAccountSummary({ account }: { account: AccountDto }) {
   const forecast = useQuery(q.forecast({ accountId: account.id }))
-  const upcoming = useQuery(q.upcoming({ accountId: account.id, days: DAYS_AHEAD }))
   const f = forecast.data?.accountId === account.id ? forecast.data : undefined
   return (
     <div className="flex flex-col gap-1 border-b border-line px-5 pb-4">
@@ -335,12 +338,6 @@ function MobileAccountSummary({ account }: { account: AccountDto }) {
         {account.balance !== account.balanceToday ? `${formatMoney(account.balance)} avec les opérations à venir` : "Aujourd'hui"}
         {f ? ` · ${formatMoney(f.projectedEndBalance)} prévus en fin de mois` : ""}
       </span>
-      {upcoming.data && upcoming.data.items.length > 0 ? (
-        <div className="pt-3">
-          <span className="text-[12px] text-faint">{DAYS_AHEAD} prochains jours</span>
-          <UpcomingList items={upcoming.data.items} today={upcoming.data.today} limit={3} />
-        </div>
-      ) : null}
     </div>
   )
 }
@@ -422,12 +419,43 @@ function useWindowList(options: {
   return { ref, virtualizer, items, offset: (item: VirtualItem) => item.start - scrollMargin }
 }
 
+/** Each schedule line goes above the operations of its day; both lists are newest first. */
+function interleave<T>(rows: TxRow[], scheduled: ScheduledRow[], ofTx: (tx: TxRow) => T[], ofScheduled: (row: ScheduledRow) => T): T[] {
+  const out: T[] = []
+  let i = 0
+  for (const tx of rows) {
+    while (i < scheduled.length && scheduled[i]!.date >= tx.date) out.push(ofScheduled(scheduled[i++]!))
+    out.push(...ofTx(tx))
+  }
+  while (i < scheduled.length) out.push(ofScheduled(scheduled[i++]!))
+  return out
+}
+
+const scheduledKey = (row: ScheduledRow) => `schedule:${row.scheduleId}:${row.date}${row.overdue ? ":late" : ""}`
+
+function useScheduledRow(row: ScheduledRow) {
+  const post = useAction(postSchedule, { success: "Opération enregistrée" })
+  const skip = useAction(skipSchedule, { success: "Échéance passée" })
+  const categories = useQuery(q.categories())
+  const accounts = useQuery(q.accounts())
+  const category = row.categoryId ? categories.data?.flatMap((g) => g.categories).find((c) => c.id === row.categoryId)?.name : undefined
+  return {
+    busy: post.isPending || skip.isPending,
+    post: () => post.mutate({ data: { id: row.scheduleId } }),
+    skip: () => skip.mutate({ data: { id: row.scheduleId } }),
+    category: category ?? (row.transferAccountId ? "Virement" : "Hors budget"),
+    account: accounts.data?.find((a) => a.id === row.accountId)?.name ?? "",
+    date: row.overdue ? "en retard" : formatDayShort(row.date),
+  }
+}
+
 // --- Desktop table -----------------------------------------------------------------
 
-type Line = { kind: "tx"; tx: TxRow } | { kind: "split"; tx: TxRow }
+type Line = { kind: "tx"; tx: TxRow } | { kind: "split"; tx: TxRow } | { kind: "scheduled"; row: ScheduledRow }
 
 function TransactionTable({
   rows,
+  scheduled,
   childrenByParent,
   showAccount,
   showBalance,
@@ -437,6 +465,7 @@ function TransactionTable({
   onReachEnd,
 }: {
   rows: TxRow[]
+  scheduled: ScheduledRow[]
   childrenByParent: Record<string, TxRow[]>
   showAccount: boolean
   showBalance: boolean
@@ -478,17 +507,24 @@ function TransactionTable({
   )
   const lines = React.useMemo(
     () =>
-      rows.flatMap((tx): Line[] =>
-        tx.isParent && expanded.has(tx.id)
-          ? [{ kind: "tx", tx }, ...(childrenByParent[tx.id] ?? []).map((child): Line => ({ kind: "split", tx: child }))]
-          : [{ kind: "tx", tx }],
+      interleave<Line>(
+        rows,
+        scheduled,
+        (tx) =>
+          tx.isParent && expanded.has(tx.id)
+            ? [{ kind: "tx", tx }, ...(childrenByParent[tx.id] ?? []).map((child): Line => ({ kind: "split", tx: child }))]
+            : [{ kind: "tx", tx }],
+        (row) => ({ kind: "scheduled", row }),
       ),
-    [rows, expanded, childrenByParent],
+    [rows, scheduled, expanded, childrenByParent],
   )
   const list = useWindowList({
     count: lines.length,
     estimateSize: (i) => (lines[i]?.kind === "split" ? 32 : 36),
-    getItemKey: (i) => lines[i]?.tx.id ?? String(i),
+    getItemKey: (i) => {
+      const line = lines[i]
+      return !line ? String(i) : line.kind === "scheduled" ? scheduledKey(line.row) : line.tx.id
+    },
     onReachEnd,
   })
   return (
@@ -513,6 +549,9 @@ function TransactionTable({
           const line = lines[item.index]
           if (!line) return null
           const top = list.offset(item)
+          if (line.kind === "scheduled") {
+            return <ScheduledLine key={item.key} row={line.row} columns={columns} showAccount={showAccount} showBalance={showBalance && !showAccount} top={top} />
+          }
           return line.kind === "split" ? (
             <SplitRow key={item.key} tx={line.tx} columns={columns} showAccount={showAccount} showBalance={showBalance && !showAccount} top={top} />
           ) : (
@@ -534,6 +573,53 @@ function TransactionTable({
           )
         })}
       </div>
+    </div>
+  )
+}
+
+function ScheduledLine({
+  row,
+  columns,
+  showAccount,
+  showBalance,
+  top,
+}: {
+  row: ScheduledRow
+  columns: string
+  showAccount: boolean
+  showBalance: boolean
+  top: number
+}) {
+  const s = useScheduledRow(row)
+  return (
+    <div
+      role="row"
+      data-testid="scheduled-row"
+      className={cx(columns, "group absolute inset-x-0 top-0 h-9 border-b border-line-subtle px-5 text-muted hover:bg-hover")}
+      style={{ transform: `translateY(${top}px)` }}
+    >
+      <CalendarClock size={13} className="text-faint" aria-label="Échéance" />
+      <span className={cx("num text-[12px]", row.overdue && "text-warning")}>{s.date}</span>
+      <span className="flex min-w-0 items-center gap-2">
+        <span className="truncate italic">{row.name}</span>
+        <Chip>Échéance</Chip>
+        {row.next ? (
+          <span className="ml-auto flex shrink-0 gap-1 opacity-0 focus-within:opacity-100 group-hover:opacity-100">
+            <Button size="sm" variant="ghost" disabled={s.busy} onClick={s.skip}>
+              Passer
+            </Button>
+            <Button size="sm" disabled={s.busy} onClick={s.post}>
+              Enregistrer
+            </Button>
+          </span>
+        ) : null}
+      </span>
+      <span className="truncate">{s.category}</span>
+      {showAccount ? <span className="truncate">{s.account}</span> : null}
+      <Money value={row.amount} sign="always" className="text-right italic" />
+      {showBalance ? <span /> : null}
+      <span />
+      <span />
     </div>
   )
 }
@@ -798,12 +884,16 @@ function InlineAmount({ tx }: { tx: TxRow }) {
 
 // --- Mobile list -----------------------------------------------------------------
 
+type MobileLine = { kind: "tx"; tx: TxRow } | { kind: "scheduled"; row: ScheduledRow }
+
 function MobileList({
   rows,
+  scheduled,
   childrenByParent,
   onReachEnd,
 }: {
   rows: TxRow[]
+  scheduled: ScheduledRow[]
   childrenByParent: Record<string, TxRow[]>
   onReachEnd: () => void
 }) {
@@ -811,18 +901,25 @@ function MobileList({
   const [categorizing, setCategorizing] = React.useState<TxRow | null>(null)
   const remove = useDeleteTransactions()
   const update = useAction(updateTransaction)
+  const lines = React.useMemo(
+    () => interleave<MobileLine>(rows, scheduled, (tx) => [{ kind: "tx", tx }], (row) => ({ kind: "scheduled", row })),
+    [rows, scheduled],
+  )
   const list = useWindowList({
-    count: rows.length,
+    count: lines.length,
     estimateSize: () => 64,
-    getItemKey: (i) => rows[i]?.id ?? String(i),
+    getItemKey: (i) => {
+      const line = lines[i]
+      return !line ? String(i) : line.kind === "scheduled" ? scheduledKey(line.row) : line.tx.id
+    },
     onReachEnd,
   })
   return (
     <div>
       <div ref={list.ref} className="relative" style={{ height: list.virtualizer.getTotalSize() }}>
         {list.items.map((item) => {
-          const tx = rows[item.index]
-          if (!tx) return null
+          const line = lines[item.index]
+          if (!line) return null
           return (
             <div
               key={item.key}
@@ -831,22 +928,26 @@ function MobileList({
               className="absolute inset-x-0 top-0"
               style={{ transform: `translateY(${list.offset(item)}px)` }}
             >
-              <SwipeRow
-                onOpen={() => setEditing(tx)}
-                actions={[
-                  { label: "Catégoriser", tone: "accent", run: () => setCategorizing(tx) },
-                  { label: "Supprimer", tone: "danger", run: () => remove.mutate([tx.id]) },
-                ]}
-              >
-                <button type="button" onClick={() => setEditing(tx)} className="flex min-w-0 flex-1 flex-col gap-0.5 text-left">
-                  <span className="truncate font-medium">{tx.payeeName ?? tx.notes ?? "—"}</span>
-                  <span className={cx("truncate text-[12px] text-faint", !tx.categoryId && !tx.transferAccountId && !tx.isParent && "text-warning")}>
-                    {formatDayShort(tx.date)} · {tx.isParent ? "Ventilée" : tx.transferAccountId && !tx.categoryId ? "Virement" : (tx.categoryName ?? "À catégoriser")}
-                  </span>
-                </button>
-                <SuggestionChip tx={tx} compact />
-                <Money value={tx.amount} sign="always" colored className="text-[14px]" />
-              </SwipeRow>
+              {line.kind === "scheduled" ? (
+                <MobileScheduledRow row={line.row} />
+              ) : (
+                <SwipeRow
+                  onOpen={() => setEditing(line.tx)}
+                  actions={[
+                    { label: "Catégoriser", tone: "accent", run: () => setCategorizing(line.tx) },
+                    { label: "Supprimer", tone: "danger", run: () => remove.mutate([line.tx.id]) },
+                  ]}
+                >
+                  <button type="button" onClick={() => setEditing(line.tx)} className="flex min-w-0 flex-1 flex-col gap-0.5 text-left">
+                    <span className="truncate font-medium">{line.tx.payeeName ?? line.tx.notes ?? "—"}</span>
+                    <span className={cx("truncate text-[12px] text-faint", !line.tx.categoryId && !line.tx.transferAccountId && !line.tx.isParent && "text-warning")}>
+                      {formatDayShort(line.tx.date)} · {line.tx.isParent ? "Ventilée" : line.tx.transferAccountId && !line.tx.categoryId ? "Virement" : (line.tx.categoryName ?? "À catégoriser")}
+                    </span>
+                  </button>
+                  <SuggestionChip tx={line.tx} compact />
+                  <Money value={line.tx.amount} sign="always" colored className="text-[14px]" />
+                </SwipeRow>
+              )}
             </div>
           )
         })}
@@ -869,6 +970,34 @@ function MobileList({
             />
           </div>
         </Dialog>
+      ) : null}
+    </div>
+  )
+}
+
+function MobileScheduledRow({ row }: { row: ScheduledRow }) {
+  const s = useScheduledRow(row)
+  return (
+    <div data-testid="scheduled-row" className="flex items-center gap-3 border-b border-line-subtle px-5 py-3 text-muted">
+      <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+        <span className="truncate font-medium italic">{row.name}</span>
+        <span className="truncate text-[12px] text-faint">
+          <span className={cx(row.overdue && "text-warning")}>{s.date}</span> · Échéance · {s.category}
+        </span>
+      </div>
+      <Money value={row.amount} sign="always" className="text-[14px] italic" />
+      {row.next ? (
+        <Menu
+          trigger={
+            <IconButton label="Actions de l'échéance" disabled={s.busy}>
+              <MoreHorizontal size={15} />
+            </IconButton>
+          }
+          items={[
+            { label: "Enregistrer", icon: <Check size={13} />, onSelect: s.post },
+            { label: "Passer", icon: <SkipForward size={13} />, onSelect: s.skip },
+          ]}
+        />
       ) : null}
     </div>
   )

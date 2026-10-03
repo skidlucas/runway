@@ -51,6 +51,50 @@ export type Occurrence = {
   name: string
   categoryId: string | null
   accountId: string
+  /** Due before `from` and still unpaid: dated `from` instead. */
+  overdue: boolean
+}
+
+/** An occurrence as a line of an account register, from the side of that account. */
+export type ScheduledRow = {
+  scheduleId: string
+  date: Day
+  name: string
+  /** Signed for the register's account (or the schedule's own account when listing them all). */
+  amount: number
+  accountId: string
+  categoryId: string | null
+  transferAccountId: string | null
+  overdue: boolean
+  /** The next occurrence of its schedule: the only one that can be booked or skipped. */
+  next: boolean
+}
+
+/** Newest first, like the register. A transfer shows on the receiving account with its sign flipped. */
+export const registerRows = (occurrences: ReadonlyArray<Occurrence>, accountId: string | null): ScheduledRow[] => {
+  const seen = new Set<string>()
+  return [...occurrences]
+    .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0))
+    .flatMap((o): ScheduledRow[] => {
+      const incoming = accountId !== null && o.accountId !== accountId
+      if (incoming && o.transferAccountId !== accountId) return []
+      const next = !seen.has(o.scheduleId)
+      seen.add(o.scheduleId)
+      return [
+        {
+          scheduleId: o.scheduleId,
+          date: o.date,
+          name: o.name,
+          amount: incoming ? -o.amount : o.amount,
+          accountId: incoming ? accountId : o.accountId,
+          categoryId: incoming ? null : o.categoryId,
+          transferAccountId: incoming ? o.accountId : o.transferAccountId,
+          overdue: o.overdue,
+          next,
+        },
+      ]
+    })
+    .reverse()
 }
 
 export type RecurringSuggestion = RecurringCandidate & { accountName: string; categoryName: string | null }
@@ -362,6 +406,7 @@ export class Schedules extends Context.Service<
                   scheduleId: r.id,
                   transferAccountId: r.transfer_account_id,
                   date: date < from ? from : date,
+                  overdue: date < from,
                   amount: r.amount,
                   name: r.label ?? "Échéance",
                   categoryId: r.category_id,

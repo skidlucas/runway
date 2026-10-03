@@ -10,7 +10,7 @@ import {
 } from "~/server/fns/core"
 import { getAiStatus, getFindings, getInsightView, getSavedViews } from "~/server/fns/insights"
 import { getWealth } from "~/server/fns/wealth"
-import { getForecast, getSchedules, getScheduleSuggestions, getUpcoming } from "~/server/fns/planning"
+import { getForecast, getScheduledRows, getSchedules, getScheduleSuggestions, getUpcoming } from "~/server/fns/planning"
 import { getCashFlow, getCategorySpending, getDashboards, getNetWorth, getSpendingComparison } from "~/server/fns/reports"
 import type { InsightViewConfig } from "~/server/db/schema"
 import type { TxFilter } from "~/server/services/transactions"
@@ -41,6 +41,8 @@ export const q = {
     queryOptions({ queryKey: ["forecast", scope], queryFn: () => getForecast({ data: scope }), placeholderData: (prev) => prev }),
   upcoming: (args: { accountId?: string; days: number }) =>
     queryOptions({ queryKey: ["upcoming", args], queryFn: () => getUpcoming({ data: args }) }),
+  scheduledRows: (args: { accountId?: string; days: number }) =>
+    queryOptions({ queryKey: ["scheduledRows", args], queryFn: () => getScheduledRows({ data: args }) }),
   schedules: () => queryOptions({ queryKey: ["schedules"], queryFn: () => getSchedules() }),
   scheduleSuggestions: () =>
     queryOptions({ queryKey: ["scheduleSuggestions"], queryFn: () => getScheduleSuggestions() }),
