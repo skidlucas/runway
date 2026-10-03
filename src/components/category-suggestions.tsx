@@ -74,19 +74,24 @@ export function useCategorySuggestions(rows: ReadonlyArray<TxRow>) {
   )
 
   const pending = candidates.flatMap((r) => byTx.get(r.id) ?? [])
-  const state: SuggestionsState & { ruleDraft: RuleDraft | null; closeRule: () => void } = {
-    byTx,
-    ruleDraft,
-    closeRule: () => setRuleDraft(null),
-    names,
-    accept: (s) => accept.mutate(s),
-    dismiss: (id) =>
-      setByTx((m) => {
-        const next = new Map(m)
-        next.delete(id)
-        return next
-      }),
-  }
+  const { mutate } = accept
+  // Every register row reads this context: a new object on each render would re-render them all.
+  const state = React.useMemo<SuggestionsState & { ruleDraft: RuleDraft | null; closeRule: () => void }>(
+    () => ({
+      byTx,
+      ruleDraft,
+      closeRule: () => setRuleDraft(null),
+      names,
+      accept: (s) => mutate(s),
+      dismiss: (id) =>
+        setByTx((m) => {
+          const next = new Map(m)
+          next.delete(id)
+          return next
+        }),
+    }),
+    [byTx, ruleDraft, names, mutate],
+  )
 
   return {
     available: Boolean(ai.data?.classification) && candidates.length > 0,
