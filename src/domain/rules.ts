@@ -63,21 +63,48 @@ const safeRegex = (pattern: string): RegExp | null => {
   return regexCache.get(pattern) ?? null
 }
 
-const matchText = (op: RuleConditionOp, actual: string | null, expected: RuleCondition["value"]): boolean => {
-  if (actual === null || typeof expected !== "string") return false
-  if (op === "matches") return safeRegex(expected)?.test(actual) ?? false
-  const a = normalizeText(actual)
+type TextField = "payee" | "imported_payee" | "notes"
+
+const rawText = (field: TextField, subject: RuleSubject): string | null =>
+  field === "payee" ? subject.payeeName : field === "imported_payee" ? (subject.importedPayee ?? subject.payeeName) : subject.notes
+
+/** A subject whose text fields are normalized at most once, however many rules read them. */
+type PreparedSubject = { readonly raw: RuleSubject; readonly text: (field: TextField) => string | null }
+
+const prepare = (subject: RuleSubject): PreparedSubject => {
+  const cache = new Map<TextField, string | null>()
+  return {
+    raw: subject,
+    text: (field) => {
+      if (!cache.has(field)) {
+        const raw = rawText(field, subject)
+        cache.set(field, raw === null ? null : normalizeText(raw))
+      }
+      return cache.get(field) ?? null
+    },
+  }
+}
+
+const never = () => false
+
+const compileText = (field: TextField, op: RuleConditionOp, expected: RuleCondition["value"]): ((s: PreparedSubject) => boolean) => {
+  if (typeof expected !== "string") return never
+  if (op === "matches") {
+    const regex = safeRegex(expected)
+    if (!regex) return never
+    return (s) => {
+      const actual = rawText(field, s.raw)
+      return actual !== null && regex.test(actual)
+    }
+  }
   const e = normalizeText(expected)
-  if (e === "") return false
-  switch (op) {
-    case "is":
-      return a === e
-    case "contains":
-      return a.includes(e)
-    case "starts_with":
-      return a.startsWith(e)
-    default:
-      return false
+  if (e === "") return never
+  const test =
+    op === "is" ? (a: string) => a === e : op === "contains" ? (a: string) => a.includes(e) : op === "starts_with" ? (a: string) => a.startsWith(e) : null
+  if (!test) return never
+  return (s) => {
+    const actual = s.text(field)
+    return actual !== null && test(actual)
   }
 }
 
@@ -95,49 +122,56 @@ const matchAmount = (op: RuleConditionOp, amount: number, expected: RuleConditio
   return false
 }
 
-export const matchCondition = (condition: RuleCondition, subject: RuleSubject): boolean => {
+const compileCondition = (condition: RuleCondition): ((s: PreparedSubject) => boolean) => {
   switch (condition.field) {
     case "payee":
-      return matchText(condition.op, subject.payeeName, condition.value)
     case "imported_payee":
-      return matchText(condition.op, subject.importedPayee ?? subject.payeeName, condition.value)
     case "notes":
-      return matchText(condition.op, subject.notes, condition.value)
+      return compileText(condition.field, condition.op, condition.value)
     case "amount":
-      return matchAmount(condition.op, subject.amount, condition.value)
+      return (s) => matchAmount(condition.op, s.raw.amount, condition.value)
     case "account":
-      return condition.op === "is" && condition.value === subject.accountId
+      return (s) => condition.op === "is" && condition.value === s.raw.accountId
   }
 }
 
-export const matchRule = (rule: Rule, subject: RuleSubject): boolean => {
-  if (!rule.enabled || rule.conditions.length === 0) return false
-  return rule.conditionsOp === "and"
-    ? rule.conditions.every((c) => matchCondition(c, subject))
-    : rule.conditions.some((c) => matchCondition(c, subject))
-}
-
-export const applyRules = (rules: ReadonlyArray<Rule>, subject: RuleSubject): RuleOutcome => {
-  const outcome: RuleOutcome = { matched: [] }
-  for (const rule of rules) {
-    if (!matchRule(rule, subject)) continue
-    let contributed = false
-    for (const action of rule.actions) {
-      if (action.type === "set_category" && outcome.categoryId === undefined) {
-        outcome.categoryId = action.categoryId
-        contributed = true
-      } else if (action.type === "set_payee" && outcome.payeeId === undefined) {
-        outcome.payeeId = action.payeeId
-        contributed = true
-      } else if (action.type === "set_notes" && outcome.notes === undefined) {
-        outcome.notes = action.notes
-        contributed = true
+/** Compiles the rules once, so applying them to many transactions normalizes each rule's values only once. */
+export const compileRules = (rules: ReadonlyArray<Rule>): ((subject: RuleSubject) => RuleOutcome) => {
+  const compiled = rules
+    .filter((rule) => rule.enabled && rule.conditions.length > 0)
+    .map((rule) => {
+      const conditions = rule.conditions.map(compileCondition)
+      const matches =
+        rule.conditionsOp === "and"
+          ? (s: PreparedSubject) => conditions.every((c) => c(s))
+          : (s: PreparedSubject) => conditions.some((c) => c(s))
+      return { rule, matches }
+    })
+  return (subject) => {
+    const prepared = prepare(subject)
+    const outcome: RuleOutcome = { matched: [] }
+    for (const { rule, matches } of compiled) {
+      if (!matches(prepared)) continue
+      let contributed = false
+      for (const action of rule.actions) {
+        if (action.type === "set_category" && outcome.categoryId === undefined) {
+          outcome.categoryId = action.categoryId
+          contributed = true
+        } else if (action.type === "set_payee" && outcome.payeeId === undefined) {
+          outcome.payeeId = action.payeeId
+          contributed = true
+        } else if (action.type === "set_notes" && outcome.notes === undefined) {
+          outcome.notes = action.notes
+          contributed = true
+        }
       }
+      if (contributed) outcome.matched.push(rule.id)
     }
-    if (contributed) outcome.matched.push(rule.id)
+    return outcome
   }
-  return outcome
 }
+
+export const applyRules = (rules: ReadonlyArray<Rule>, subject: RuleSubject): RuleOutcome => compileRules(rules)(subject)
 
 // --- Human readable descriptions ----------------------------------------------
 

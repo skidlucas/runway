@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest"
 import { addMonths, daysInMonth, formatDayShort, formatMonthLong, monthRange, todayIn } from "~/domain/dates"
 import { describeRecurrence, nextOnOrAfter, occurrence, occurrencesBetween } from "~/domain/recurrence"
 import { detectRecurring, type HistoryTransaction } from "~/domain/recurring-detection"
-import { applyRules, describeRule, type Rule } from "~/domain/rules"
+import { applyRules, compileRules, describeRule, type Rule } from "~/domain/rules"
 
 describe("dates", () => {
   it("handles month arithmetic and labels", () => {
@@ -60,6 +60,27 @@ describe("rules", () => {
 
   it("ignores disabled rules", () => {
     expect(applyRules(rules, { ...subject, payeeName: "CB Picard" }).matched).toEqual([])
+  })
+
+  it("reuses one compiled matcher across many transactions", () => {
+    const match = compileRules([
+      ...rules,
+      {
+        id: "r4",
+        conditionsOp: "or",
+        conditions: [
+          { field: "notes", op: "starts_with", value: "  Café " },
+          { field: "payee", op: "matches", value: "^sncf" },
+        ],
+        actions: [{ type: "set_notes", notes: "pause" }],
+        enabled: true,
+      },
+    ])
+    expect(match({ ...subject, notes: "CAFÉ  du coin" }).matched).toEqual(["r4"])
+    expect(match({ ...subject, payeeName: "SNCF Connect" }).notes).toBe("pause")
+    expect(match({ ...subject, importedPayee: "monoprix" }).matched).toEqual(["r1"])
+    expect(match({ ...subject, payeeName: "Netflix" }).matched).toEqual(["r2"])
+    expect(match(subject).matched).toEqual([])
   })
 
   it("describes a rule in French", () => {

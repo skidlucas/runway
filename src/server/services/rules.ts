@@ -1,6 +1,6 @@
 import { asc, eq, sql } from "drizzle-orm"
 import { Context, Effect, Layer } from "effect"
-import { applyRules, normalizeText, type Rule, type RuleAction, type RuleCondition, type RuleSubject } from "~/domain/rules"
+import { compileRules, normalizeText, type Rule, type RuleAction, type RuleCondition, type RuleOutcome, type RuleSubject } from "~/domain/rules"
 import { chunkIds, Db, type DbError, newId } from "../db/client"
 import { rules } from "../db/schema"
 import { Invalid, NotFound } from "../errors"
@@ -52,7 +52,7 @@ export class Rules extends Context.Service<
     remove(id: string): Effect.Effect<void, DbError>
     reorder(ids: ReadonlyArray<string>): Effect.Effect<void, DbError>
     /** Returns a function applying the enabled rules, loaded once for a whole batch. */
-    readonly matcher: Effect.Effect<(subject: RuleSubject) => ReturnType<typeof applyRules>, DbError>
+    readonly matcher: Effect.Effect<(subject: RuleSubject) => RuleOutcome, DbError>
     /** Applies one rule to existing transactions that have no category yet. Returns the count updated. */
     applyToUncategorized(id: string): Effect.Effect<number, DbError | NotFound>
     /** Payees consistently filed under the same category and not covered by a rule yet. */
@@ -116,8 +116,7 @@ export class Rules extends Context.Service<
 
       const matcher = list.pipe(
         Effect.map((all) => {
-          const enabled = all.filter((r) => r.enabled)
-          return (subject: RuleSubject) => applyRules(enabled, subject)
+          return compileRules(all)
         }),
       )
 
@@ -135,7 +134,7 @@ export class Rules extends Context.Service<
             .all<RuleSubject & { id: string }>()
           return results
         })
-        const apply = (s: RuleSubject) => applyRules([{ ...rule, enabled: true }], s)
+        const apply = compileRules([{ ...rule, enabled: true }])
         const updates = candidates.flatMap((c) => {
           const out = apply(c)
           return out.matched.length > 0 ? [{ id: c.id, out }] : []
