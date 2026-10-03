@@ -19,7 +19,6 @@ import {
   Menu,
   Money,
   Popover,
-  ProgressBar,
   SkeletonRows,
   Switch,
 } from "~/components/ui"
@@ -772,29 +771,25 @@ function MobileBudget({ budget, month, showHidden }: { budget: BudgetMonthDto; m
           </div>
           {g.categories
             .filter((c) => showHidden || !c.hidden)
-            .map((c) => {
-              const ratio = c.budgeted > 0 ? c.spent / c.budgeted : c.spent > 0 ? 1.2 : 0
-              return (
-                <button
-                  key={c.id}
-                  type="button"
-                  onClick={() => setEditing(c)}
-                  className="flex w-full flex-col gap-1.5 border-b border-line-subtle px-5 py-3 text-left"
-                >
-                  <span className="flex w-full items-center justify-between gap-3">
-                    <span className="flex min-w-0 items-center gap-1.5">
-                      <span className="truncate">{c.name}</span>
-                      {shortOf(c) ? <AlertTriangle size={13} className="shrink-0 text-warning" aria-label="Budget inférieur au prévu" /> : null}
-                    </span>
-                    <AmountPill value={c.available} className="text-[13px]" />
+            .map((c) => (
+              <button
+                key={c.id}
+                type="button"
+                onClick={() => setEditing(c)}
+                className="flex w-full flex-col gap-1.5 border-b border-line-subtle px-5 py-3 text-left"
+              >
+                <span className="flex w-full items-center justify-between gap-3">
+                  <span className="flex min-w-0 items-center gap-1.5">
+                    <span className="truncate">{c.name}</span>
+                    {shortOf(c) ? <AlertTriangle size={13} className="shrink-0 text-warning" aria-label="Budget inférieur au prévu" /> : null}
                   </span>
-                  <ProgressBar ratio={ratio} tone={ratio > 1 ? "negative" : "accent"} />
-                  <span className="num text-[12px] text-faint">
-                    {formatMoney(c.spent)} sur {formatMoney(c.budgeted)}
-                  </span>
-                </button>
-              )
-            })}
+                  <AmountPill value={c.available} className="text-[13px]" />
+                </span>
+                <span className="num text-[12px] text-faint">
+                  Budgété {formatMoney(c.budgeted)} · dépensé {formatMoney(c.spent)}
+                </span>
+              </button>
+            ))}
         </section>
       ))}
       {editing ? <MobileBudgetDialog category={editing} month={month} onClose={() => setEditing(null)} /> : null}
