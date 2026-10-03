@@ -37,6 +37,7 @@ export const backupToBundle = (backup: RunwayBackup): ImportBundle => ({
     importedId: t.importedId,
     importedPayee: t.importedPayee,
     startingBalance: t.startingBalance,
+    createdAt: t.createdAt,
   })),
   budgets: backup.budgets.map((b) => ({ month: b.month, categoryId: b.categoryId, amount: b.amount, carryover: b.carryover })),
   buffered: backup.budgetMonths.map((m) => ({ month: m.month, amount: m.buffered })),

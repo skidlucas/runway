@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest"
+import { fileOrderStamps, orderStamps } from "~/lib/import-bundle"
 import { applyCsvMapping, guessCsvMapping, parseCsvText, parseOfx, parseQif } from "~/lib/importers/bank"
 
 describe("CSV", () => {
@@ -60,5 +61,27 @@ PSalaire
       { date: "2026-10-02", amount: -4218, payee: "Monoprix", notes: "Courses", importedId: null },
       { date: "2026-09-25", amount: 125000, payee: "Salaire", notes: null, importedId: null },
     ])
+  })
+})
+
+describe("order of a day", () => {
+  it("stamps the highest rank last, ties in input order", () => {
+    const stamps = orderStamps([5, 1, 5, 3], Date.UTC(2026, 9, 3))
+    expect(stamps).toEqual([
+      "2026-10-02T23:59:59.998Z",
+      "2026-10-02T23:59:59.996Z",
+      "2026-10-02T23:59:59.999Z",
+      "2026-10-02T23:59:59.997Z",
+    ])
+  })
+
+  it("puts the first row of a newest-first file on top of its day", () => {
+    const stamps = fileOrderStamps(["2026-10-02", "2026-10-02", "2026-10-01"])
+    expect(stamps[0]! > stamps[1]!).toBe(true)
+  })
+
+  it("puts the last row of an oldest-first file on top of its day", () => {
+    const stamps = fileOrderStamps(["2026-10-01", "2026-10-02", "2026-10-02"])
+    expect(stamps[2]! > stamps[1]!).toBe(true)
   })
 })

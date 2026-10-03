@@ -166,6 +166,7 @@ const ImportRow = Schema.Struct({
   importedId: Opt(NStr),
   importedPayee: Opt(NStr),
   startingBalance: Opt(Schema.Boolean),
+  createdAt: Opt(NStr),
 })
 
 export const importTransactions = createServerFn({ method: "POST" })

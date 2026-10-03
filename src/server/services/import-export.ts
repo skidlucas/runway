@@ -3,7 +3,7 @@ import { Context, Effect, Layer } from "effect"
 import { isDay, isMonth } from "~/domain/dates"
 import { RECURRENCE_UNITS } from "~/domain/recurrence"
 import { normalizeText, type RuleAction, type RuleSubject } from "~/domain/rules"
-import type { BundleExtras, BundleStructure, IdMaps } from "~/lib/import-bundle"
+import { type BundleExtras, type BundleStructure, type IdMaps, orderStamps } from "~/lib/import-bundle"
 import { bulkInsertStatements, chunkRows, Db, type DbError, newId } from "../db/client"
 import * as schema from "../db/schema"
 import { Invalid, type NotFound } from "../errors"
@@ -30,6 +30,8 @@ export type ImportRow = {
   importedId?: string | null
   importedPayee?: string | null
   startingBalance?: boolean
+  /** Orders the operations of a same day: newest stamp first in the register. */
+  createdAt?: string | null
 }
 
 export type ImportOptions = {
@@ -82,7 +84,10 @@ const TX_COLUMNS = [
   "imported_id",
   "imported_payee",
   "starting_balance",
+  "created_at",
 ] as const
+
+const STAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/
 
 const ACCOUNT_KINDS = new Set<string>(["checking", "savings", "credit", "investment", "other"])
 
@@ -455,7 +460,8 @@ export class ImportExport extends Context.Service<
           for (const r of pending) r.categoryId = usual.get(r.payeeId!) ?? null
         }
 
-        const values = kept.map((r) => [
+        const fallback = orderStamps(kept.map((_, i) => i))
+        const values = kept.map((r, i) => [
           r.id,
           r.accountId,
           r.date,
@@ -471,6 +477,7 @@ export class ImportExport extends Context.Service<
           r.importedId ?? null,
           r.importedPayee ?? null,
           r.startingBalance ? 1 : 0,
+          r.createdAt && STAMP.test(r.createdAt) ? r.createdAt : fallback[i],
         ])
         yield* db.batch(bulkInsertStatements(db.d1, "transactions", TX_COLUMNS, values, "ignore"))
         return { inserted: kept.filter((r) => !r.parentId).length, duplicates }

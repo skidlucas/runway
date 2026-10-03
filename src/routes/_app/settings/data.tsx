@@ -9,7 +9,7 @@ import { Button, Checkbox, cx, Dialog, Field, Input, Money, ProgressBar, Segment
 import { formatDayShort } from "~/domain/dates"
 import { count, plural } from "~/domain/text"
 import { parseActual, unzipActual } from "~/lib/actual/parse"
-import type { ImportBundle } from "~/lib/import-bundle"
+import { fileOrderStamps, type ImportBundle } from "~/lib/import-bundle"
 import { chunkFamilies, type ImportProgress, runBundleImport } from "~/lib/import-client"
 import {
   applyCsvMapping,
@@ -363,7 +363,8 @@ function BankImportDialog({ pending, onClose }: { pending: Extract<Pending, { ki
     if (!accountId) return
     setRunning(true)
     try {
-      const rows = parsed.transactions.map((t) => ({
+      const stamps = fileOrderStamps(parsed.transactions.map((t) => t.date))
+      const rows = parsed.transactions.map((t, i) => ({
         accountId,
         date: t.date,
         amount: t.amount,
@@ -372,6 +373,7 @@ function BankImportDialog({ pending, onClose }: { pending: Extract<Pending, { ki
         notes: t.notes,
         importedId: t.importedId,
         cleared: true,
+        createdAt: stamps[i],
       }))
       let inserted = 0
       let duplicates = 0

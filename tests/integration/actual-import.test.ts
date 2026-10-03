@@ -97,6 +97,24 @@ describe("Actual import", () => {
     }
   })
 
+  it("keeps Actual's order of the operations of a same day", async () => {
+    const SQL = await initSqlJs()
+    const db = new SQL.Database(unzipActual(new Uint8Array(readFileSync(join(fixture, "actual-fixture.zip")))).db)
+    const source = (db.exec(
+      "SELECT acct || date, id FROM transactions WHERE tombstone = 0 AND isChild = 0 ORDER BY acct, date, sort_order DESC",
+    )[0]?.values ?? []) as Array<[string, string]>
+    const days = new Map<string, string[]>()
+    for (const [day, id] of source) days.set(day, [...(days.get(day) ?? []), id])
+    const sameDay = [...days.values()].filter((ids) => ids.length > 1)
+    expect(sameDay.length).toBeGreaterThan(0)
+    const { results } = await h.d1
+      .prepare("SELECT id FROM transactions WHERE parent_id IS NULL ORDER BY date DESC, created_at DESC, id DESC")
+      .all<{ id: string }>()
+    const rank = new Map(results.map((r, i) => [r.id, i]))
+    expect(sameDay.flat().every((id) => rank.has(id))).toBe(true)
+    for (const ids of sameDay) expect([...ids].sort((a, b) => rank.get(a)! - rank.get(b)!)).toEqual(ids)
+  })
+
   it("reproduces Actual's budget month by month (to budget, carryover, overspending)", async () => {
     for (const [month, exp] of Object.entries(expected.months)) {
       const got = await h.run(Budget.use((b) => b.month(month)))

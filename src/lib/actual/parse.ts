@@ -3,7 +3,7 @@ import type { Database, SqlJsStatic } from "sql.js"
 import { addDays } from "~/domain/dates"
 import { nextOnOrAfter, periodDays, type Recurrence } from "~/domain/recurrence"
 import type { RuleAction, RuleCondition } from "~/domain/rules"
-import type { BundleRule, BundleSchedule, BundleTransaction, ImportBundle } from "../import-bundle"
+import { type BundleRule, type BundleSchedule, type BundleTransaction, type ImportBundle, orderStamps } from "../import-bundle"
 
 // Reads an Actual Budget export (zip with db.sqlite + metadata.json).
 // Actual stores rows with tombstones, and remaps merged payees/categories through
@@ -143,13 +143,14 @@ const readDatabase = (db: Database, name: string): ImportBundle => {
     db,
     `SELECT t.id, t.isParent, t.isChild, ${pick("parent_id")}, t.acct, t.category, t.amount, t.description, t.notes, t.date,
             ${pick("cleared", "1")}, ${pick("reconciled", "0")}, t.transferred_id, t.financial_id, t.imported_description,
-            t.starting_balance_flag, t.tombstone,
+            t.starting_balance_flag, t.tombstone, ${pick("sort_order")},
             (SELECT p.tombstone FROM transactions p WHERE p.id = t.parent_id) AS parent_tombstone
      FROM transactions t`,
   )
   let skippedTx = 0
   const kept = new Set<string>()
   const transactions: BundleTransaction[] = []
+  const sortOrders: number[] = []
   for (const r of rawTx) {
     const date = toDay(r.date)
     const isChild = r.isChild === 1
@@ -177,7 +178,13 @@ const readDatabase = (db: Database, name: string): ImportBundle => {
       importedPayee: r.imported_description == null ? null : String(r.imported_description),
       startingBalance: r.starting_balance_flag === 1,
     })
+    sortOrders.push(Number(r.sort_order ?? 0))
   }
+  // Actual lists a day's operations by descending sort_order, like runway by creation stamp.
+  orderStamps(sortOrders).forEach((stamp, i) => {
+    const t = transactions[i]
+    if (t) t.createdAt = stamp
+  })
   // Drop dangling links (mirror or parent deleted in Actual).
   for (const t of transactions) {
     if (t.transferId && !kept.has(t.transferId)) t.transferId = null

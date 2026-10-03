@@ -32,6 +32,8 @@ export type BundleTransaction = {
   importedId: string | null
   importedPayee: string | null
   startingBalance: boolean
+  /** Orders the operations of a same day; the server stamps them itself when absent. */
+  createdAt?: string | null
 }
 export type BundleBudget = { month: string; categoryId: string; amount: number; carryover: boolean }
 export type BundleRule = {
@@ -83,4 +85,24 @@ export type IdMaps = {
   groups: Record<string, string>
   categories: Record<string, string>
   payees: Record<string, string>
+}
+
+/**
+ * Creation stamps that keep a source's order within a day, since the register lists a day's
+ * operations newest stamp first. `ranks` orders the rows from oldest to newest; ties keep
+ * their input order. The stamps end at `end` so later entries still come out on top.
+ */
+export const orderStamps = (ranks: ReadonlyArray<number>, end = Date.now()): string[] => {
+  const order = ranks.map((_, i) => i).sort((a, b) => (ranks[a] ?? 0) - (ranks[b] ?? 0) || a - b)
+  const stamps = Array.from({ length: ranks.length }, () => "")
+  order.forEach((index, position) => {
+    stamps[index] = new Date(end - ranks.length + position).toISOString()
+  })
+  return stamps
+}
+
+/** Bank exports list operations newest first or oldest first; a day keeps the order of the file. */
+export const fileOrderStamps = (dates: ReadonlyArray<string>, end = Date.now()): string[] => {
+  const newestFirst = (dates[0] ?? "") > (dates[dates.length - 1] ?? "")
+  return orderStamps(dates.map((_, i) => (newestFirst ? -i : i)), end)
 }
