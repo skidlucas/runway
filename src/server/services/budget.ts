@@ -75,7 +75,8 @@ export class Budget extends Context.Service<
     setCarryover(month: Month, categoryId: string, carryover: boolean): Effect.Effect<void, DbError | Invalid>
     /**
      * Bulk fill: copy last month, average of the last N months, what was spent, zero everything,
-     * or what the schedules need ("planned" leaves the categories without schedules untouched).
+     * or what the schedules still need ("planned" only raises budgets, and leaves the categories
+     * without schedules untouched).
      */
     fill(month: Month, mode: FillMode, categoryIds?: ReadonlyArray<string>): Effect.Effect<number, DbError | Invalid>
     move(month: Month, from: MoveTarget, to: MoveTarget, amount: number): Effect.Effect<void, DbError | Invalid>
@@ -344,7 +345,7 @@ export class Budget extends Context.Service<
         const amounts = expense.map((c): readonly [string, number] => {
           switch (mode.kind) {
             case "planned":
-              return [c.id, planned.get(c.id)?.amount ?? 0]
+              return [c.id, Math.max(months.get(m)?.categories.get(c.id)?.budgeted ?? 0, planned.get(c.id)?.toBudget ?? 0)]
             case "zero":
               return [c.id, 0]
             case "copyLastMonth":

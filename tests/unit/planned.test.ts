@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { type PlannedSchedule, plannedByCategory, remainingOccurrences } from "~/domain/planned"
+import { type PlannedSchedule, plannedByCategory, plannedStatus, remainingOccurrences } from "~/domain/planned"
 import type { Recurrence } from "~/domain/recurrence"
 
 const schedule = (
@@ -91,6 +91,33 @@ describe("plannedByCategory", () => {
       none,
     )
     expect(planned.size).toBe(0)
+  })
+})
+
+describe("plannedStatus", () => {
+  const toll = schedule("péage", -8000, monthly, "2026-01-17")
+
+  it("counts the money carried in against this month's dues", () => {
+    const planned = plannedByCategory([toll], "2026-10", new Map([["cat", 3517]])).get("cat")!
+    expect(planned).toMatchObject({ amount: 8000, thisMonth: 8000, toBudget: 4483 })
+    expect(plannedStatus(planned, 5000)).toBe("covered")
+    expect(plannedStatus(planned, 4000)).toBe("short")
+  })
+
+  it("is upcoming once this month is paid but a later schedule is behind", () => {
+    const insurance = schedule("assurance", -60000, yearly, "2027-06-15")
+    const planned = plannedByCategory([toll, insurance], "2027-01", new Map([["cat", 38000]])).get("cat")!
+    // The 380 € carried in pay the 80 € toll first; the 300 € left cut the insurance to 50 €/month.
+    expect(planned).toMatchObject({ amount: 13000, setAside: 5000, thisMonth: 8000, toBudget: 5000 })
+    expect(plannedStatus(planned, 0)).toBe("upcoming")
+    expect(plannedStatus(planned, 5000)).toBe("covered")
+  })
+
+  it("is short when a spaced-out schedule falls this month and the envelope cannot pay it", () => {
+    const planned = plannedByCategory([schedule("assurance", -60050, yearly, "2027-06-15")], "2027-06", new Map([["cat", 50000]])).get("cat")!
+    expect(planned).toMatchObject({ thisMonth: 60050, toBudget: 10050 })
+    expect(plannedStatus(planned, 10000)).toBe("short")
+    expect(plannedStatus(planned, 10050)).toBe("covered")
   })
 })
 

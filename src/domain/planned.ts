@@ -39,10 +39,14 @@ export type PlannedCategory = {
   readonly amount: number
   /** Part of `amount` due this month. */
   readonly due: number
-  /** Part of `amount` set aside for schedules falling in a later month. */
+  /** Part of `amount` set aside for spaced-out schedules, this month's included. */
   readonly setAside: number
-  /** Available at the start of the month, counted against the schedules falling later. */
+  /** Available at the start of the month: it pays this month's dues first, the rest counts as set aside. */
   readonly saved: number
+  /** Positive cents falling this month, frequent and spaced-out alike. */
+  readonly thisMonth: number
+  /** `amount` minus what `saved` already covers: what the budget of the month must reach. */
+  readonly toBudget: number
   readonly lines: ReadonlyArray<PlannedLine>
 }
 
@@ -70,7 +74,8 @@ const setAsideNeed = (lines: ReadonlyArray<PlannedLine>, saved: number) => {
   let need = 0
   for (const line of lines) {
     cumulated += line.amount
-    need = Math.max(need, ceilToEuro((cumulated - saved) / (line.monthsLeft ?? 1)))
+    const months = line.monthsLeft ?? 1
+    need = Math.max(need, months === 1 ? cumulated - saved : ceilToEuro((cumulated - saved) / months))
   }
   return need
 }
@@ -110,8 +115,20 @@ export const plannedByCategory = (
     list.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0))
     const saved = Math.max(0, carryIn.get(categoryId) ?? 0)
     const due = list.filter((l) => l.kind === "due").reduce((sum, l) => sum + l.amount * l.count, 0)
-    const setAside = setAsideNeed(list.filter((l) => l.kind === "setAside"), saved)
-    planned.set(categoryId, { amount: due + setAside, due, setAside, saved, lines: list })
+    const spaced = list.filter((l) => l.kind === "setAside")
+    const setAside = setAsideNeed(spaced, Math.max(0, saved - due))
+    const thisMonth = due + spaced.filter((l) => l.monthsLeft === 1).reduce((sum, l) => sum + l.amount, 0)
+    const amount = due + setAside
+    planned.set(categoryId, { amount, due, setAside, saved, thisMonth, toBudget: amount - Math.min(due, saved), lines: list })
   }
   return planned
 }
+
+export type PlannedStatus = "short" | "upcoming" | "covered"
+
+/**
+ * "short": the envelope cannot pay what falls this month. "upcoming": this month is paid, but
+ * less is set aside than the later schedules need. "covered": both are met.
+ */
+export const plannedStatus = (planned: PlannedCategory, budgeted: number): PlannedStatus =>
+  planned.saved + budgeted < planned.thisMonth ? "short" : budgeted < planned.toBudget ? "upcoming" : "covered"

@@ -91,6 +91,12 @@ describe("Budget planned from schedules", () => {
     expect(await h.run(Budget.use((s) => s.fill(month, { kind: "planned" })))).toBe(2)
     expect([(await row(a)).budgeted, (await row(b)).budgeted, (await row(c)).budgeted]).toEqual([5_000, 10_000, 7_000])
   })
+
+  it("never lowers a budget above what the schedules need", async () => {
+    await h.run(Budget.use((s) => s.setAmount(month, a, 9_000)))
+    await h.run(Budget.use((s) => s.fill(month, { kind: "planned" })))
+    expect((await row(a)).budgeted).toBe(9_000)
+  })
 })
 
 describe("Age of money", () => {

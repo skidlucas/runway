@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query"
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router"
-import { AlertTriangle, ChevronLeft, ChevronRight, Eye, EyeOff, MoreHorizontal, Plus } from "lucide-react"
+import { AlertTriangle, CalendarClock, ChevronLeft, ChevronRight, Eye, EyeOff, MoreHorizontal, Plus } from "lucide-react"
 import * as React from "react"
 import { ForecastChips } from "~/components/forecast-chips"
 import { CategoryPicker } from "~/components/pickers"
@@ -23,7 +23,7 @@ import {
   Switch,
 } from "~/components/ui"
 import { addMonths, formatDayLong, formatDayShort, formatMonthLong, isMonth, monthOf } from "~/domain/dates"
-import type { PlannedCategory } from "~/domain/planned"
+import { type PlannedCategory, type PlannedStatus, plannedStatus } from "~/domain/planned"
 import { amountInput, formatMoney, parseAmount } from "~/domain/money"
 import { localToday, shortcutBlocked, useIsMobile } from "~/lib/hooks"
 import { BUDGET_QUERIES, defaultForecastAccount, forecastScope, q, useAction } from "~/lib/queries"
@@ -407,14 +407,35 @@ function CategoryRow({
   )
 }
 
-const shortOf = (category: BudgetCategoryRow) => category.planned !== null && category.budgeted < category.planned.amount
+const statusOf = (category: BudgetCategoryRow): PlannedStatus =>
+  category.planned ? plannedStatus(category.planned, category.budgeted) : "covered"
+
+const StatusIcon = ({ status, size }: { status: PlannedStatus; size: number }) =>
+  status === "short" ? (
+    <AlertTriangle size={size} className="shrink-0 text-warning" aria-label="Échéances du mois non couvertes" />
+  ) : status === "upcoming" ? (
+    <CalendarClock size={size} className="shrink-0 text-muted" aria-label="Échéances à venir à anticiper" />
+  ) : null
+
+function PlannedStatusNote({ category }: { category: BudgetCategoryRow }) {
+  const planned = category.planned
+  const status = statusOf(category)
+  if (!planned || status === "covered") return null
+  return (
+    <p className={cx("mt-3 text-[12px]", status === "short" ? "text-warning" : "text-muted")}>
+      {status === "short"
+        ? `Il manque ${formatMoney(planned.thisMonth - planned.saved - category.budgeted)} pour les échéances de ce mois.`
+        : `Ce mois-ci est couvert. ${formatMoney(planned.toBudget - category.budgeted)} de plus à mettre de côté pour les échéances à venir.`}
+    </p>
+  )
+}
 
 function PlannedCell({ category, month }: { category: BudgetCategoryRow; month: string }) {
   const [open, setOpen] = React.useState(false)
   const save = useAction(setBudgetAmount, { invalidates: BUDGET_QUERIES, onSuccess: () => setOpen(false) })
   const planned = category.planned
   if (!planned) return <span className="num text-right text-[12px] text-faint">—</span>
-  const short = shortOf(category)
+  const status = statusOf(category)
   return (
     <span className="flex justify-end">
       <Popover
@@ -428,25 +449,27 @@ function PlannedCell({ category, month }: { category: BudgetCategoryRow; month: 
             aria-label={`Prévu ${category.name} : ${formatMoney(planned.amount)}`}
             className={cx(
               "num -mr-2 flex h-7 items-center gap-1.5 rounded-[6px] px-2 text-[12px] hover:bg-active",
-              short ? "text-warning" : "text-faint",
+              status === "short" ? "text-warning" : "text-faint",
             )}
           >
-            {short ? <AlertTriangle size={12} aria-label="Budget inférieur au prévu" /> : null}
+            <StatusIcon status={status} size={12} />
             {formatMoney(planned.amount)}
           </button>
         }
       >
         <PlannedDetail planned={planned} />
-        <Button
-          variant="primary"
-          size="sm"
-          className="mt-3 w-full"
-          disabled={category.budgeted === planned.amount}
-          loading={save.isPending}
-          onClick={() => save.mutate({ data: { month, categoryId: category.id, amount: planned.amount } })}
-        >
-          Budgéter {formatMoney(planned.amount)}
-        </Button>
+        <PlannedStatusNote category={category} />
+        {status === "covered" ? null : (
+          <Button
+            variant="primary"
+            size="sm"
+            className="mt-3 w-full"
+            loading={save.isPending}
+            onClick={() => save.mutate({ data: { month, categoryId: category.id, amount: planned.toBudget } })}
+          >
+            Budgéter {formatMoney(planned.toBudget)}
+          </Button>
+        )}
       </Popover>
     </span>
   )
@@ -475,8 +498,16 @@ function PlannedDetail({ planned }: { planned: PlannedCategory }) {
       ))}
       <div className="mt-1 flex flex-col gap-1 border-t border-line pt-2">
         {planned.due && spaced ? <PlannedTotal label="À payer ce mois" value={planned.due} /> : null}
-        {spaced ? <PlannedTotal label={`À mettre de côté (déjà ${formatMoney(planned.saved)})`} value={planned.setAside} /> : null}
+        {spaced ? (
+          <PlannedTotal label={`À mettre de côté (déjà ${formatMoney(Math.max(0, planned.saved - planned.due))})`} value={planned.setAside} />
+        ) : null}
         <PlannedTotal label="Prévu ce mois" value={planned.amount} strong />
+        {planned.toBudget < planned.amount ? (
+          <>
+            <PlannedTotal label="Déjà dans l'enveloppe" value={planned.toBudget - planned.amount} />
+            <PlannedTotal label="À budgéter ce mois" value={planned.toBudget} strong />
+          </>
+        ) : null}
       </div>
     </div>
   )
@@ -781,7 +812,7 @@ function MobileBudget({ budget, month, showHidden }: { budget: BudgetMonthDto; m
                 <span className="flex w-full items-center justify-between gap-3">
                   <span className="flex min-w-0 items-center gap-1.5">
                     <span className="truncate">{c.name}</span>
-                    {shortOf(c) ? <AlertTriangle size={13} className="shrink-0 text-warning" aria-label="Budget inférieur au prévu" /> : null}
+                    <StatusIcon status={statusOf(c)} size={13} />
                   </span>
                   <AmountPill value={c.available} className="text-[13px]" />
                 </span>
@@ -812,8 +843,8 @@ function MobileBudgetDialog({ category, month, onClose }: { category: BudgetCate
           <Button variant="ghost" onClick={() => setText(amountInput(category.average3))}>
             Moyenne
           </Button>
-          {category.planned ? (
-            <Button variant="ghost" onClick={() => setText(amountInput(category.planned?.amount ?? 0))}>
+          {category.planned && statusOf(category) !== "covered" ? (
+            <Button variant="ghost" onClick={() => setText(amountInput(category.planned?.toBudget ?? 0))}>
               Échéances
             </Button>
           ) : null}
@@ -829,7 +860,12 @@ function MobileBudgetDialog({ category, month, onClose }: { category: BudgetCate
       }
     >
       <div className="flex flex-col gap-4 px-5 py-4">
-        {category.planned ? <PlannedDetail planned={category.planned} /> : null}
+        {category.planned ? (
+          <div>
+            <PlannedDetail planned={category.planned} />
+            <PlannedStatusNote category={category} />
+          </div>
+        ) : null}
         <Field label="Budget du mois">
           <Input inputMode="decimal" value={text} onChange={(e) => setText(e.target.value)} className="num h-11 text-[18px]" autoFocus />
         </Field>
