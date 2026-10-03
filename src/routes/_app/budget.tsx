@@ -15,6 +15,7 @@ import {
   Field,
   IconButton,
   Input,
+  Kpi,
   Menu,
   Money,
   Popover,
@@ -108,10 +109,15 @@ function BudgetPage() {
         <StarterEmptyState />
       ) : (
         <>
-          <div className="grid grid-cols-3 border-b border-line max-md:hidden">
-            <Kpi label="Revenus" value={data.income} />
-            <Kpi label="Budgété" value={data.budgeted} />
-            <Kpi label="Dépensé" value={data.spent} last />
+          <div className="grid grid-cols-4 border-b border-line max-md:hidden">
+            <Kpi className={KPI_CELL} label="Revenus" value={<Money value={data.income} />} />
+            <Kpi className={KPI_CELL} label="Budgété" value={<Money value={data.budgeted} />} />
+            <Kpi className={KPI_CELL} label="Dépensé" value={<Money value={data.spent} />} />
+            <Kpi
+              className="px-5 py-4"
+              label="Âge de l'argent"
+              value={<span data-testid="age-of-money">{data.ageOfMoney === null ? "—" : count(data.ageOfMoney, "jour")}</span>}
+            />
           </div>
           {data.uncategorized.count > 0 ? (
             <Link
@@ -149,14 +155,7 @@ function BudgetPage() {
   )
 }
 
-function Kpi({ label, value, last }: { label: string; value: number; last?: boolean }) {
-  return (
-    <div className={cx("flex flex-col gap-1 px-5 py-4", !last && "border-r border-line")}>
-      <span className="text-[12px] text-faint">{label}</span>
-      <Money value={value} className="text-[18px]" />
-    </div>
-  )
-}
+const KPI_CELL = "border-r border-line px-5 py-4"
 
 function ToBudgetChip({ budget }: { budget: BudgetMonthDto }) {
   const negative = budget.toBudget < 0

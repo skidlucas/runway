@@ -1,9 +1,11 @@
 import { Context, Effect, Layer } from "effect"
+import { ageOfMoney, type MoneyDay, type Outflow } from "~/domain/age-of-money"
 import { type BudgetCell, type BudgetInputs, type BudgetMonth, computeBudget } from "~/domain/budget-engine"
-import { addMonths, isMonth, lastDay, type Month } from "~/domain/dates"
+import { addMonths, type Day, isMonth, lastDay, type Month } from "~/domain/dates"
 import { Db, type DbError } from "../db/client"
 import { Invalid } from "../errors"
 import { Categories, type CategoryGroupDto } from "./categories"
+import { Settings } from "./settings"
 
 export type BudgetCategoryRow = {
   id: string
@@ -44,6 +46,8 @@ export type BudgetMonthDto = {
   buffered: number
   overspentCount: number
   uncategorized: { count: number; amount: number }
+  /** Days, at the end of the month or today if sooner; null without enough history. */
+  ageOfMoney: number | null
   groups: BudgetGroupRow[]
 }
 
@@ -72,6 +76,7 @@ export class Budget extends Context.Service<
     Effect.gen(function* () {
       const db = yield* Db
       const categoriesService = yield* Categories
+      const settings = yield* Settings
 
       const loadInputs = (until: Month) =>
         Effect.all([
@@ -124,6 +129,39 @@ export class Budget extends Context.Service<
       const compute = (until: Month) =>
         loadInputs(until).pipe(Effect.map(({ tree, inputs }) => ({ tree, months: computeBudget(inputs, until) })))
 
+      // Money entering or leaving the budget: transfers between budget accounts move nothing.
+      const BUDGET_FLOWS = `FROM transactions t JOIN accounts a ON a.id = t.account_id
+         LEFT JOIN payees p ON p.id = t.payee_id
+         LEFT JOIN accounts o ON o.id = p.transfer_account_id
+         WHERE a.off_budget = 0 AND t.parent_id IS NULL AND t.date <= ?
+           AND (p.transfer_account_id IS NULL OR o.off_budget = 1)`
+      const AGE_SAMPLE = 10
+
+      const ageAt = (until: Day) =>
+        db.use(async (_, d1) => {
+          const [days, last] = await d1.batch([
+            d1
+              .prepare(
+                `SELECT t.date AS date,
+                   SUM(CASE WHEN t.amount > 0 THEN t.amount ELSE 0 END) AS inflow,
+                   SUM(CASE WHEN t.amount < 0 THEN -t.amount ELSE 0 END) AS outflow
+                 ${BUDGET_FLOWS} GROUP BY t.date`,
+              )
+              .bind(until),
+            d1
+              .prepare(
+                `SELECT t.date AS date, -t.amount AS amount ${BUDGET_FLOWS} AND t.amount < 0
+                 ORDER BY t.date DESC, t.created_at DESC, t.id DESC LIMIT ${AGE_SAMPLE}`,
+              )
+              .bind(until),
+          ])
+          const sample = ((last?.results ?? []) as Outflow[]).toReversed()
+          const sampled = new Map<Day, number>()
+          for (const o of sample) sampled.set(o.date, (sampled.get(o.date) ?? 0) + o.amount)
+          const rest = ((days?.results ?? []) as MoneyDay[]).map((d) => ({ ...d, outflow: d.outflow - (sampled.get(d.date) ?? 0) }))
+          return ageOfMoney(rest, sample)
+        })
+
       const checkMonth = (month: Month) =>
         isMonth(month) ? Effect.void : Effect.fail(new Invalid({ message: `Mois invalide : ${month}` }))
 
@@ -146,6 +184,9 @@ export class Budget extends Context.Service<
             .bind(`${m}-01`, lastDay(m))
             .first<{ count: number; amount: number }>(),
         )
+
+        const today = yield* settings.today
+        const age = yield* ageAt(lastDay(m) < today ? lastDay(m) : today)
 
         let overspentCount = 0
         const groups: BudgetGroupRow[] = tree.map((g) => {
@@ -193,6 +234,7 @@ export class Budget extends Context.Service<
           buffered: current.buffered,
           overspentCount,
           uncategorized: { count: uncategorized?.count ?? 0, amount: uncategorized?.amount ?? 0 },
+          ageOfMoney: age,
           groups,
         } satisfies BudgetMonthDto
       })
