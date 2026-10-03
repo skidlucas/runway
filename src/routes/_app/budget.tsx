@@ -368,7 +368,6 @@ function CategoryRow({
   onEdit: (next: boolean | "next" | "prev") => void
 }) {
   const { openNewTransaction } = useAppUi()
-  const ratio = category.budgeted > 0 ? category.spent / category.budgeted : 0
   return (
     <div
       role="row"
@@ -390,7 +389,6 @@ function CategoryRow({
         >
           <Plus size={13} />
         </button>
-        {ratio > 0 ? <ProgressBar ratio={ratio} tone={ratio > 1 ? "negative" : "accent"} className="ml-auto mr-4 w-16 opacity-0 group-hover:opacity-100" /> : null}
       </span>
       <BudgetedCell category={category} month={month} editing={editing} onEdit={onEdit} />
       <span className="num text-right text-[12px] text-muted">{category.spent ? formatMoney(-category.spent) : formatMoney(0)}</span>
