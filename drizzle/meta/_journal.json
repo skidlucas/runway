@@ -29,6 +29,13 @@
       "when": 1791028044967,
       "tag": "0003_ended_schedules_next_day",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1791032822264,
+      "tag": "0004_category_payee_indexes",
+      "breakpoints": true
     }
   ]
 }

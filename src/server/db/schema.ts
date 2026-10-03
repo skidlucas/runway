@@ -90,8 +90,10 @@ export const transactions = sqliteTable(
     // Registers page through these in display order (date, then entry order).
     index("tx_account_order_idx").on(t.accountId, t.date, t.createdAt, t.id),
     index("tx_order_idx").on(t.date, t.createdAt, t.id),
+    index("tx_category_order_idx").on(t.categoryId, t.date, t.createdAt, t.id),
     index("tx_date_category_idx").on(t.date, t.categoryId),
-    index("tx_payee_idx").on(t.payeeId),
+    // With the date, a payee's last category is read from the index instead of sorting its history.
+    index("tx_payee_date_idx").on(t.payeeId, t.date),
     // Partial indexes: nearly every row has these columns null. A full index on parent_id made
     // SQLite pick it for `parent_id IS NULL`, which matches the whole table.
     index("tx_parent_idx").on(t.parentId).where(sql`parent_id IS NOT NULL`),
