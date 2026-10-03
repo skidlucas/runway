@@ -159,4 +159,56 @@ describe("Transactions", () => {
     const row = await h.d1.prepare("SELECT payee_id, category_id FROM transactions WHERE id = ?").bind(id).first()
     expect(row).toEqual({ payee_id: null, category_id: categories[0] })
   })
+
+  it("keeps the bank id, the opening flag and the other side's status when an edit rewrites a transaction", async () => {
+    const row = (id: string) =>
+      h.d1
+        .prepare("SELECT imported_id AS importedId, starting_balance AS startingBalance, cleared, reconciled, transfer_id AS transferId FROM transactions WHERE id = ?")
+        .bind(id)
+        .first<{ importedId: string | null; startingBalance: number; cleared: number; reconciled: number; transferId: string | null }>()
+
+    const imported = await h.run(
+      Transactions.use((t) => t.create({ accountId: account, date: "2026-09-02", amount: -2_500, payee: { kind: "name", name: "Boulangerie" } })),
+    )
+    await h.d1.prepare("UPDATE transactions SET imported_id = 'FIT-42' WHERE id = ?").bind(imported).run()
+    await h.run(Transactions.use((t) => t.update(imported, { payee: { kind: "name", name: "Boulangerie du coin" } })))
+    expect((await row(imported))?.importedId).toBe("FIT-42")
+
+    const opening = await h.d1
+      .prepare("SELECT id FROM transactions WHERE account_id = ? AND starting_balance = 1")
+      .bind(account)
+      .first<{ id: string }>()
+    await h.run(Transactions.use((t) => t.update(opening!.id, { payee: { kind: "name", name: "Report" } })))
+    expect((await row(opening!.id))?.startingBalance).toBe(1)
+
+    const transfer = await h.run(
+      Transactions.use((t) => t.create({ accountId: account, date: "2026-09-03", amount: -5_000, payee: { kind: "transfer", accountId: savings } })),
+    )
+    const mirror = (await row(transfer))!.transferId!
+    await h.d1.prepare("UPDATE transactions SET cleared = 1, reconciled = 1 WHERE id = ?").bind(mirror).run()
+    await h.run(Transactions.use((t) => t.update(transfer, { amount: -6_000, payee: { kind: "transfer", accountId: savings } })))
+    expect(await row(mirror)).toMatchObject({ cleared: 1, reconciled: 1 })
+  })
+
+  it("only lets a split line change through its parent", async () => {
+    const id = await h.run(
+      Transactions.use((t) =>
+        t.create({
+          accountId: account,
+          date: "2026-09-04",
+          amount: -1_000,
+          payee: { kind: "name", name: "Marché" },
+          splits: [
+            { amount: -700, categoryId: categories[0]! },
+            { amount: -300, categoryId: categories[1]! },
+          ],
+        }),
+      ),
+    )
+    const line = await h.d1.prepare("SELECT id FROM transactions WHERE parent_id = ? LIMIT 1").bind(id).first<{ id: string }>()
+    expect(await h.fail(Transactions.use((t) => t.update(line!.id, { amount: -100 })))).toMatchObject({ _tag: "Invalid" })
+    expect(await h.fail(Transactions.use((t) => t.remove([line!.id])))).toMatchObject({ _tag: "Invalid" })
+    await h.run(Transactions.use((t) => t.update(line!.id, { categoryId: categories[2]! })))
+    expect((await lines(id)).results.map((l) => l.amount)).toEqual([-700, -300])
+  })
 })

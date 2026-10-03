@@ -812,6 +812,7 @@ const TransactionRow = React.memo(function TransactionRow({
             icon: <Trash2 size={13} />,
             danger: true,
             onSelect: () => remove.mutate([tx.id]),
+            disabled: !!tx.parentId,
           },
         ]}
       />
@@ -851,7 +852,7 @@ function InlineDate({ tx }: { tx: TxRow }) {
         setOpen(next)
       }}
       trigger={
-        <button type="button" className="num text-left text-[12px] text-muted" title={formatDayLong(tx.date)}>
+        <button type="button" disabled={!!tx.parentId} className="num text-left text-[12px] text-muted" title={formatDayLong(tx.date)}>
           {formatDayShort(tx.date)}
         </button>
       }
@@ -920,7 +921,7 @@ function InlineAmount({ tx }: { tx: TxRow }) {
   return (
     <button
       type="button"
-      disabled={tx.isParent}
+      disabled={tx.isParent || !!tx.parentId}
       onClick={() => {
         setText(amountInput(tx.amount))
         setEditing(true)

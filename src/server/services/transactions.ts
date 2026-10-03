@@ -45,6 +45,8 @@ const INSERT_COLUMNS = [
   "parent_id",
   "imported_payee",
   "schedule_id",
+  "imported_id",
+  "starting_balance",
   "created_at",
 ]
 
@@ -149,7 +151,7 @@ export class Transactions extends Context.Service<
     create(input: TxInput): Effect.Effect<string, DbError | Invalid | NotFound>
     update(id: string, patch: TxPatch): Effect.Effect<void, DbError | Invalid | NotFound>
     /** Deletes transactions; the returned id undoes it with `restore` for a day. */
-    remove(ids: ReadonlyArray<string>): Effect.Effect<{ undoId: string }, DbError>
+    remove(ids: ReadonlyArray<string>): Effect.Effect<{ undoId: string }, DbError | Invalid>
     /** Puts back what a `remove` deleted. Fails once the deletion is too old or already undone. */
     restore(undoId: string): Effect.Effect<{ restored: number }, DbError | Invalid>
     setCleared(ids: ReadonlyArray<string>, cleared: boolean): Effect.Effect<void, DbError>
@@ -364,11 +366,21 @@ export class Transactions extends Context.Service<
 
       /**
        * Computes the rows of a transaction (parent, split lines, transfer mirror) without writing.
-       * `keep` reuses the ids and creation time of a transaction being rewritten.
+       * `keep` carries over what a rewritten transaction must not lose: its ids, creation time,
+       * bank id (re-import dedupe), opening-balance flag and the status of the other side of a
+       * transfer that stays on the same account.
        */
       const prepare = Effect.fn("Transactions.prepare")(function* (
         input: TxInput,
-        keep?: { id: string; mirrorId: string | null; createdAt: string; reconciled: boolean },
+        keep?: {
+          id: string
+          mirrorId: string | null
+          createdAt: string
+          reconciled: boolean
+          importedId: string | null
+          startingBalance: boolean
+          mirror: { accountId: string; cleared: boolean; reconciled: boolean } | null
+        },
       ) {
         if (!isDay(input.date)) return yield* new Invalid({ message: "Date invalide" })
         if (!Number.isInteger(input.amount)) return yield* new Invalid({ message: "Montant invalide" })
@@ -415,12 +427,24 @@ export class Transactions extends Context.Service<
           scheduleId: input.scheduleId ?? null,
           createdAt,
         }
-        const rows: NewTxRow[] = [{ ...base, id, amount: input.amount, categoryId: isParent ? null : categoryId, notes, isParent }]
+        const rows: NewTxRow[] = [
+          {
+            ...base,
+            id,
+            amount: input.amount,
+            categoryId: isParent ? null : categoryId,
+            notes,
+            isParent,
+            importedId: keep?.importedId ?? null,
+            startingBalance: keep?.startingBalance ?? false,
+          },
+        ]
         for (const split of input.splits ?? []) {
           rows.push({ ...base, id: newId(), amount: split.amount, categoryId: split.categoryId, notes: split.notes ?? null, parentId: id })
         }
         if (otherAccount) {
           const mirrorId = keep?.mirrorId ?? newId()
+          const mirrorStatus = keep?.mirror?.accountId === otherAccount.id ? keep.mirror : null
           const mirrorPayee = yield* transferPayee(account.id)
           rows[0] = { ...rows[0]!, transferId: mirrorId }
           rows.push({
@@ -433,7 +457,8 @@ export class Transactions extends Context.Service<
             categoryId: !otherAccount.offBudget && account.offBudget ? (input.categoryId ?? null) : null,
             notes,
             transferId: id,
-            cleared: false,
+            cleared: mirrorStatus?.cleared ?? false,
+            reconciled: mirrorStatus?.reconciled ?? false,
             createdAt,
           })
         }
@@ -462,6 +487,8 @@ export class Transactions extends Context.Service<
             r.parentId ?? null,
             r.importedPayee ?? null,
             r.scheduleId ?? null,
+            r.importedId ?? null,
+            r.startingBalance ? 1 : 0,
             r.createdAt,
           ]),
         )
@@ -489,7 +516,11 @@ export class Transactions extends Context.Service<
         const current = yield* db.use((orm) => orm.select().from(transactions).where(eq(transactions.id, id)).get())
         if (!current) return yield* new NotFound({ entity: "Opération", id })
         if (current.parentId) {
-          // Editing a split line only touches its own amount, category and notes.
+          // A split line follows its parent's date, payee and account, and its amount must keep the
+          // lines summing to the parent's total: only the parent's editor can change those.
+          if (patch.amount !== undefined || patch.date !== undefined || patch.payee !== undefined || patch.accountId !== undefined || patch.splits !== undefined) {
+            return yield* new Invalid({ message: "Modifie l'opération ventilée pour changer cette ligne" })
+          }
           const values: Partial<typeof transactions.$inferInsert> = {}
           if (patch.categoryId !== undefined) values.categoryId = patch.categoryId
           if (patch.notes !== undefined) values.notes = patch.notes
@@ -547,9 +578,15 @@ export class Transactions extends Context.Service<
 
         // Structural edits (payee kind, account, splits, transfer amounts) are rewritten as
         // delete + create under the same id so mirrors and children stay consistent.
-        const existingChildren = current.isParent
-          ? yield* db.use((orm) => orm.select().from(transactions).where(eq(transactions.parentId, id)))
-          : []
+        const [existingChildren, mirror] = yield* Effect.all(
+          [
+            current.isParent ? db.use((orm) => orm.select().from(transactions).where(eq(transactions.parentId, id))) : Effect.succeed([]),
+            current.transferId
+              ? db.use((orm) => orm.select().from(transactions).where(eq(transactions.id, current.transferId!)).get())
+              : Effect.succeed(undefined),
+          ],
+          { concurrency: "unbounded" },
+        )
         const splits =
           patch.splits === null
             ? undefined
@@ -576,11 +613,27 @@ export class Transactions extends Context.Service<
           mirrorId: current.transferId,
           createdAt: current.createdAt,
           reconciled: current.reconciled,
+          importedId: current.importedId,
+          startingBalance: current.startingBalance,
+          mirror: mirror ? { accountId: mirror.accountId, cleared: mirror.cleared, reconciled: mirror.reconciled } : null,
         })
         yield* db.batch([...deleteStatements([id]), ...insertStatements(rows)])
       })
 
       const remove = Effect.fn("Transactions.remove")(function* (ids: ReadonlyArray<string>) {
+        if (ids.length === 0) return { undoId: newId() }
+        const splitLines = yield* db.use((_, d1) =>
+          d1.batch(
+            chunkRows(ids).map((chunk) =>
+              d1
+                .prepare("SELECT COUNT(*) AS n FROM transactions WHERE id IN (SELECT value FROM json_each(?)) AND parent_id IS NOT NULL")
+                .bind(JSON.stringify(chunk)),
+            ),
+          ),
+        )
+        if (splitLines.some((r) => ((r.results[0] as { n: number } | undefined)?.n ?? 0) > 0)) {
+          return yield* new Invalid({ message: "Une ligne de ventilation se supprime depuis l'opération ventilée" })
+        }
         const undoId = newId()
         const now = yield* Clock.currentTimeMillis
         // Same rows as `deleteStatements`: the transactions, their split lines, their transfer
