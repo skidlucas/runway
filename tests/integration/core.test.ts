@@ -149,12 +149,14 @@ describe("core flows on D1", () => {
     expect(spent(ids.transport)).toBe(5830 + 4000)
   })
 
-  it("counts the register only on its first page", async () => {
+  it("counts the register only on its first page and carries the balance across pages", async () => {
     const first = await h.run(Transactions.use((t) => t.list({ accountId: ids.checking, limit: 2 })))
     const next = await h.run(Transactions.use((t) => t.list({ accountId: ids.checking, limit: 2, offset: 2 })))
     expect(first.total).toBeGreaterThan(2)
     expect(next.rows).toHaveLength(2)
     expect(next.total).toBeNull()
+    // The running balance carries over from one page to the next.
+    expect(next.rows[0]?.balance).toBe(first.rows[1]!.balance! - first.rows[1]!.amount)
   })
 
   it("reconciles an account and books the difference", async () => {

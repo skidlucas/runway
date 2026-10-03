@@ -230,37 +230,38 @@ export class Transactions extends Context.Service<
         // Only search and "uncategorized" filter on joined columns: otherwise count the bare table.
         const countFrom = search || filter.uncategorized ? FROM_ROW : "FROM transactions t"
 
-        const { rows, total } = yield* db.use(async (_, d1) => {
-          const [page, count] = await d1.batch([
+        const { rows, upTo, total } = yield* db.use(async (_, d1) => {
+          const [page, balance, count] = await d1.batch([
             d1
               .prepare(
                 `SELECT ${SELECT_ROW}, t.created_at AS createdAt, NULL AS balance ${FROM_ROW} ${whereSql}
                  ORDER BY t.date DESC, t.created_at DESC, t.id DESC LIMIT ? OFFSET ?`,
               )
               .bind(...params, limit, offset),
+            // Running balance: the first row's balance is the sum of everything up to it, then each
+            // row below is the one above minus its amount. One indexed sum instead of a window
+            // function over the account's whole history, sent with the page to save a round trip.
+            withBalance
+              ? d1
+                  .prepare(
+                    `SELECT COALESCE(SUM(amount), 0) AS n FROM transactions
+                     WHERE account_id = ?1 AND parent_id IS NULL AND (date, created_at, id) <= (
+                       SELECT date, created_at, id FROM transactions WHERE account_id = ?1 AND parent_id IS NULL
+                       ORDER BY date DESC, created_at DESC, id DESC LIMIT 1 OFFSET ?2)`,
+                  )
+                  .bind(filter.accountId, offset)
+              : d1.prepare("SELECT NULL AS n"),
             ...(offset === 0 ? [d1.prepare(`SELECT COUNT(*) AS n ${countFrom} ${whereSql}`).bind(...params)] : []),
           ])
           return {
             rows: (page?.results as RawRow[] | undefined) ?? [],
+            upTo: (balance?.results?.[0] as { n: number | null } | undefined)?.n ?? null,
             total: count ? (((count.results?.[0] as { n: number } | undefined)?.n ?? 0) as number) : null,
           }
         })
 
-        // Running balance: the first row's balance is the sum of everything up to it, then each
-        // row below is the one above minus its amount. One indexed sum instead of a window
-        // function over the account's whole history.
-        const top = rows[0] as (RawRow & { createdAt: string }) | undefined
-        if (withBalance && top) {
-          const upTo = yield* db.use((_, d1) =>
-            d1
-              .prepare(
-                `SELECT COALESCE(SUM(amount), 0) AS n FROM transactions
-                 WHERE account_id = ? AND parent_id IS NULL AND (date, created_at, id) <= (?, ?, ?)`,
-              )
-              .bind(filter.accountId, top.date, top.createdAt, top.id)
-              .first<{ n: number }>(),
-          )
-          let balance = upTo?.n ?? 0
+        if (upTo !== null) {
+          let balance = upTo
           for (const row of rows) {
             row.balance = balance
             balance -= row.amount
