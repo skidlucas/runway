@@ -68,6 +68,10 @@ export const parseActual = (SQL: SqlJsStatic, file: ActualFile): ImportBundle =>
   }
 }
 
+// Actual names a schedule created from a future transaction "Auto-created future transaction (Oct 05, 2026) - 1787553522890".
+// Without a name, the schedule shows its payee instead.
+const AUTO_SCHEDULE_NAME = /^Auto-created future transaction \(/
+
 const readDatabase = (db: Database, name: string): ImportBundle => {
   for (const table of ["accounts", "categories", "category_groups", "transactions", "payees"]) {
     if (!hasTable(db, table)) throw new ActualFormatError(`Table ${table} absente : format Actual non reconnu`)
@@ -423,7 +427,7 @@ const readSchedules = (
     const categoryAction = acts.find((a) => a.op === "set" && a.field === "category")
     schedules.push({
       id: String(row.id),
-      name: row.name == null ? null : String(row.name),
+      name: row.name == null || AUTO_SCHEDULE_NAME.test(String(row.name)) ? null : String(row.name),
       payeeId: mapPayee(get("payee")?.value),
       accountId: account,
       categoryId: validCategory(categoryAction?.value),

@@ -36,6 +36,13 @@
       "when": 1791032822264,
       "tag": "0004_category_payee_indexes",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1791036107457,
+      "tag": "0005_auto_schedule_names",
+      "breakpoints": true
     }
   ]
 }

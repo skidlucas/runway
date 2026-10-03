@@ -69,6 +69,16 @@ describe("Actual import", () => {
     expect(schedule.active).toBe(true)
   })
 
+  it("drops the name Actual generates for a schedule made from a future transaction", async () => {
+    const SQL = await initSqlJs()
+    const file = unzipActual(new Uint8Array(readFileSync(join(fixture, "actual-fixture.zip"))))
+    const db = new SQL.Database(file.db)
+    const id = String(db.exec("SELECT id FROM schedules WHERE tombstone = 0 LIMIT 1")[0]!.values[0]![0])
+    db.run("UPDATE schedules SET name = 'Auto-created future transaction (Oct 05, 2026) - 1787553522890' WHERE id = ?", [id])
+    const parsed = parseActual(SQL, { ...file, db: db.export() })
+    expect(parsed.schedules.find((s) => s.id === id)?.name).toBeNull()
+  })
+
   it("does not take the late payment of the previous occurrence for the next one", async () => {
     const SQL = await initSqlJs()
     const file = unzipActual(new Uint8Array(readFileSync(join(fixture, "actual-fixture.zip"))))
