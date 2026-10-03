@@ -103,6 +103,17 @@ export const orderStamps = (ranks: ReadonlyArray<number>, end = Date.now()): str
 
 /** Bank exports list operations newest first or oldest first; a day keeps the order of the file. */
 export const fileOrderStamps = (dates: ReadonlyArray<string>, end = Date.now()): string[] => {
-  const newestFirst = (dates[0] ?? "") > (dates[dates.length - 1] ?? "")
+  const newestFirst = fileIsNewestFirst(dates)
   return orderStamps(dates.map((_, i) => (newestFirst ? -i : i)), end)
+}
+
+/** Read from the first and last dates, else from the first change of day; a single-day file is taken as newest first, like most banks. */
+const fileIsNewestFirst = (dates: ReadonlyArray<string>) => {
+  const first = dates[0] ?? ""
+  const last = dates[dates.length - 1] ?? ""
+  if (first !== last) return first > last
+  for (let i = 1; i < dates.length; i++) {
+    if (dates[i] !== dates[i - 1]) return dates[i - 1]! > dates[i]!
+  }
+  return true
 }

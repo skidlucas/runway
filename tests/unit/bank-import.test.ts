@@ -84,4 +84,14 @@ describe("order of a day", () => {
     const stamps = fileOrderStamps(["2026-10-01", "2026-10-02", "2026-10-02"])
     expect(stamps[2]! > stamps[1]!).toBe(true)
   })
+
+  it("reads the direction from the first change of day when the file starts and ends on the same day", () => {
+    const stamps = fileOrderStamps(["2026-10-02", "2026-10-01", "2026-10-01", "2026-10-02"])
+    expect(stamps[1]! > stamps[2]!).toBe(true)
+  })
+
+  it("takes a single-day file as newest first", () => {
+    const stamps = fileOrderStamps(["2026-10-02", "2026-10-02"])
+    expect(stamps[0]! > stamps[1]!).toBe(true)
+  })
 })

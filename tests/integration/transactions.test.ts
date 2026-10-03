@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import { Accounts } from "~/server/services/accounts"
 import { Budget } from "~/server/services/budget"
 import { Categories } from "~/server/services/categories"
+import { Payees } from "~/server/services/payees"
 import { Transactions } from "~/server/services/transactions"
 import { createHarness, type Harness } from "./harness"
 
@@ -143,5 +144,19 @@ describe("Transactions", () => {
     expect(await h.run(Transactions.use((t) => t.restore(undoId)))).toEqual({ restored: 5 })
     expect(await snapshot()).toEqual(before)
     await expect(h.run(Transactions.use((t) => t.restore(undoId)))).rejects.toThrow("ne peut plus être annulée")
+  })
+
+  it("undoes a deletion whose payee was cleaned up since", async () => {
+    const id = await h.run(
+      Transactions.use((t) =>
+        t.create({ accountId: account, date: "2026-09-21", amount: -900, payee: { kind: "name", name: "Commerce éphémère" }, categoryId: categories[0]! }),
+      ),
+    )
+    const { undoId } = await h.run(Transactions.use((t) => t.remove([id])))
+    expect(await h.run(Payees.use((p) => p.deleteUnused))).toBeGreaterThan(0)
+
+    expect(await h.run(Transactions.use((t) => t.restore(undoId)))).toEqual({ restored: 1 })
+    const row = await h.d1.prepare("SELECT payee_id, category_id FROM transactions WHERE id = ?").bind(id).first()
+    expect(row).toEqual({ payee_id: null, category_id: categories[0] })
   })
 })

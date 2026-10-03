@@ -1,6 +1,6 @@
 import { and, asc, eq, inArray, sql } from "drizzle-orm"
 import { Context, Effect, Layer } from "effect"
-import { Db, type DbError, newId } from "../db/client"
+import { bulkInsertStatements, Db, type DbError, newId } from "../db/client"
 import { categories, categoryGroups, rules } from "../db/schema"
 import { Invalid, NotFound } from "../errors"
 import { Settings } from "./settings"
@@ -297,18 +297,17 @@ export class Categories extends Context.Service<
       const createStarterSet = Effect.gen(function* () {
         const existing = yield* db.use((orm) => orm.select({ id: categoryGroups.id }).from(categoryGroups).limit(1))
         if (existing.length > 0 && (yield* tree).some((g) => !g.isIncome)) return
-        let order = 1
-        const groupRows: (typeof categoryGroups.$inferInsert)[] = []
-        const catRows: (typeof categories.$inferInsert)[] = []
-        for (const g of STARTER_GROUPS) {
+        const groupRows: [string, string, number][] = []
+        const catRows: [string, string, string, number][] = []
+        STARTER_GROUPS.forEach((g, index) => {
           const gid = newId()
-          groupRows.push({ id: gid, name: g.name, isIncome: false, sortOrder: order++ })
-          g.categories.forEach((name, i) => catRows.push({ id: newId(), groupId: gid, name, sortOrder: i + 1 }))
-        }
-        yield* db.use(async (orm) => {
-          await orm.insert(categoryGroups).values(groupRows)
-          await orm.insert(categories).values(catRows)
+          groupRows.push([gid, g.name, index + 1])
+          g.categories.forEach((name, i) => catRows.push([newId(), gid, name, i + 1]))
         })
+        yield* db.batch([
+          ...bulkInsertStatements(db.d1, "category_groups", ["id", "name", "sort_order"], groupRows),
+          ...bulkInsertStatements(db.d1, "categories", ["id", "group_id", "name", "sort_order"], catRows),
+        ])
         yield* startingBalanceCategory
       })
 

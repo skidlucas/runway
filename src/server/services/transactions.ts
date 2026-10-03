@@ -19,7 +19,15 @@ type NewTxRow = typeof transactions.$inferInsert & { createdAt: string }
 // back exactly what was there.
 const ALL_COLUMNS = Object.values(getTableColumns(transactions)).map((c) => c.name)
 const ROW_AS_JSON = `json_object(${ALL_COLUMNS.map((c) => `'${c}', ${c}`).join(", ")})`
-const ROW_FROM_JSON = ALL_COLUMNS.map((c) => `json_extract(row, '$.${c}')`).join(", ")
+// A payee or category deleted since the deletion (unused payee cleanup, category removal) is
+// dropped from the restored row rather than failing the whole undo on its foreign key.
+const ROW_FROM_JSON = ALL_COLUMNS.map((c) =>
+  c === "payee_id"
+    ? `(SELECT id FROM payees WHERE id = json_extract(row, '$.payee_id'))`
+    : c === "category_id"
+      ? `(SELECT id FROM categories WHERE id = json_extract(row, '$.category_id'))`
+      : `json_extract(row, '$.${c}')`,
+).join(", ")
 const TRASH_KEPT_MS = 24 * 3600 * 1000
 
 const INSERT_COLUMNS = [
@@ -608,7 +616,7 @@ export class Transactions extends Context.Service<
         )
         const restored = found?.n ?? 0
         if (restored === 0) return yield* new Invalid({ message: "Cette suppression ne peut plus être annulée" })
-        // A row whose account, payee or category was deleted since makes the whole batch fail.
+        // A row whose account was deleted since makes the whole batch fail.
         yield* db.batch([
           db.d1
             .prepare(`INSERT OR IGNORE INTO transactions (${ALL_COLUMNS.join(", ")}) SELECT ${ROW_FROM_JSON} FROM transaction_trash WHERE undo_id = ?`)
