@@ -65,10 +65,10 @@ describe("Age of money", () => {
 
   it("ages the money spent out of the budget, transfers between budget accounts aside", async () => {
     // The rent waited 40 days, the money sent to the broker 50; the savings transfer stays in the budget.
-    expect((await h.run(Budget.use((s) => s.month("2026-02")))).ageOfMoney).toBe(45)
+    expect(await h.run(Budget.use((s) => s.ageOfMoney("2026-02")))).toBe(45)
   })
 
   it("has no age before the first outflow", async () => {
-    expect((await h.run(Budget.use((s) => s.month("2026-01")))).ageOfMoney).toBeNull()
+    expect(await h.run(Budget.use((s) => s.ageOfMoney("2026-01")))).toBeNull()
   })
 })

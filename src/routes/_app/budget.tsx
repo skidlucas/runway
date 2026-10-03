@@ -116,7 +116,7 @@ function BudgetPage() {
             <Kpi
               className="px-5 py-4"
               label="Âge de l'argent"
-              value={<span data-testid="age-of-money">{data.ageOfMoney === null ? "—" : count(data.ageOfMoney, "jour")}</span>}
+              value={<AgeOfMoney month={month} testId="age-of-money" />}
             />
           </div>
           {data.uncategorized.count > 0 ? (
@@ -132,7 +132,15 @@ function BudgetPage() {
             </Link>
           ) : null}
           {mobile ? (
-            <MobileBudget budget={data} month={month} showHidden={showHidden} />
+            <>
+              <Kpi
+                className="border-b border-line px-5 py-3"
+                label="Âge de l'argent"
+                value={<AgeOfMoney month={month} />}
+                hint="Depuis combien de temps l'argent dépensé est arrivé, en moyenne"
+              />
+              <MobileBudget budget={data} month={month} showHidden={showHidden} />
+            </>
           ) : (
             <BudgetTable budget={data} month={month} showHidden={showHidden} />
           )}
@@ -156,6 +164,11 @@ function BudgetPage() {
 }
 
 const KPI_CELL = "border-r border-line px-5 py-4"
+
+function AgeOfMoney({ month, testId }: { month: string; testId?: string }) {
+  const { data } = useQuery(q.ageOfMoney(month))
+  return <span data-testid={testId}>{data === undefined ? "…" : data === null ? "—" : count(data, "jour")}</span>
+}
 
 function ToBudgetChip({ budget }: { budget: BudgetMonthDto }) {
   const negative = budget.toBudget < 0

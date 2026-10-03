@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm"
-import { Context, Effect, Layer } from "effect"
+import { Clock, Context, Effect, Layer } from "effect"
 import { isDay, isMonth } from "~/domain/dates"
 import { RECURRENCE_UNITS } from "~/domain/recurrence"
 import { normalizeText, type RuleAction, type RuleSubject } from "~/domain/rules"
@@ -124,13 +124,17 @@ export class ImportExport extends Context.Service<
         structure: BundleStructure,
         include: { budgets: boolean; rules: boolean; schedules: boolean },
       ) {
-        const existing = yield* db.use(async (orm) => ({
-          accounts: await orm.select().from(schema.accounts),
-          groups: await orm.select().from(schema.categoryGroups),
-          categories: await orm.select().from(schema.categories),
-          payees: await orm.select().from(schema.payees),
-          schedules: await orm.select({ id: schema.schedules.id }).from(schema.schedules),
-        }))
+        const existing = yield* db
+          .use((orm) =>
+            orm.batch([
+              orm.select().from(schema.accounts),
+              orm.select().from(schema.categoryGroups),
+              orm.select().from(schema.categories),
+              orm.select().from(schema.payees),
+              orm.select({ id: schema.schedules.id }).from(schema.schedules),
+            ]),
+          )
+          .pipe(Effect.map(([accounts, groups, categories, payees, schedules]) => ({ accounts, groups, categories, payees, schedules })))
         const usedIds = new Set([
           ...existing.accounts.map((a) => a.id),
           ...existing.groups.map((g) => g.id),
@@ -631,25 +635,43 @@ export class ImportExport extends Context.Service<
         ].map((s) => db.d1.prepare(s)),
       )
 
-      const exportMeta = db.use(async (orm, d1) => {
-        const count = await d1.prepare("SELECT COUNT(*) AS n FROM transactions").first<{ n: number }>()
+      const exportMeta = Effect.gen(function* () {
+        const now = yield* Clock.currentTimeMillis
+        const [accounts, groups, categories, payees, budgets, budgetMonths, rules, schedules, assets, valuations, savedViews, dashboards, count] =
+          yield* db.use((orm) =>
+            orm.batch([
+              orm.select().from(schema.accounts),
+              orm.select().from(schema.categoryGroups),
+              orm.select().from(schema.categories),
+              orm.select().from(schema.payees),
+              orm.select().from(schema.budgets),
+              orm.select().from(schema.budgetMonths),
+              orm.select().from(schema.rules),
+              orm.select().from(schema.schedules),
+              orm.select().from(schema.assets),
+              orm.select().from(schema.assetValuations),
+              orm.select().from(schema.savedViews),
+              orm.select().from(schema.dashboards),
+              orm.select({ n: sql<number>`COUNT(*)` }).from(schema.transactions),
+            ]),
+          )
         return {
           version: 1 as const,
-          exportedAt: new Date().toISOString(),
-          accounts: await orm.select().from(schema.accounts),
-          groups: await orm.select().from(schema.categoryGroups),
-          categories: await orm.select().from(schema.categories),
-          payees: await orm.select().from(schema.payees),
-          budgets: await orm.select().from(schema.budgets),
-          budgetMonths: await orm.select().from(schema.budgetMonths),
-          rules: await orm.select().from(schema.rules),
-          schedules: await orm.select().from(schema.schedules),
-          assets: await orm.select().from(schema.assets),
-          valuations: await orm.select().from(schema.assetValuations),
-          savedViews: await orm.select().from(schema.savedViews),
-          dashboards: await orm.select().from(schema.dashboards),
-          transactionCount: count?.n ?? 0,
-        }
+          exportedAt: new Date(now).toISOString(),
+          accounts,
+          groups,
+          categories,
+          payees,
+          budgets,
+          budgetMonths,
+          rules,
+          schedules,
+          assets,
+          valuations,
+          savedViews,
+          dashboards,
+          transactionCount: count[0]?.n ?? 0,
+        } satisfies ExportMeta
       })
 
       // Keyset pagination on the (date, created_at, id) index: each page is an index seek, where

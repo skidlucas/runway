@@ -420,7 +420,7 @@ export class Wealth extends Context.Service<
 
       const refresh = Effect.fn("Wealth.refresh")(function* (options: { ids?: ReadonlyArray<string> } = {}) {
         const today = yield* settings.today
-        const [rows, lastAuto] = yield* Effect.all([loadAssets, lastAutomaticDates])
+        const [rows, lastAuto] = yield* Effect.all([loadAssets, lastAutomaticDates], { concurrency: "unbounded" })
         const wanted = options.ids ? new Set(options.ids) : null
         const due = rows.filter((a) =>
           wanted ? wanted.has(a.id) && isAutomatic(a.source) : refreshDue(a.source, lastAuto.get(a.id) ?? null, today),

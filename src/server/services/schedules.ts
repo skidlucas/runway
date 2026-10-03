@@ -526,7 +526,7 @@ export class Schedules extends Context.Service<
               categories: new Map(((cat?.results ?? []) as Array<{ id: string; name: string }>).map((c) => [c.id, c.name])),
             }
           }),
-        ])
+        ], { concurrency: "unbounded" })
         const scheduled = new Set(existing.map((e) => `${e.payeeId}|${e.accountId}`))
         return detectRecurring(history, today)
           .filter((c) => !scheduled.has(`${c.payeeId}|${c.accountId}`))

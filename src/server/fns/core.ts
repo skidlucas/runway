@@ -261,6 +261,11 @@ export const getBudgetMonth = createServerFn({ method: "GET" })
   .validator(v(Schema.Struct({ month: MonthS })))
   .handler(({ data }) => runApp(Budget.use((s) => s.month(data.month))))
 
+export const getAgeOfMoney = createServerFn({ method: "GET" })
+  .middleware([authMiddleware])
+  .validator(v(Schema.Struct({ month: MonthS })))
+  .handler(({ data }) => runApp(Budget.use((s) => s.ageOfMoney(data.month))))
+
 export const setBudgetAmount = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
   .validator(v(Schema.Struct({ month: MonthS, categoryId: Id, amount: Cents })))

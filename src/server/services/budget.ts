@@ -46,8 +46,6 @@ export type BudgetMonthDto = {
   buffered: number
   overspentCount: number
   uncategorized: { count: number; amount: number }
-  /** Days, at the end of the month or today if sooner; null without enough history. */
-  ageOfMoney: number | null
   groups: BudgetGroupRow[]
 }
 
@@ -59,6 +57,8 @@ export class Budget extends Context.Service<
     /** Raw engine output for months up to `until` (shared with forecast and insights). */
     compute(until: Month): Effect.Effect<{ months: Map<Month, BudgetMonth>; tree: CategoryGroupDto[] }, DbError>
     month(month: Month): Effect.Effect<BudgetMonthDto, DbError | Invalid>
+    /** Days, at the end of the month or today if sooner; null without enough history. */
+    ageOfMoney(month: Month): Effect.Effect<number | null, DbError | Invalid>
     setAmount(month: Month, categoryId: string, amount: number): Effect.Effect<void, DbError | Invalid>
     setCarryover(month: Month, categoryId: string, carryover: boolean): Effect.Effect<void, DbError | Invalid>
     /** Bulk fill: copy last month, average of the last N months, or zero everything. */
@@ -102,7 +102,7 @@ export class Budget extends Context.Service<
               buffers: (buffers?.results ?? []) as Array<{ month: string; buffered: number }>,
             }
           }),
-        ]).pipe(
+        ], { concurrency: "unbounded" }).pipe(
           Effect.map(([tree, raw]) => {
             const activity = new Map<Month, Map<string, number>>()
             for (const r of raw.activity) {
@@ -138,8 +138,9 @@ export class Budget extends Context.Service<
       const AGE_SAMPLE = 10
 
       const ageAt = (until: Day) =>
-        db.use(async (_, d1) => {
-          const [days, last] = await d1.batch([
+        db
+          .use((_, d1) =>
+            d1.batch([
             d1
               .prepare(
                 `SELECT t.date AS date,
@@ -154,23 +155,23 @@ export class Budget extends Context.Service<
                  ORDER BY t.date DESC, t.created_at DESC, t.id DESC LIMIT ${AGE_SAMPLE}`,
               )
               .bind(until),
-          ])
-          const sample = ((last?.results ?? []) as Outflow[]).toReversed()
-          const sampled = new Map<Day, number>()
-          for (const o of sample) sampled.set(o.date, (sampled.get(o.date) ?? 0) + o.amount)
-          const rest = ((days?.results ?? []) as MoneyDay[]).map((d) => ({ ...d, outflow: d.outflow - (sampled.get(d.date) ?? 0) }))
-          return ageOfMoney(rest, sample)
-        })
+            ]),
+          )
+          .pipe(
+            Effect.map(([days, last]) => {
+              const sample = ((last?.results ?? []) as Outflow[]).toReversed()
+              const sampled = new Map<Day, number>()
+              for (const o of sample) sampled.set(o.date, (sampled.get(o.date) ?? 0) + o.amount)
+              const rest = ((days?.results ?? []) as MoneyDay[]).map((d) => ({ ...d, outflow: d.outflow - (sampled.get(d.date) ?? 0) }))
+              return ageOfMoney(rest, sample)
+            }),
+          )
 
       const checkMonth = (month: Month) =>
         isMonth(month) ? Effect.void : Effect.fail(new Invalid({ message: `Mois invalide : ${month}` }))
 
-      const month = Effect.fn("Budget.month")(function* (m: Month) {
-        yield* checkMonth(m)
-        const { tree, months } = yield* compute(m)
-        const current = months.get(m)!
-        const previous = [1, 2, 3].map((d) => months.get(addMonths(m, -d)))
-        const uncategorized = yield* db.use((_, d1) =>
+      const uncategorizedIn = (m: Month) =>
+        db.use((_, d1) =>
           d1
             .prepare(
               `SELECT COUNT(*) AS count, COALESCE(SUM(t.amount), 0) AS amount
@@ -185,8 +186,17 @@ export class Budget extends Context.Service<
             .first<{ count: number; amount: number }>(),
         )
 
+      const monthAge = Effect.fn("Budget.ageOfMoney")(function* (m: Month) {
+        yield* checkMonth(m)
         const today = yield* settings.today
-        const age = yield* ageAt(lastDay(m) < today ? lastDay(m) : today)
+        return yield* ageAt(lastDay(m) < today ? lastDay(m) : today)
+      })
+
+      const month = Effect.fn("Budget.month")(function* (m: Month) {
+        yield* checkMonth(m)
+        const [{ tree, months }, uncategorized] = yield* Effect.all([compute(m), uncategorizedIn(m)], { concurrency: "unbounded" })
+        const current = months.get(m)!
+        const previous = [1, 2, 3].map((d) => months.get(addMonths(m, -d)))
 
         let overspentCount = 0
         const groups: BudgetGroupRow[] = tree.map((g) => {
@@ -234,7 +244,6 @@ export class Budget extends Context.Service<
           buffered: current.buffered,
           overspentCount,
           uncategorized: { count: uncategorized?.count ?? 0, amount: uncategorized?.amount ?? 0 },
-          ageOfMoney: age,
           groups,
         } satisfies BudgetMonthDto
       })
@@ -351,7 +360,7 @@ export class Budget extends Context.Service<
         ])
       })
 
-      return Budget.of({ compute, month, setAmount, setCarryover, fill, move, setBuffered })
+      return Budget.of({ compute, month, ageOfMoney: monthAge, setAmount, setCarryover, fill, move, setBuffered })
     }),
   )
 }

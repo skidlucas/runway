@@ -1,6 +1,7 @@
 import { infiniteQueryOptions, queryOptions, useMutation, useQueryClient } from "@tanstack/react-query"
 import {
   getAccounts,
+  getAgeOfMoney,
   getBudgetMonth,
   getCategories,
   getPayees,
@@ -27,6 +28,8 @@ export const q = {
   payees: () => queryOptions({ queryKey: ["payees"], queryFn: () => getPayees() }),
   budget: (month: string) =>
     queryOptions({ queryKey: ["budget", month], queryFn: () => getBudgetMonth({ data: { month } }) }),
+  ageOfMoney: (month: string) =>
+    queryOptions({ queryKey: ["ageOfMoney", month], queryFn: () => getAgeOfMoney({ data: { month } }) }),
   transactions: (filter: Omit<TxFilter, "limit" | "offset">) =>
     infiniteQueryOptions({
       queryKey: ["transactions", filter],
@@ -76,8 +79,8 @@ export const q = {
 
 type QueryName = keyof typeof q
 
-/** What a budget edit can change: the month itself, the projection and the alerts built on it. */
-export const BUDGET_QUERIES: ReadonlyArray<QueryName> = ["budget", "forecast", "findings"]
+/** What a budget edit can change: the month itself and the alerts built on it (the forecast only reads transactions). */
+export const BUDGET_QUERIES: ReadonlyArray<QueryName> = ["budget", "findings"]
 
 /**
  * Wraps a server function call in a mutation. By default a success refreshes every active
@@ -96,11 +99,12 @@ export function useAction<TInput, TOutput>(
   return useMutation({
     mutationFn: fn,
     onSuccess: async (output) => {
+      const message = typeof options.success === "function" ? options.success(output) : options.success
+      if (message) toast(message)
+      // Callers close or navigate in `onSuccess`: wait for fresh data so the next view never shows the old one.
       await (options.invalidates
         ? Promise.all(options.invalidates.map((name) => client.invalidateQueries({ queryKey: [name] })))
         : client.invalidateQueries())
-      const message = typeof options.success === "function" ? options.success(output) : options.success
-      if (message) toast(message)
       options.onSuccess?.(output)
     },
     onError: (error) => toastError(error),

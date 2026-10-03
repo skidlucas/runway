@@ -60,7 +60,7 @@ export class Categorizer extends Context.Service<
           }),
           categoriesService.tree,
           settings.get("startingBalanceCategoryId"),
-        ])
+        ], { concurrency: "unbounded" })
 
         const groups = new Map<string, { sample: Row; ids: string[] }>()
         for (const row of rows) {

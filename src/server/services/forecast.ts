@@ -108,7 +108,7 @@ export class ForecastService extends Context.Service<
             }
           }),
           schedules.occurrences(today > start ? today : start, end),
-        ])
+        ], { concurrency: "unbounded" })
 
         if (accountId !== null && raw.accounts.length === 0) return yield* new NotFound({ entity: "Compte", id: accountId })
 
@@ -162,7 +162,7 @@ export class ForecastService extends Context.Service<
             }
           }),
           schedules.occurrences(today, until),
-        ])
+        ], { concurrency: "unbounded" })
         const items: UpcomingItem[] = [
           ...raw.future.map((t) => ({ ...t, source: "transaction" as const, scheduleId: null, overdue: false })),
           ...scheduledItems(occurrences, new Set(raw.accounts.map((a) => a.id))),

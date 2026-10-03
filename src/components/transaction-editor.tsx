@@ -36,7 +36,6 @@ export function useDeleteTransactions(onSuccess?: () => void) {
   return useMutation({
     mutationFn: (ids: ReadonlyArray<string>) => deleteTransactions({ data: { ids: [...ids] } }),
     onSuccess: async ({ undoId }, ids) => {
-      await client.invalidateQueries()
       const undo = () =>
         restoreTransactions({ data: { undoId } })
           .then(() => client.invalidateQueries())
@@ -45,6 +44,7 @@ export function useDeleteTransactions(onSuccess?: () => void) {
         action: { label: "Annuler", run: () => void undo() },
         duration: 8000,
       })
+      await client.invalidateQueries()
       onSuccess?.()
     },
     onError: (error) => toastError(error),

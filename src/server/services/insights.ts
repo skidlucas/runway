@@ -179,7 +179,7 @@ export class Insights extends Context.Service<
             }
           }),
           query.measure === "expenses" && query.target.kind !== "payee" ? budget.compute(month) : Effect.succeed(null),
-        ])
+        ], { concurrency: "unbounded" })
 
         let budgetAmount: number | null = null
         if (computed) {
@@ -263,7 +263,7 @@ export class Insights extends Context.Service<
           }),
           budget.compute(month),
           schedules.suggestions,
-        ])
+        ], { concurrency: "unbounded" })
 
         const series = new Map<string, Map<Month, (typeof raw.series)[number]>>()
         for (const r of raw.series) {

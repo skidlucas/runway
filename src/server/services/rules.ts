@@ -197,7 +197,7 @@ export class Rules extends Context.Service<
             return results
           }),
           list,
-        ])
+        ], { concurrency: "unbounded" })
         const covered = new Set<string>()
         for (const rule of all) {
           for (const c of rule.conditions) {
