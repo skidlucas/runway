@@ -38,7 +38,7 @@ import {
   useDeleteTransactions,
 } from "~/components/transaction-editor"
 import { Button, Calendar, Checkbox, Chip, cx, DateInput, Dialog, EmptyState, IconButton, Input, Kpi, Menu, Money, Popover, SkeletonRows } from "~/components/ui"
-import { type Day, formatDayLong, formatDayShort, formatMonthLong, parseDayInput } from "~/domain/dates"
+import { type Day, formatDayLong, formatDayShort, formatMonthLong, monthOf, parseDayInput } from "~/domain/dates"
 import { amountInput, formatMoney, parseAmount } from "~/domain/money"
 import { shortcutBlocked, useDebounced, useIsMobile, useToday } from "~/lib/hooks"
 import { q, useAction } from "~/lib/queries"
@@ -370,7 +370,7 @@ function BulkBar({ ids, rows, onDone }: { ids: string[]; rows: TxRow[]; onDone: 
         size="sm"
         variant="danger"
         icon={<Trash2 size={13} />}
-        onClick={() => window.confirm(`Supprimer ${count(ids.length, "opération")} ?`) && remove.mutate(ids)}
+        onClick={() => remove.mutate(ids)}
       >
         Supprimer
       </Button>
@@ -401,8 +401,8 @@ function useWindowList(options: {
     const el = ref.current
     if (el) setScrollMargin(Math.round(el.getBoundingClientRect().top + window.scrollY))
   }, [])
-  // Whatever sits above the list (bulk bar, balances loading) moves it down.
-  React.useLayoutEffect(measure)
+  // Whatever sits above the list (bulk bar, balances loading) moves it down and grows the page.
+  React.useLayoutEffect(measure, [measure])
   React.useEffect(() => {
     const observer = new ResizeObserver(measure)
     observer.observe(document.body)
@@ -535,8 +535,8 @@ function TransactionTable({
     onReachEnd,
   })
   return (
-    <div role="table" aria-label="Opérations">
-      <div role="row" className={cx(columns, "h-[34px] border-b border-line px-5 text-[12px] text-faint")}>
+    <div role="table" aria-label="Opérations" aria-rowcount={lines.length + 1}>
+      <div role="row" aria-rowindex={1} className={cx(columns, "h-[34px] border-b border-line px-5 text-[12px] text-faint")}>
         <Checkbox
           checked={allSelected}
           label="Tout sélectionner"
@@ -556,11 +556,31 @@ function TransactionTable({
           const line = lines[item.index]
           if (!line) return null
           const top = list.offset(item)
+          // Only the rows near the viewport are in the page: the header is row 1.
+          const rowIndex = item.index + 2
           if (line.kind === "scheduled") {
-            return <ScheduledLine key={item.key} row={line.row} columns={columns} showAccount={showAccount} showBalance={showBalance && !showAccount} top={top} />
+            return (
+              <ScheduledLine
+                key={item.key}
+                row={line.row}
+                columns={columns}
+                showAccount={showAccount}
+                showBalance={showBalance && !showAccount}
+                top={top}
+                rowIndex={rowIndex}
+              />
+            )
           }
           return line.kind === "split" ? (
-            <SplitRow key={item.key} tx={line.tx} columns={columns} showAccount={showAccount} showBalance={showBalance && !showAccount} top={top} />
+            <SplitRow
+              key={item.key}
+              tx={line.tx}
+              columns={columns}
+              showAccount={showAccount}
+              showBalance={showBalance && !showAccount}
+              top={top}
+              rowIndex={rowIndex}
+            />
           ) : (
             <TransactionRow
               key={item.key}
@@ -576,6 +596,7 @@ function TransactionTable({
               accountId={accountId}
               today={today}
               top={top}
+              rowIndex={rowIndex}
             />
           )
         })}
@@ -590,17 +611,20 @@ function ScheduledLine({
   showAccount,
   showBalance,
   top,
+  rowIndex,
 }: {
   row: ScheduledRow
   columns: string
   showAccount: boolean
   showBalance: boolean
   top: number
+  rowIndex: number
 }) {
   const s = useScheduledRow(row)
   return (
     <div
       role="row"
+      aria-rowindex={rowIndex}
       data-testid="scheduled-row"
       className={cx(columns, "group absolute inset-x-0 top-0 h-9 border-b border-line-subtle px-5 text-muted hover:bg-hover")}
       style={{ transform: `translateY(${top}px)` }}
@@ -631,9 +655,24 @@ function ScheduledLine({
   )
 }
 
-const SplitRow = ({ tx, columns, showAccount, showBalance, top }: { tx: TxRow; columns: string; showAccount: boolean; showBalance: boolean; top: number }) => (
+const SplitRow = ({
+  tx,
+  columns,
+  showAccount,
+  showBalance,
+  top,
+  rowIndex,
+}: {
+  tx: TxRow
+  columns: string
+  showAccount: boolean
+  showBalance: boolean
+  top: number
+  rowIndex: number
+}) => (
   <div
     role="row"
+    aria-rowindex={rowIndex}
     className={cx(columns, "absolute inset-x-0 top-0 h-8 border-b border-line-subtle px-5 text-[12px] text-muted")}
     style={{ transform: `translateY(${top}px)` }}
   >
@@ -664,6 +703,7 @@ const TransactionRow = React.memo(function TransactionRow({
   accountId,
   today,
   top,
+  rowIndex,
 }: {
   tx: TxRow
   columns: string
@@ -677,6 +717,7 @@ const TransactionRow = React.memo(function TransactionRow({
   accountId: string | undefined
   today: string
   top: number
+  rowIndex: number
 }) {
   const [dialog, setDialog] = React.useState<null | "edit" | "rule" | "schedule">(null)
   const update = useAction(updateTransaction)
@@ -688,6 +729,7 @@ const TransactionRow = React.memo(function TransactionRow({
   return (
     <div
       role="row"
+      aria-rowindex={rowIndex}
       data-testid="tx-row"
       className={cx(
         columns,
@@ -826,7 +868,8 @@ function InlineDate({ tx }: { tx: TxRow }) {
           }}
         />
       </div>
-      <Calendar value={draft} onSelect={save} />
+      {/* A typed date in another month shows that month. */}
+      <Calendar key={draft ? monthOf(draft) : ""} value={draft} onSelect={save} />
     </Popover>
   )
 }

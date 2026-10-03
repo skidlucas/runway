@@ -81,6 +81,18 @@ test("deletes an operation and brings it back from the toast", async ({ page }) 
   await expect(row).toContainText("−42,50 €")
 })
 
+test("deletes a selection without asking and brings it back from the toast", async ({ page }) => {
+  await openJointAccount(page)
+  const row = page.getByTestId("tx-row").filter({ hasText: "Boulangerie" })
+  await row.getByRole("checkbox", { name: "Sélectionner" }).click()
+  await page.getByRole("button", { name: "Supprimer", exact: true }).click()
+  const deleted = page.getByRole("status").filter({ hasText: "1 opération supprimée" })
+  await expect(row).toHaveCount(0)
+  await deleted.getByRole("button", { name: "Annuler" }).click()
+  await waitForToast(page, "Suppression annulée")
+  await expect(row).toContainText("−42,50 €")
+})
+
 test("keeps today's balance apart from operations dated later", async ({ page }) => {
   await openJointAccount(page)
   await page.getByRole("button", { name: "Opération", exact: true }).click()
@@ -107,6 +119,10 @@ test("moves an operation to another day from the register", async ({ page }) => 
 
   await row.getByTitle(/ \d{4}$/).click()
   await expect(page.getByRole("dialog").getByLabel("Date")).toHaveValue(`${d}/${m}/${y}`)
+  const later = inDays(40)
+  const [ly, lm, ld] = later.split("-")
+  await page.getByRole("dialog").getByLabel("Date").fill(`${ld}/${lm}/${ly}`)
+  await expect(page.getByRole("dialog").locator(`[data-day="${later}"]`)).toBeVisible()
   await page.keyboard.press("Escape")
 })
 
