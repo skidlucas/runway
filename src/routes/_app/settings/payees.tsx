@@ -24,6 +24,8 @@ function PayeesSettings() {
   const cleanup = useAction(deleteUnusedPayees, { success: (n) => `${count(n, "bénéficiaire")} ${plural(n, "supprimé")}` })
   const catName = new Map((categories.data ?? []).flatMap((g) => g.categories.map((c) => [c.id, c.name] as const)))
   const list = (payees.data ?? []).filter((p) => !p.transferAccountId && normalizeText(p.name).includes(normalizeText(filter)))
+  // Only what is on screen gets merged: the selection survives filtering and cleanups.
+  const chosen = list.filter((p) => selected.has(p.id))
 
   return (
     <>
@@ -32,9 +34,9 @@ function PayeesSettings() {
         crumb="Bénéficiaires"
         right={
           <>
-            {selected.size >= 2 ? (
+            {chosen.length >= 2 ? (
               <Button variant="primary" onClick={() => setMerging(true)}>
-                Fusionner {selected.size} bénéficiaires
+                Fusionner {chosen.length} bénéficiaires
               </Button>
             ) : null}
             <Button variant="ghost" onClick={() => window.confirm("Supprimer les bénéficiaires sans opération, règle ni échéance ?") && cleanup.mutate(undefined)} loading={cleanup.isPending}>
@@ -87,7 +89,7 @@ function PayeesSettings() {
       )}
       {merging ? (
         <MergeDialog
-          options={(payees.data ?? []).filter((p) => selected.has(p.id))}
+          options={chosen}
           onClose={(done) => {
             setMerging(false)
             if (done) setSelected(new Set())

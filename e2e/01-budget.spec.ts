@@ -1,4 +1,5 @@
 import { expect, type Page, test } from "@playwright/test"
+import { formatDayLong } from "../src/domain/dates"
 import { open, pickInCommand, visible, waitForToast } from "./helpers"
 
 test.describe.configure({ mode: "serial" })
@@ -153,4 +154,17 @@ test("plans a one-off schedule and shows it in the register and the account fore
   await expect(page).toHaveURL(/account=/)
   await expect(page.getByRole("tab", { name: "Compte joint" })).toHaveAttribute("aria-selected", "true")
   await expect(page.getByText(/Seules les échéances et les opérations déjà saisies sont comptées/)).toBeVisible()
+})
+
+test("saves the short date typed just before pressing Enter", async ({ page }) => {
+  await openJointAccount(page)
+  await page.getByRole("button", { name: "Opération", exact: true }).click()
+  const dialog = page.getByRole("dialog", { name: "Nouvelle opération" })
+  await dialog.getByLabel("Montant").fill("3")
+  await pickInCommand(page, dialog.getByRole("button", { name: "Bénéficiaire" }), "Kiosque", "Créer « Kiosque »")
+  await dialog.getByLabel("Date").fill("1")
+  await dialog.getByLabel("Date").press("Enter")
+  await expect(dialog).toHaveCount(0)
+  const [y, m] = inDays(0).split("-")
+  await expect(page.getByTestId("tx-row").filter({ hasText: "Kiosque" }).getByTitle(formatDayLong(`${y}-${m}-01`))).toBeVisible()
 })

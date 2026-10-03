@@ -56,7 +56,9 @@ const subscribe = (l: () => void) => {
 export function Toaster() {
   const list = React.useSyncExternalStore(subscribe, getToasts, getToasts)
   return (
-    <div className="pointer-events-none fixed bottom-4 right-4 z-[60] flex flex-col gap-2 max-md:bottom-[96px] max-md:left-4">
+    // One live region that is always there: screen readers often skip a region that appears
+    // already filled, which would hide the undo offer of a deletion.
+    <div role="status" className="pointer-events-none fixed bottom-4 right-4 z-[60] flex flex-col gap-2 max-md:bottom-[96px] max-md:left-4">
       {list.map((t) => (
         <ToastItem key={t.id} toast={t} />
       ))}
@@ -72,7 +74,6 @@ function ToastItem({ toast: t }: { toast: Toast }) {
   }
   return (
     <div
-      role="status"
       onMouseEnter={() => hold({ hover: true })}
       onMouseLeave={() => hold({ hover: false })}
       onFocus={() => hold({ focus: true })}

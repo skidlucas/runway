@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query"
+import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { createFileRoute } from "@tanstack/react-router"
 import { ArrowDown, ArrowUp, MoreHorizontal, Play, Plus, Sparkles, Trash2 } from "lucide-react"
 import * as React from "react"
@@ -35,18 +35,21 @@ function RulesSettings() {
   const suggestions = useQuery(q.ruleSuggestions())
   const names = useNames()
   const [editing, setEditing] = React.useState<RuleDto | "new" | null>(null)
-  const reorder = useAction(reorderRules, { invalidates: ["rules"] })
+  const client = useQueryClient()
+  const reorder = useAction(reorderRules, { invalidates: ["rules"], scope: "reorder-rules" })
   const create = useAction(createRule, {
     success: (r) => (r.applied ? `Règle créée · ${count(r.applied, "opération")} ${plural(r.applied, "catégorisée")}` : "Règle créée"),
   })
   const list = rules.data ?? []
 
+  // Shown at once, so that a second click moves from the new position rather than the old one.
   const move = (index: number, delta: number) => {
-    const ids = list.map((r) => r.id)
-    const [id] = ids.splice(index, 1)
-    if (!id) return
-    ids.splice(index + delta, 0, id)
-    reorder.mutate({ data: { ids } })
+    const next = [...list]
+    const [rule] = next.splice(index, 1)
+    if (!rule) return
+    next.splice(index + delta, 0, rule)
+    client.setQueryData(q.rules().queryKey, next)
+    reorder.mutate({ data: { ids: next.map((r) => r.id) } })
   }
 
   return (

@@ -218,8 +218,8 @@ function AssetTable({
   today: string
 }) {
   return (
-    <div role="table" aria-label="Biens">
-      <div role="row" className={cx(COLUMNS, "h-[34px] border-b border-line text-[12px] text-faint")}>
+    <div role="group" aria-label="Biens">
+      <div aria-hidden className={cx(COLUMNS, "h-[34px] border-b border-line text-[12px] text-faint")}>
         <span>Bien</span>
         <span className="text-right">Achat</span>
         <span className="text-right">Déclarée</span>
@@ -232,7 +232,7 @@ function AssetTable({
           <button
             key={item.id}
             type="button"
-            role="row"
+            aria-pressed={selectedId === item.id}
             data-testid="asset-row"
             onClick={() => onSelect(item)}
             className={cx(

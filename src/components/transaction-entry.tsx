@@ -120,6 +120,14 @@ export function TransactionEntry({
       },
     })
   }
+  // Enter in a field may first commit that field (a short date like "15" becomes a full day):
+  // submitting on the next render reads the committed value instead of the one before it.
+  const [submitQueued, setSubmitQueued] = React.useState(false)
+  React.useEffect(() => {
+    if (!submitQueued) return
+    setSubmitQueued(false)
+    submit()
+  })
 
   if (mobile) {
     return (
@@ -159,7 +167,7 @@ export function TransactionEntry({
           // Enter there picks an option, it must not submit the form.
           if (e.key === "Enter" && target.tagName === "INPUT" && !e.nativeEvent.defaultPrevented && !target.closest("[cmdk-root]")) {
             e.preventDefault()
-            submit()
+            setSubmitQueued(true)
           }
         }}
       >

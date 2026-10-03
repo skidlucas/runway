@@ -199,6 +199,7 @@ function BundleImportDialog({ fileName, bundle, onClose }: { fileName: string; b
       // so a duplicate is never counted by two calls.
       probes.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0))
       for (let start = 0; start < probes.length; ) {
+        if (cancelled) return
         let end = Math.min(start + 10_000, probes.length)
         while (end < probes.length && probes[end]!.date === probes[end - 1]!.date) end++
         total += await countDuplicates({ data: { probes: probes.slice(start, end) } })

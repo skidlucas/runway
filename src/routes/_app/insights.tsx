@@ -10,7 +10,8 @@ import { toastError } from "~/components/toast"
 import { formatMonthName } from "~/domain/dates"
 import type { Finding, FindingTone } from "~/domain/insights"
 import { formatCompact, formatMoney } from "~/domain/money"
-import { commandFilter } from "~/components/pickers"
+import { commandFilter, MAX_PAYEE_OPTIONS } from "~/components/pickers"
+import { normalizeText } from "~/domain/rules"
 import { parseInsightSearch, queryToSearch, searchToQuery } from "~/lib/insight-search"
 import { q, useAction } from "~/lib/queries"
 import type { InsightViewConfig } from "~/server/db/schema"
@@ -187,8 +188,20 @@ function TargetPicker() {
   const categories = useQuery(q.categories())
   const payees = useQuery(q.payees())
   const [open, setOpen] = React.useState(false)
+  const [search, setSearch] = React.useState("")
   const income = query.measure === "income"
   const groups = (categories.data ?? []).filter((g) => g.isIncome === income && !g.hidden)
+  // Payees are narrowed by hand before cmdk sees them: it scores every item on each keystroke,
+  // which lags with thousands of imported payees.
+  const indexed = React.useMemo(
+    () => (payees.data ?? []).filter((p) => !p.transferAccountId && p.transactionCount > 0).map((p) => ({ payee: p, key: normalizeText(p.name) })),
+    [payees.data],
+  )
+  const parts = normalizeText(search).split(" ").filter(Boolean)
+  const payeeOptions = indexed
+    .filter((p) => parts.every((part) => p.key.includes(part)))
+    .slice(0, MAX_PAYEE_OPTIONS)
+    .map((p) => p.payee)
   const select = (target: InsightViewConfig["target"]) => {
     setQuery({ target })
     setOpen(false)
@@ -198,7 +211,10 @@ function TargetPicker() {
   return (
     <Popover
       open={open}
-      onOpenChange={setOpen}
+      onOpenChange={(next) => {
+        if (next) setSearch("")
+        setOpen(next)
+      }}
       className="w-[320px]"
       trigger={
         <button type="button" className={chipClass}>
@@ -211,6 +227,8 @@ function TargetPicker() {
       <Command loop filter={commandFilter}>
         <Command.Input
           autoFocus
+          value={search}
+          onValueChange={setSearch}
           placeholder="Catégorie, groupe ou bénéficiaire"
           className="h-9 w-full border-b border-line bg-transparent px-3 outline-none placeholder:text-faint"
         />
@@ -248,20 +266,18 @@ function TargetPicker() {
             )}
           </Command.Group>
           <Command.Group heading="Bénéficiaires" className={groupClass}>
-            {(payees.data ?? [])
-              .filter((p) => !p.transferAccountId && p.transactionCount > 0)
-              .map((p) => (
-                <Command.Item
-                  key={p.id}
-                  value={`payee-${p.id}`}
-                  keywords={[p.name]}
-                  onSelect={() => select({ kind: "payee", id: p.id })}
-                  className={itemClass}
-                >
-                  <span className="flex-1 truncate">{p.name}</span>
-                  {current === p.id ? <Check size={13} className="text-accent-fg" /> : null}
-                </Command.Item>
-              ))}
+            {payeeOptions.map((p) => (
+              <Command.Item
+                key={p.id}
+                value={`payee-${p.id}`}
+                keywords={[p.name]}
+                onSelect={() => select({ kind: "payee", id: p.id })}
+                className={itemClass}
+              >
+                <span className="flex-1 truncate">{p.name}</span>
+                {current === p.id ? <Check size={13} className="text-accent-fg" /> : null}
+              </Command.Item>
+            ))}
           </Command.Group>
         </Command.List>
       </Command>

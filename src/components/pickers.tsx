@@ -201,7 +201,7 @@ export function PayeePicker({
   )
 }
 
-const MAX_PAYEE_OPTIONS = 50
+export const MAX_PAYEE_OPTIONS = 50
 
 // Mounted only while the popover is open, so registers with hundreds of pickers do not
 // each walk the payee list on every render. Filtering is manual: cmdk scores every item

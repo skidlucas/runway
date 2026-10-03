@@ -158,12 +158,17 @@ export function AssetDialog({
   const auto = AUTO_SOURCE[d.type]
   const parsed = toInput(d)
 
+  // Set once the asset exists: if the estimate then fails, "Ajouter" again updates it instead of
+  // creating a second one.
+  const created = React.useRef<string | null>(null)
   const save = useAction(
     async () => {
       if ("error" in parsed) throw new Error(parsed.error)
-      const id = item
-        ? await updateAsset({ data: { id: item.id, input: parsed.input } }).then(() => item.id)
+      const existing = item?.id ?? created.current
+      const id = existing
+        ? await updateAsset({ data: { id: existing, input: parsed.input } }).then(() => existing)
         : await createAsset({ data: parsed.input })
+      created.current = id
       if (parsed.estimate !== null) await addAssetValuation({ data: { assetId: id, date: localToday(), amount: parsed.estimate } })
       return id
     },

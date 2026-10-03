@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query"
+import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { createFileRoute } from "@tanstack/react-router"
 import { ArrowDown, ArrowUp, Eye, EyeOff, MoreHorizontal, Plus, Trash2 } from "lucide-react"
 import * as React from "react"
@@ -25,11 +25,15 @@ export const Route = createFileRoute("/_app/settings/categories")({
 function CategoriesSettings() {
   const categories = useQuery(q.categories())
   const [newGroup, setNewGroup] = React.useState(false)
-  const reorder = useAction(reorderCategories)
+  const client = useQueryClient()
+  const reorder = useAction(reorderCategories, { scope: "reorder-categories" })
   const tree = categories.data ?? []
 
-  const move = (groups: CategoryGroupDto[]) =>
+  // Shown at once, so that a second click moves from the new position rather than the old one.
+  const move = (groups: CategoryGroupDto[]) => {
+    client.setQueryData(q.categories().queryKey, groups)
     reorder.mutate({ data: { order: groups.map((g) => ({ groupId: g.id, categoryIds: g.categories.map((c) => c.id) })) } })
+  }
 
   const moveGroup = (index: number, delta: number) => {
     const next = [...tree]

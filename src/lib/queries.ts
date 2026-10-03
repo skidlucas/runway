@@ -93,11 +93,14 @@ export function useAction<TInput, TOutput>(
     success?: string | ((output: TOutput) => string | undefined)
     onSuccess?: (output: TOutput) => void
     invalidates?: ReadonlyArray<QueryName>
+    /** Calls sharing a scope run one after the other, in the order they were made. */
+    scope?: string
   } = {},
 ) {
   const client = useQueryClient()
   return useMutation({
     mutationFn: fn,
+    scope: options.scope ? { id: options.scope } : undefined,
     onSuccess: async (output) => {
       const message = typeof options.success === "function" ? options.success(output) : options.success
       if (message) toast(message)

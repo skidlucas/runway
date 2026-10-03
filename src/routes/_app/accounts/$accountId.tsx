@@ -725,6 +725,7 @@ const TransactionRow = React.memo(function TransactionRow({
   const remove = useDeleteTransactions()
   const duplicate = useAction(createTransaction, { success: "Opération dupliquée" })
   const future = tx.date > today
+  const describe = `${tx.payeeName ?? "opération"} du ${formatDayShort(tx.date)}, ${formatMoney(tx.amount)}`
 
   return (
     <div
@@ -739,7 +740,7 @@ const TransactionRow = React.memo(function TransactionRow({
       )}
       style={{ transform: `translateY(${top}px)` }}
     >
-      <Checkbox checked={selected} onCheckedChange={(c) => onSelect(tx.id, c)} label="Sélectionner" />
+      <Checkbox checked={selected} onCheckedChange={(c) => onSelect(tx.id, c)} label={`Sélectionner ${describe}`} />
       <InlineDate tx={tx} />
       <span className="flex min-w-0 items-center gap-1.5">
         <PayeePicker
@@ -782,7 +783,7 @@ const TransactionRow = React.memo(function TransactionRow({
       </button>
       <Menu
         trigger={
-          <IconButton label="Actions" size="sm" className="opacity-0 focus-visible:opacity-100 group-focus-within:opacity-100 group-hover:opacity-100 data-[popup-open]:opacity-100">
+          <IconButton label={`Actions ${describe}`} size="sm" className="opacity-0 focus-visible:opacity-100 group-focus-within:opacity-100 group-hover:opacity-100 data-[popup-open]:opacity-100">
             <MoreHorizontal size={14} />
           </IconButton>
         }
@@ -1069,7 +1070,8 @@ function SwipeRow({
   const width = actions.length * 96
   return (
     <div className="relative overflow-hidden border-b border-line-subtle">
-      <div className="absolute inset-y-0 right-0 flex">
+      {/* Hidden under the row until it is swiped open: out of reach for Tab and screen readers until then. */}
+      <div className="absolute inset-y-0 right-0 flex" inert={offset === 0}>
         {actions.map((a) => (
           <button
             key={a.label}
