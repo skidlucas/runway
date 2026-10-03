@@ -98,13 +98,12 @@ export class Categorizer extends Context.Service<
 
         const instructions =
           "Which budget category does this bank transaction belong to? The data comes from a French personal budget."
-        const [expenses, income] = yield* Effect.all(
-          [
-            ai.classify({ instructions, criteria: criteriaFor(false), items: itemsFor(false) }),
-            ai.classify({ instructions, criteria: criteriaFor(true), items: itemsFor(true) }),
-          ],
-          { concurrency: 2 },
-        )
+        // One after the other: each call already uses the 6 connections a Worker may open at once,
+        // and queued requests would spend their timeout waiting.
+        const [expenses, income] = yield* Effect.all([
+          ai.classify({ instructions, criteria: criteriaFor(false), items: itemsFor(false) }),
+          ai.classify({ instructions, criteria: criteriaFor(true), items: itemsFor(true) }),
+        ])
 
         const suggestions: CategorySuggestion[] = []
         for (const [key, group] of selected) {

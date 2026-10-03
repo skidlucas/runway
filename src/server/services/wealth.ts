@@ -437,6 +437,7 @@ export class Wealth extends Context.Service<
         const dvfKeys = [...new Set(homes.map((h) => `${h.source.inseeCode}|${h.source.propertyType}`))]
         const none = Effect.succeed(Result.succeed(new Map<string, number>()))
         // The three sources are independent: their timeouts add up when called one after another.
+        // Together they stay within the 6 connections a Worker may open at once (1 + 3 + 2).
         const [cryptoPrices, stockPrices, dvfEntries] = yield* Effect.all(
           [
             crypto.length ? market.cryptoPrices([...new Set(crypto.map((c) => c.source.coinId))]).pipe(Effect.result) : none,
@@ -447,7 +448,7 @@ export class Wealth extends Context.Service<
                 const [insee, type] = key.split("|") as [string, "apartment" | "house"]
                 return market.dvfPricePerM2(insee, type).pipe(Effect.result, Effect.map((r) => [key, r] as const))
               },
-              { concurrency: 4 },
+              { concurrency: 2 },
             ),
           ],
           { concurrency: "unbounded" },

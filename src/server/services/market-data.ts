@@ -103,12 +103,12 @@ export const makeLiveMarketData = (fetchFn: typeof fetch): MarketData["Service"]
     Effect.forEach(
       [...new Set(currencies)].filter((c) => c !== "EUR"),
       (c) => rawQuote(`${c}EUR=X`).pipe(Effect.map((fx) => fx.regularMarketPrice), Effect.result, Effect.map((r) => [c, r] as const)),
-      { concurrency: 4 },
+      { concurrency: 3 },
     ).pipe(Effect.map((found) => new Map<string, Result.Result<number, ExternalError>>([["EUR", Result.succeed(1)], ...found])))
 
   const quotes = Effect.fn("MarketData.quotes")(function* (symbols: ReadonlyArray<string>) {
     const metas = yield* Effect.forEach(symbols, (s) => rawQuote(s).pipe(Effect.result, Effect.map((m) => [s, m] as const)), {
-      concurrency: 4,
+      concurrency: 3,
     })
     const rates = yield* euroRates(metas.flatMap(([, m]) => (m._tag === "Success" ? [currencyOf(m.success.currency).currency] : [])))
     return new Map(
