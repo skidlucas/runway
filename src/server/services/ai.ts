@@ -1,10 +1,10 @@
 import { AnthropicClient, AnthropicLanguageModel } from "@effect/ai-anthropic"
 import { OpenAiClient, OpenAiLanguageModel } from "@effect/ai-openai"
 import { TypeSafeClient, TypeSafeDecisionModel } from "@effect/ai-typesafe"
-import { Clock, Context, type Duration, Effect, Layer, Redacted, Schema } from "effect"
+import { Clock, Context, type Duration, Effect, Layer, Redacted, Schedule, Schema } from "effect"
 import { type AiError, Decision, DecisionModel, LanguageModel } from "effect/ai"
 import { FetchHttpClient } from "effect/http"
-import { Db, type DbError } from "../db/client"
+import { Db } from "../db/client"
 import { ExternalError } from "../errors"
 
 // Two kinds of models, both behind Effect AI's provider-neutral services:
@@ -65,9 +65,8 @@ const sha256 = async (text: string) => {
   return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("")
 }
 
-const describeAiError = (error: AiError.AiError | unknown) => {
-  const tag = (error as { cause?: { _tag?: string } })?.cause?._tag
-  switch (tag) {
+const describeAiError = (error: AiError.AiError) => {
+  switch (error.reason._tag) {
     case "AuthenticationError":
       return "Clé API refusée par le fournisseur"
     case "RateLimitError":
@@ -103,7 +102,7 @@ export class Ai extends Context.Service<
       readonly objectName: string
       readonly system: string
       readonly prompt: string
-    }): Effect.Effect<S["Type"], ExternalError | DbError>
+    }): Effect.Effect<S["Type"], ExternalError>
     /** Picks one label per item. Items the model could not answer are left out of the map. */
     classify<L extends string>(args: ClassifyArgs<L>): Effect.Effect<Map<string, Classification<L>>, ExternalError>
   }
@@ -148,9 +147,11 @@ export class Ai extends Context.Service<
         const key = yield* Effect.promise(() =>
           sha256(JSON.stringify([providers.provider, providers.model, args.objectName, args.system, args.prompt])),
         )
-        const cached = yield* db.use((_, d1) =>
-          d1.prepare("SELECT value FROM ai_cache WHERE key = ?").bind(key).first<{ value: string }>(),
-        )
+        // The cache only saves money: a D1 hiccup must neither block a generation nor fail one
+        // that was already paid for.
+        const cached = yield* db
+          .use((_, d1) => d1.prepare("SELECT value FROM ai_cache WHERE key = ?").bind(key).first<{ value: string }>())
+          .pipe(Effect.orElseSucceed(() => null))
         if (cached) {
           // A corrupt entry is a cache miss, not an error for the next 60 days.
           const decoded = Schema.decodeUnknownOption(Schema.fromJsonString(args.schema))(cached.value)
@@ -179,7 +180,7 @@ export class Ai extends Context.Service<
             // Entries are keyed by content, so old ones are never read again once the data moves on.
             d1.prepare("DELETE FROM ai_cache WHERE created_at < ?").bind(now - 60 * 24 * 3600 * 1000),
           ]),
-        )
+        ).pipe(Effect.ignore({ log: "Warn", message: "ai_cache" }))
         return value
       })
 
@@ -199,7 +200,7 @@ export class Ai extends Context.Service<
               const confidence = answer.confidence ?? answer.probabilities[answer.label] ?? 0
               return [item.key, { label: answer.label, confidence, source: "jev" as const }] as const
             }),
-            Effect.retry({ times: 1, while: (e) => e.isRetryable }),
+            Effect.retry({ times: 1, while: (e) => e.isRetryable, schedule: Schedule.exponential("1 second") }),
             Effect.mapError((error) => new ExternalError({ service: "typesafe", message: describeAiError(error), cause: error })),
             giveUpAfter("30 seconds", "typesafe"),
           )

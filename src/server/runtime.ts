@@ -24,7 +24,12 @@ export const runApp = async <A, E>(effect: Effect.Effect<A, E, AppServices>): Pr
   const exit = await getRuntime().runPromiseExit(effect)
   if (Exit.isSuccess(exit)) return exit.value
   const error = Cause.findErrorOption(exit.cause)
-  if (Option.isSome(error) && isUserFacing(error.value)) throw new Error(error.value.message)
+  if (Option.isSome(error) && isUserFacing(error.value)) {
+    // The user only sees a French summary: the provider's own error (revoked key, rate limit,
+    // HTTP status) has to reach the Workers logs.
+    if (error.value instanceof ExternalError) console.warn(`[${error.value.service}] ${error.value.message}`, error.value.cause)
+    throw new Error(error.value.message)
+  }
   console.error(Cause.pretty(exit.cause))
   throw new Error("Une erreur inattendue est survenue")
 }

@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs"
 import { join } from "node:path"
 import { Effect, Layer, Stream } from "effect"
-import { DecisionModel, LanguageModel } from "effect/ai"
+import { AiError, DecisionModel, LanguageModel } from "effect/ai"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import { addMonths, todayIn } from "~/domain/dates"
 import { Accounts } from "~/server/services/accounts"
@@ -115,7 +115,7 @@ describe("Ai with a decision model that fails on some items", () => {
         decide: (options) => {
           const decision = options.decisions.label as { criteria: Record<string, string> }
           if (JSON.stringify(options.state).toLowerCase().includes("uber")) {
-            return Effect.fail({ _tag: "UnknownError", isRetryable: false, message: "boom" } as never)
+            return Effect.fail(AiError.make({ module: "test", method: "decide", reason: new AiError.UnknownError({ description: "boom" }) }))
           }
           const labels = Object.keys(decision.criteria)
           const label = labels[0]!
@@ -186,6 +186,11 @@ describe("Ai with a language model only", () => {
     const tree = await h.run(Categories.use((c) => c.tree))
     const restaurants = tree.flatMap((g) => g.categories).find((c) => c.name === "Restaurants")!.id
     expect(query).toEqual({ measure: "expenses", target: { kind: "category", id: restaurants }, months: 6, rolling: 3 })
+  })
+
+  it("still answers when the cache cannot be read or written", async () => {
+    await h.d1.prepare("DROP TABLE ai_cache").run()
+    expect(await h.run(Insights.use((s) => s.analysis))).toMatchObject({ headline: "Mois calme." })
   })
 })
 
