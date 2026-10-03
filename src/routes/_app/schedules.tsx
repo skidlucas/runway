@@ -5,7 +5,8 @@ import * as React from "react"
 import { ScheduleDialog, type ScheduleInitial } from "~/components/schedule-dialog"
 import { PageHeader } from "~/components/shell"
 import { Button, Chip, cx, EmptyState, Money, SectionTitle, SkeletonRows } from "~/components/ui"
-import { formatDayShort } from "~/domain/dates"
+import { formatDayShort, formatMonthLong, monthOf } from "~/domain/dates"
+import { formatMoney } from "~/domain/money"
 import { describeRecurrence, periodDays } from "~/domain/recurrence"
 import { q, useAction } from "~/lib/queries"
 import { postSchedule, skipSchedule } from "~/server/fns/planning"
@@ -27,6 +28,7 @@ function SchedulesPage() {
   const monthlyTotal = active
     .filter((s) => s.amount < 0)
     .reduce((sum, s) => sum + (s.amount * (365.25 / 12)) / periodDays(s.recurrence), 0)
+  const committed = active.filter((s) => s.amount < 0).reduce((sum, s) => sum + (s.remaining?.total ?? 0), 0)
 
   return (
     <>
@@ -43,9 +45,17 @@ function SchedulesPage() {
       ) : (
         <>
           {active.length > 0 ? (
-            <div className="flex items-baseline gap-3 border-b border-line px-5 py-4">
-              <Money value={Math.round(monthlyTotal)} className="text-[24px]" />
-              <span className="text-muted">de dépenses récurrentes par mois</span>
+            <div className="flex flex-wrap items-baseline gap-x-10 gap-y-2 border-b border-line px-5 py-4">
+              <span className="flex items-baseline gap-3">
+                <Money value={Math.round(monthlyTotal)} className="text-[24px]" />
+                <span className="text-muted">de dépenses récurrentes par mois</span>
+              </span>
+              {committed > 0 ? (
+                <span className="flex items-baseline gap-3">
+                  <Money value={-committed} className="text-[24px]" />
+                  <span className="text-muted">d'engagements restants</span>
+                </span>
+              ) : null}
             </div>
           ) : null}
           {active.length === 0 && (suggestions.data ?? []).length === 0 ? (
@@ -134,6 +144,12 @@ function ScheduleRow({ schedule: s, onEdit }: { schedule: ScheduleDto; onEdit: (
           {s.recurrenceLabel} · {s.accountName}
           <span className="md:hidden"> · {formatDayShort(s.nextDate)}</span>
         </span>
+        {s.remaining ? (
+          <span className="truncate text-[12px] text-faint">
+            reste {s.remaining.count} × {formatMoney(Math.abs(s.amount))} = {formatMoney(s.remaining.total)} · jusqu'en{" "}
+            {formatMonthLong(monthOf(s.remaining.until)).toLowerCase()}
+          </span>
+        ) : null}
       </button>
       <span className="max-md:hidden">
         {s.categoryName ? <Chip>{s.categoryName}</Chip> : <Chip tone="warning">Hors budget</Chip>}

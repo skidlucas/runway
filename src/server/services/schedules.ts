@@ -2,6 +2,7 @@ import { and, asc, eq, lte } from "drizzle-orm"
 import { Context, Effect, Layer, Option, Schema } from "effect"
 import { addDays, addMonths, type Day, diffDays, isDay } from "~/domain/dates"
 import { describeRecurrence, nextOnOrAfter, occurrencesBetween, type Recurrence } from "~/domain/recurrence"
+import { type Remaining, remainingOccurrences } from "~/domain/planned"
 import { detectRecurring, type HistoryTransaction, type RecurringCandidate } from "~/domain/recurring-detection"
 import { Db, type DbError, newId } from "../db/client"
 import { schedules } from "../db/schema"
@@ -35,6 +36,8 @@ export type ScheduleDto = {
   autoPost: boolean
   active: boolean
   overdue: boolean
+  /** Occurrences left until the end date; null without one or once stopped. */
+  remaining: Remaining | null
 }
 
 export type ScheduleInput = {
@@ -204,6 +207,7 @@ export class Schedules extends Context.Service<
             autoPost: r.auto_post === 1,
             active,
             overdue: active && r.next_date < today,
+            remaining: active ? remainingOccurrences({ startDate: r.start_date, endDate: r.end_date, recurrence }, r.next_date, r.amount) : null,
           }
         })
       }).pipe(Effect.withSpan("Schedules.list"))

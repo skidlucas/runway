@@ -2,9 +2,11 @@ import { Context, Effect, Layer } from "effect"
 import { ageOfMoney, type MoneyDay, type Outflow } from "~/domain/age-of-money"
 import { type BudgetCell, type BudgetInputs, type BudgetMonth, computeBudget } from "~/domain/budget-engine"
 import { addMonths, type Day, isMonth, lastDay, type Month } from "~/domain/dates"
+import { type PlannedCategory, plannedByCategory } from "~/domain/planned"
 import { Db, type DbError } from "../db/client"
 import { Invalid } from "../errors"
 import { Categories, type CategoryGroupDto } from "./categories"
+import { type ScheduleDto, Schedules } from "./schedules"
 import { Settings } from "./settings"
 
 export type BudgetCategoryRow = {
@@ -21,6 +23,8 @@ export type BudgetCategoryRow = {
   /** Average monthly spending over the 3 previous months, positive. */
   average3: number
   lastMonthBudgeted: number
+  /** What the category's expense schedules need this month; null without any. */
+  planned: PlannedCategory | null
 }
 
 export type BudgetGroupRow = {
@@ -31,6 +35,7 @@ export type BudgetGroupRow = {
   budgeted: number
   spent: number
   available: number
+  planned: number
   categories: BudgetCategoryRow[]
 }
 
@@ -51,6 +56,13 @@ export type BudgetMonthDto = {
 
 export type MoveTarget = { kind: "category"; id: string } | { kind: "toBudget" }
 
+export type FillMode =
+  | { kind: "copyLastMonth" }
+  | { kind: "average"; months: number }
+  | { kind: "zero" }
+  | { kind: "spent" }
+  | { kind: "planned" }
+
 export class Budget extends Context.Service<
   Budget,
   {
@@ -61,12 +73,11 @@ export class Budget extends Context.Service<
     ageOfMoney(month: Month): Effect.Effect<number | null, DbError | Invalid>
     setAmount(month: Month, categoryId: string, amount: number): Effect.Effect<void, DbError | Invalid>
     setCarryover(month: Month, categoryId: string, carryover: boolean): Effect.Effect<void, DbError | Invalid>
-    /** Bulk fill: copy last month, average of the last N months, or zero everything. */
-    fill(
-      month: Month,
-      mode: { kind: "copyLastMonth" } | { kind: "average"; months: number } | { kind: "zero" } | { kind: "spent" },
-      categoryIds?: ReadonlyArray<string>,
-    ): Effect.Effect<number, DbError | Invalid>
+    /**
+     * Bulk fill: copy last month, average of the last N months, what was spent, zero everything,
+     * or what the schedules need ("planned" leaves the categories without schedules untouched).
+     */
+    fill(month: Month, mode: FillMode, categoryIds?: ReadonlyArray<string>): Effect.Effect<number, DbError | Invalid>
     move(month: Month, from: MoveTarget, to: MoveTarget, amount: number): Effect.Effect<void, DbError | Invalid>
     setBuffered(month: Month, amount: number): Effect.Effect<void, DbError | Invalid>
   }
@@ -77,6 +88,7 @@ export class Budget extends Context.Service<
       const db = yield* Db
       const categoriesService = yield* Categories
       const settings = yield* Settings
+      const schedulesService = yield* Schedules
 
       const loadInputs = (until: Month) =>
         Effect.all([
@@ -170,6 +182,21 @@ export class Budget extends Context.Service<
             }),
           )
 
+      const plannedIn = (m: Month, current: BudgetMonth | undefined, schedules: ReadonlyArray<ScheduleDto>) =>
+        plannedByCategory(
+          schedules.map((s) => ({
+            id: s.id,
+            name: s.name ?? s.payeeName ?? "Échéance",
+            categoryId: s.categoryId,
+            amount: s.amount,
+            timing: { startDate: s.startDate, endDate: s.endDate, recurrence: s.recurrence },
+            nextDate: s.nextDate,
+            active: s.active,
+          })),
+          m,
+          new Map([...(current?.categories ?? [])].map(([id, cell]) => [id, cell.carryIn])),
+        )
+
       const checkMonth = (month: Month) =>
         isMonth(month) ? Effect.void : Effect.fail(new Invalid({ message: `Mois invalide : ${month}` }))
 
@@ -197,8 +224,12 @@ export class Budget extends Context.Service<
 
       const month = Effect.fn("Budget.month")(function* (m: Month) {
         yield* checkMonth(m)
-        const [{ tree, months }, uncategorized] = yield* Effect.all([compute(m), uncategorizedIn(m)], { concurrency: "unbounded" })
+        const [{ tree, months }, uncategorized, schedules] = yield* Effect.all(
+          [compute(m), uncategorizedIn(m), schedulesService.list],
+          { concurrency: "unbounded" },
+        )
         const current = months.get(m)!
+        const planned = plannedIn(m, current, schedules)
         const previous = [1, 2, 3].map((d) => months.get(addMonths(m, -d)))
 
         let overspentCount = 0
@@ -219,6 +250,7 @@ export class Budget extends Context.Service<
               carryover: cell?.carryover ?? false,
               average3: c.isIncome ? -average3 : average3,
               lastMonthBudgeted: previous[0]?.categories.get(c.id)?.budgeted ?? 0,
+              planned: c.isIncome ? null : (planned.get(c.id) ?? null),
             }
             if (!c.isIncome && row.available < 0) overspentCount++
             return row
@@ -231,6 +263,7 @@ export class Budget extends Context.Service<
             budgeted: categories.reduce((a, c) => a + c.budgeted, 0),
             spent: categories.reduce((a, c) => a + c.spent, 0),
             available: categories.reduce((a, c) => a + c.available, 0),
+            planned: categories.reduce((a, c) => a + (c.planned?.amount ?? 0), 0),
             categories,
           }
         })
@@ -296,20 +329,22 @@ export class Budget extends Context.Service<
         ])
       })
 
-      const fill = Effect.fn("Budget.fill")(function* (
-        m: Month,
-        mode: { kind: "copyLastMonth" } | { kind: "average"; months: number } | { kind: "zero" } | { kind: "spent" },
-        categoryIds?: ReadonlyArray<string>,
-      ) {
+      const fill = Effect.fn("Budget.fill")(function* (m: Month, mode: FillMode, categoryIds?: ReadonlyArray<string>) {
         yield* checkMonth(m)
-        const { tree, months } = yield* compute(m)
+        const [{ tree, months }, schedules] = yield* Effect.all(
+          [compute(m), mode.kind === "planned" ? schedulesService.list : Effect.succeed([])],
+          { concurrency: "unbounded" },
+        )
+        const planned = plannedIn(m, months.get(m), schedules)
         const wanted = categoryIds ? new Set(categoryIds) : null
         const expense = tree
           .filter((g) => !g.isIncome)
           .flatMap((g) => g.categories)
-          .filter((c) => !c.hidden && (!wanted || wanted.has(c.id)))
+          .filter((c) => !c.hidden && (!wanted || wanted.has(c.id)) && (mode.kind !== "planned" || planned.has(c.id)))
         const amounts = expense.map((c): readonly [string, number] => {
           switch (mode.kind) {
+            case "planned":
+              return [c.id, planned.get(c.id)?.amount ?? 0]
             case "zero":
               return [c.id, 0]
             case "copyLastMonth":

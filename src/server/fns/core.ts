@@ -278,6 +278,7 @@ export const fillBudget = createServerFn({ method: "POST" })
           Schema.Struct({ kind: Schema.Literal("average"), months: Schema.Int }),
           Schema.Struct({ kind: Schema.Literal("zero") }),
           Schema.Struct({ kind: Schema.Literal("spent") }),
+          Schema.Struct({ kind: Schema.Literal("planned") }),
         ]),
         categoryIds: Schema.optional(Ids),
       }),

@@ -3,6 +3,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import { Accounts } from "~/server/services/accounts"
 import { Budget } from "~/server/services/budget"
 import { Categories } from "~/server/services/categories"
+import { Schedules } from "~/server/services/schedules"
 import { Transactions } from "~/server/services/transactions"
 import { createHarness, type Harness } from "./harness"
 
@@ -47,6 +48,48 @@ describe("Budget moves", () => {
     await h.run(Budget.use((s) => s.move("2026-10", { kind: "toBudget" }, { kind: "category", id: c }, 500)))
     const october = (await h.run(Budget.use((s) => s.month("2026-10")))).groups.flatMap((g) => g.categories).find((x) => x.id === c)!
     expect(october.carryover).toBe(true)
+  })
+})
+
+describe("Budget planned from schedules", () => {
+  let h: Harness
+  let a: string
+  let b: string
+  let c: string
+  const month = "2030-01"
+  const rows = async () => (await h.run(Budget.use((s) => s.month(month)))).groups.flatMap((g) => g.categories)
+  const row = async (id: string) => (await rows()).find((x) => x.id === id)!
+
+  beforeAll(async () => {
+    h = await createHarness()
+    await h.run(Categories.use((s) => s.createStarterSet))
+    const tree = await h.run(Categories.use((s) => s.tree))
+    ;[a, b, c] = tree.filter((g) => !g.isIncome).flatMap((g) => g.categories.map((x) => x.id)) as [string, string, string]
+    const accountId = await h.run(
+      Accounts.use((s) => s.create({ name: "Courant", kind: "checking", offBudget: false, startingBalance: 0, startingDate: "2029-12-01" })),
+    )
+    const create = (name: string, categoryId: string, amount: number, unit: "month" | "year", startDate: string, endDate?: string) =>
+      h.run(
+        Schedules.use((s) =>
+          s.create({ name, payee: { kind: "name", name }, accountId, categoryId, amount, recurrence: { unit, interval: 1 }, startDate, endDate, autoPost: false }),
+        ),
+      )
+    await create("Box", a, -5_000, "month", "2030-01-15", "2030-12-15")
+    await create("Assurance", b, -60_000, "year", "2030-06-15")
+    await h.run(Budget.use((s) => s.setAmount(month, c, 7_000)))
+  }, 60_000)
+  afterAll(() => h?.dispose())
+
+  it("shows what each category's schedules need this month", async () => {
+    expect((await row(a)).planned).toMatchObject({ amount: 5_000, due: 5_000 })
+    expect((await row(a)).planned?.lines[0]?.remaining).toEqual({ count: 12, total: 60_000, until: "2030-12-15" })
+    expect((await row(b)).planned).toMatchObject({ amount: 10_000, setAside: 10_000 })
+    expect((await row(c)).planned).toBeNull()
+  })
+
+  it("budgets the schedules without touching the categories that have none", async () => {
+    expect(await h.run(Budget.use((s) => s.fill(month, { kind: "planned" })))).toBe(2)
+    expect([(await row(a)).budgeted, (await row(b)).budgeted, (await row(c)).budgeted]).toEqual([5_000, 10_000, 7_000])
   })
 })
 

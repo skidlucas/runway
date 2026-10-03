@@ -56,6 +56,25 @@ test("budgets a category from the month view", async ({ page }) => {
   await expect(toBudget).toContainText("1 300,00 €")
 })
 
+test("shows what a schedule needs in the budget and budgets it", async ({ page }) => {
+  await open(page, "/schedules")
+  await page.getByRole("button", { name: "Nouvelle échéance" }).first().click()
+  const dialog = page.getByRole("dialog", { name: "Nouvelle échéance" })
+  await dialog.getByLabel("Nom").fill("Box")
+  await dialog.getByLabel("Montant").fill("30")
+  await pickInCommand(page, dialog.getByRole("button", { name: "Catégorie" }), "Internet", /^Internet/)
+  await dialog.getByLabel("Première date", { exact: true }).fill(inDays(0))
+  await dialog.getByLabel("Fin (optionnel)").fill(inDays(70))
+  await dialog.getByRole("button", { name: "Enregistrer" }).click()
+  await waitForToast(page, "Échéance créée")
+  await expect(page.getByTestId("schedule-row").filter({ hasText: "Box" })).toContainText(/reste \d+ × 30,00\s€/)
+
+  await open(page, "/budget")
+  await page.getByRole("button", { name: /^Prévu Internet : 30,00\s€/ }).click()
+  await page.getByRole("button", { name: /^Budgéter 30,00\s€/ }).click()
+  await expect(page.getByRole("button", { name: /^Budget Internet/ })).toHaveText(/^30,00\s€$/)
+})
+
 const inDays = (n: number) => {
   const d = new Date()
   d.setDate(d.getDate() + n)

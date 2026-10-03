@@ -23,7 +23,8 @@ import {
   SkeletonRows,
   Switch,
 } from "~/components/ui"
-import { addMonths, formatMonthLong, isMonth, monthOf } from "~/domain/dates"
+import { addMonths, formatDayLong, formatDayShort, formatMonthLong, isMonth, monthOf } from "~/domain/dates"
+import type { PlannedCategory } from "~/domain/planned"
 import { amountInput, formatMoney, parseAmount } from "~/domain/money"
 import { localToday, shortcutBlocked, useIsMobile } from "~/lib/hooks"
 import { BUDGET_QUERIES, defaultForecastAccount, forecastScope, q, useAction } from "~/lib/queries"
@@ -52,7 +53,7 @@ export const Route = createFileRoute("/_app/budget")({
   component: BudgetPage,
 })
 
-const GRID = "grid grid-cols-[minmax(0,1fr)_140px_140px_140px] max-lg:grid-cols-[minmax(0,1fr)_110px_110px_120px]"
+const GRID = "grid grid-cols-[minmax(0,1fr)_140px_140px_140px_140px] max-lg:grid-cols-[minmax(0,1fr)_100px_110px_110px_120px]"
 
 function BudgetPage() {
   const search = Route.useSearch()
@@ -266,10 +267,14 @@ function BudgetTable({ budget, month, showHidden }: { budget: BudgetMonthDto; mo
               { label: "Moyenne des 6 derniers mois", onSelect: () => fill.mutate({ data: { month, mode: { kind: "average", months: 6 } } }) },
               { label: "Moyenne des 12 derniers mois", onSelect: () => fill.mutate({ data: { month, mode: { kind: "average", months: 12 } } }) },
               { label: "Budgéter ce qui a été dépensé", onSelect: () => fill.mutate({ data: { month, mode: { kind: "spent" } } }) },
+              { label: "Budgéter les échéances", onSelect: () => fill.mutate({ data: { month, mode: { kind: "planned" } } }) },
               { separator: true },
               { label: "Tout remettre à zéro", danger: true, onSelect: () => fill.mutate({ data: { month, mode: { kind: "zero" } } }) },
             ]}
           />
+        </span>
+        <span role="columnheader" className="text-right">
+          Prévu
         </span>
         <span role="columnheader" className="text-right">
           Budgété
@@ -308,6 +313,7 @@ function BudgetTable({ budget, month, showHidden }: { budget: BudgetMonthDto; mo
           <div role="row" className={cx(GRID, "h-[34px] items-center border-b border-line-subtle bg-row-group px-5 font-medium text-fg-2")}>
             <span>{g.name}</span>
             <span />
+            <span />
             <span className="num text-right text-[12px] text-muted">Reçu</span>
             <span className="num text-right text-[12px]">{formatMoney(g.spent)}</span>
           </div>
@@ -316,6 +322,7 @@ function BudgetTable({ budget, month, showHidden }: { budget: BudgetMonthDto; mo
             .map((c) => (
               <div key={c.id} role="row" className={cx(GRID, "h-9 items-center border-b border-line-subtle pl-9 pr-5 hover:bg-hover")}>
                 <CategoryLink category={c} month={month} />
+                <span />
                 <span />
                 <span />
                 <span className="num text-right text-[12px] text-positive">{formatMoney(c.spent)}</span>
@@ -334,6 +341,7 @@ function GroupRow({ group }: { group: BudgetGroupRow }) {
       className={cx(GRID, "h-[34px] items-center border-b border-line-subtle bg-row-group px-5 font-medium text-fg-2")}
     >
       <span className="truncate">{group.name}</span>
+      <span className="num text-right text-[12px] text-faint">{group.planned ? formatMoney(group.planned) : "—"}</span>
       <span className="num text-right text-[12px]">{formatMoney(group.budgeted)}</span>
       <span className="num text-right text-[12px] text-muted">{formatMoney(-group.spent)}</span>
       <span className="num text-right text-[12px]">{formatMoney(group.available)}</span>
@@ -390,6 +398,7 @@ function CategoryRow({
           <Plus size={13} />
         </button>
       </span>
+      <PlannedCell category={category} month={month} />
       <BudgetedCell category={category} month={month} editing={editing} onEdit={onEdit} />
       <span className="num text-right text-[12px] text-muted">{category.spent ? formatMoney(-category.spent) : formatMoney(0)}</span>
       <span className="flex justify-end">
@@ -398,6 +407,88 @@ function CategoryRow({
     </div>
   )
 }
+
+const shortOf = (category: BudgetCategoryRow) => category.planned !== null && category.budgeted < category.planned.amount
+
+function PlannedCell({ category, month }: { category: BudgetCategoryRow; month: string }) {
+  const [open, setOpen] = React.useState(false)
+  const save = useAction(setBudgetAmount, { invalidates: BUDGET_QUERIES, onSuccess: () => setOpen(false) })
+  const planned = category.planned
+  if (!planned) return <span className="num text-right text-[12px] text-faint">—</span>
+  const short = shortOf(category)
+  return (
+    <span className="flex justify-end">
+      <Popover
+        open={open}
+        onOpenChange={setOpen}
+        align="end"
+        className="w-[340px] p-3"
+        trigger={
+          <button
+            type="button"
+            aria-label={`Prévu ${category.name} : ${formatMoney(planned.amount)}`}
+            className={cx(
+              "num -mr-2 flex h-7 items-center gap-1.5 rounded-[6px] px-2 text-[12px] hover:bg-active",
+              short ? "text-warning" : "text-faint",
+            )}
+          >
+            {short ? <AlertTriangle size={12} aria-label="Budget inférieur au prévu" /> : null}
+            {formatMoney(planned.amount)}
+          </button>
+        }
+      >
+        <PlannedDetail planned={planned} />
+        <Button
+          variant="primary"
+          size="sm"
+          className="mt-3 w-full"
+          disabled={category.budgeted === planned.amount}
+          loading={save.isPending}
+          onClick={() => save.mutate({ data: { month, categoryId: category.id, amount: planned.amount } })}
+        >
+          Budgéter {formatMoney(planned.amount)}
+        </Button>
+      </Popover>
+    </span>
+  )
+}
+
+function PlannedDetail({ planned }: { planned: PlannedCategory }) {
+  const spaced = planned.lines.some((l) => l.kind === "setAside")
+  return (
+    <div className="flex flex-col gap-2 text-[12px]">
+      {planned.lines.map((l) => (
+        <div key={l.scheduleId} className="flex flex-col">
+          <span className="flex items-baseline justify-between gap-3">
+            <span className="truncate text-fg-2">{l.name}</span>
+            <span className="num shrink-0">
+              {l.count > 1 ? `${l.count} × ` : ""}
+              {formatMoney(l.amount)}
+            </span>
+          </span>
+          <span className="text-[11px] text-faint">
+            {l.kind === "due"
+              ? `${l.count > 1 ? "dès le" : "le"} ${formatDayShort(l.date)}`
+              : `le ${formatDayLong(l.date)}${l.monthsLeft === 1 ? ", ce mois-ci" : `, lissé sur ${l.monthsLeft} mois`}`}
+            {l.remaining ? ` · encore ${l.remaining.count} × ${formatMoney(l.amount)} jusqu'en ${formatMonthLong(monthOf(l.remaining.until)).toLowerCase()}` : ""}
+          </span>
+        </div>
+      ))}
+      <div className="mt-1 flex flex-col gap-1 border-t border-line pt-2">
+        {planned.due && spaced ? <PlannedTotal label="À payer ce mois" value={planned.due} /> : null}
+        {spaced ? <PlannedTotal label={`À mettre de côté (déjà ${formatMoney(planned.saved)})`} value={planned.setAside} /> : null}
+        <PlannedTotal label="Prévu ce mois" value={planned.amount} strong />
+      </div>
+    </div>
+  )
+}
+
+const PlannedTotal = ({ label, value, strong }: { label: string; value: number; strong?: boolean }) => (
+  <span className={cx("flex justify-between gap-3", strong ? "font-medium text-fg" : "text-muted")}>
+    <span>{label}</span>
+    <span className="num">{formatMoney(value)}</span>
+  </span>
+)
 
 function BudgetedCell({
   category,
@@ -691,7 +782,10 @@ function MobileBudget({ budget, month, showHidden }: { budget: BudgetMonthDto; m
                   className="flex w-full flex-col gap-1.5 border-b border-line-subtle px-5 py-3 text-left"
                 >
                   <span className="flex w-full items-center justify-between gap-3">
-                    <span className="truncate">{c.name}</span>
+                    <span className="flex min-w-0 items-center gap-1.5">
+                      <span className="truncate">{c.name}</span>
+                      {shortOf(c) ? <AlertTriangle size={13} className="shrink-0 text-warning" aria-label="Budget inférieur au prévu" /> : null}
+                    </span>
                     <AmountPill value={c.available} className="text-[13px]" />
                   </span>
                   <ProgressBar ratio={ratio} tone={ratio > 1 ? "negative" : "accent"} />
@@ -723,6 +817,11 @@ function MobileBudgetDialog({ category, month, onClose }: { category: BudgetCate
           <Button variant="ghost" onClick={() => setText(amountInput(category.average3))}>
             Moyenne
           </Button>
+          {category.planned ? (
+            <Button variant="ghost" onClick={() => setText(amountInput(category.planned?.amount ?? 0))}>
+              Échéances
+            </Button>
+          ) : null}
           <Button
             variant="primary"
             disabled={value === null}
@@ -734,7 +833,8 @@ function MobileBudgetDialog({ category, month, onClose }: { category: BudgetCate
         </>
       }
     >
-      <div className="px-5 py-4">
+      <div className="flex flex-col gap-4 px-5 py-4">
+        {category.planned ? <PlannedDetail planned={category.planned} /> : null}
         <Field label="Budget du mois">
           <Input inputMode="decimal" value={text} onChange={(e) => setText(e.target.value)} className="num h-11 text-[18px]" autoFocus />
         </Field>
