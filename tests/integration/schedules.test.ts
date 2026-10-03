@@ -182,6 +182,27 @@ describe("Schedules", () => {
     expect(await h.fail(ForecastService.use((f) => f.month({ accountId: "nope" })))).toMatchObject({ _tag: "NotFound" })
   })
 
+  it("resumes an ended schedule after its last booked occurrence when its end date moves later", async () => {
+    const start = `${addMonths(today.slice(0, 7), -3)}-10`
+    const end = `${addMonths(today.slice(0, 7), -2)}-10`
+    const input = monthly(start, { name: "Crédit", endDate: end })
+    const id = await h.run(Schedules.use((s) => s.create(input)))
+    await h.run(Schedules.use((s) => s.sync))
+    expect(await booked(id)).toEqual([start, end])
+    expect((await schedule(id)).active).toBe(false)
+
+    await h.run(Schedules.use((s) => s.update(id, { ...input, endDate: addDays(today, 400) })))
+    expect(await schedule(id)).toMatchObject({ active: true, nextDate: `${addMonths(today.slice(0, 7), -1)}-10` })
+  })
+
+  it("stays paused when edited", async () => {
+    const input = monthly(addDays(today, 5), { name: "En pause", autoPost: false })
+    const id = await h.run(Schedules.use((s) => s.create(input)))
+    await h.run(Schedules.use((s) => s.update(id, { ...input, active: false })))
+    await h.run(Schedules.use((s) => s.update(id, { ...input, name: "Toujours en pause" })))
+    expect((await schedule(id)).active).toBe(false)
+  })
+
   it("refuses a stored rhythm it does not know instead of guessing dates", async () => {
     const id = await h.run(Schedules.use((s) => s.create(monthly(addDays(today, 3), { name: "Rythme abîmé" }))))
     await h.d1.prepare(`UPDATE schedules SET recurrence = '{"unit":"fortnight","interval":1}' WHERE id = ?`).bind(id).run()

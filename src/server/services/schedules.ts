@@ -279,6 +279,10 @@ export class Schedules extends Context.Service<
             : nextOnOrAfter(next, input.startDate > today ? input.startDate : today)
           : nextOnOrAfter(next, current.nextDate)
         const ended = nextDate === null
+        // Inactive with nothing left to book means it ran out, not that it was paused: a later end
+        // date brings it back.
+        const ranOut = !current.active && nextOnOrAfter(timing(current), current.nextDate) === null
+        const active = ended ? false : input.active ?? (ranOut ? true : undefined)
         yield* db.use((orm) =>
           orm
             .update(schedules)
@@ -293,7 +297,7 @@ export class Schedules extends Context.Service<
               endDate: input.endDate ?? null,
               nextDate: nextDate ?? current.nextDate,
               autoPost: input.autoPost,
-              ...(ended ? { active: false } : input.active === undefined ? {} : { active: input.active }),
+              ...(active === undefined ? {} : { active }),
             })
             .where(eq(schedules.id, id)),
         )
@@ -315,15 +319,19 @@ export class Schedules extends Context.Service<
        * the occurrence was already taken: the caller must then not book it.
        */
       const claim = Effect.fn("Schedules.claim")(function* (row: Row) {
-        const next = nextOnOrAfter(timing(row), addDays(row.nextDate, 1))
+        const after = addDays(row.nextDate, 1)
+        const next = nextOnOrAfter(timing(row), after)
+        // An ended schedule keeps the first day it has not covered: pushing its end date later
+        // resumes from there without booking the last occurrence again.
+        const nextDate = next ?? after
         const result = yield* db.use((_, d1) =>
           d1
             .prepare("UPDATE schedules SET next_date = ?, active = ? WHERE id = ? AND next_date = ? AND active = 1")
-            .bind(next ?? row.nextDate, next === null ? 0 : 1, row.id, row.nextDate)
+            .bind(nextDate, next === null ? 0 : 1, row.id, row.nextDate)
             .run(),
         )
         if (result.meta.changes !== 1) return null
-        const claimed: Row = { ...row, nextDate: next ?? row.nextDate, active: next !== null }
+        const claimed: Row = { ...row, nextDate, active: next !== null }
         return claimed
       })
 
