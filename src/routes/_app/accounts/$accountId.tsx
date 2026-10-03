@@ -66,9 +66,14 @@ export const Route = createFileRoute("/_app/accounts/$accountId")({
     ...(typeof s.q === "string" ? { q: s.q } : {}),
   }),
   loaderDeps: ({ search }) => search,
-  loader: ({ context, params, deps }) =>
-    Promise.all([
+  loader: ({ context, params, deps }) => {
+    const all = params.accountId === "all"
+    const filtered = deps.categoryId || deps.month || deps.uncategorized || deps.q?.trim()
+    return Promise.all([
       context.queryClient.ensureQueryData(q.categories()),
+      // Loaded with the operations so that the schedule lines do not push the list down afterwards.
+      filtered ? null : context.queryClient.prefetchQuery(q.scheduledRows({ ...(all ? {} : { accountId: params.accountId }), days: DAYS_AHEAD })),
+      all ? null : context.queryClient.prefetchQuery(q.forecast({ accountId: params.accountId })),
       context.queryClient.ensureInfiniteQueryData(
         q.transactions({
           ...(params.accountId === "all" ? {} : { accountId: params.accountId }),
@@ -78,7 +83,8 @@ export const Route = createFileRoute("/_app/accounts/$accountId")({
           ...(deps.q?.trim() ? { search: deps.q.trim() } : {}),
         }),
       ),
-    ]),
+    ])
+  },
   // Remounting per account drops the search text, the selection and the previous account's rows.
   component: function AccountRoute() {
     const { accountId } = Route.useParams()
@@ -441,7 +447,8 @@ function useScheduledRow(row: ScheduledRow) {
   const category = row.categoryId ? categories.data?.flatMap((g) => g.categories).find((c) => c.id === row.categoryId)?.name : undefined
   return {
     busy: post.isPending || skip.isPending,
-    post: () => post.mutate({ data: { id: row.scheduleId } }),
+    // A future occurrence is booked on its own day, an overdue one on its due day.
+    post: () => post.mutate({ data: { id: row.scheduleId, ...(row.overdue ? {} : { date: row.date }) } }),
     skip: () => skip.mutate({ data: { id: row.scheduleId } }),
     category: category ?? (row.transferAccountId ? "Virement" : "Hors budget"),
     account: accounts.data?.find((a) => a.id === row.accountId)?.name ?? "",

@@ -119,6 +119,28 @@ describe("Schedules", () => {
     expect((await schedule(id)).active).toBe(false)
   })
 
+  it("keeps a one-off moved to a past day due", async () => {
+    const once = { recurrence: { unit: "once" as const, interval: 1 }, autoPost: false }
+    const id = await h.run(Schedules.use((s) => s.create(monthly(addDays(today, 10), { name: "Ponctuel", ...once }))))
+    await h.run(Schedules.use((s) => s.update(id, monthly(addDays(today, -3), { name: "Ponctuel", ...once }))))
+    expect(await schedule(id)).toMatchObject({ active: true, nextDate: addDays(today, -3) })
+  })
+
+  it("books an occurrence on the day asked for", async () => {
+    const id = await h.run(Schedules.use((s) => s.create(monthly(addDays(today, 5), { name: "Futur", autoPost: false }))))
+    await h.run(Schedules.use((s) => s.post(id, addDays(today, 5))))
+    expect(await booked(id)).toEqual([addDays(today, 5)])
+  })
+
+  it("lists what is coming on the forecast accounts", async () => {
+    const next = await h.run(ForecastService.use((f) => f.upcoming({ days: 7 })))
+    expect(next.items.some((i) => i.date === addDays(today, 5) && i.source === "transaction")).toBe(true)
+  })
+
+  it("refuses to forecast a month that has not started", async () => {
+    await expect(h.run(ForecastService.use((f) => f.month({ month: addMonths(today.slice(0, 7), 1) })))).rejects.toThrow(/mois en cours/)
+  })
+
   it("forecasts one account from its schedules and lists the next days", async () => {
     const checking = await h.run(
       Accounts.use((a) => a.create({ name: "Perso", kind: "checking", offBudget: false, startingBalance: 200_000, startingDate: "2020-01-01" })),

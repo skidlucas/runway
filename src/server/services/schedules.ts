@@ -268,8 +268,11 @@ export class Schedules extends Context.Service<
         // A new rhythm restarts from the first occurrence that is not in the past. Otherwise the
         // schedule keeps its place, so an overdue occurrence is neither skipped nor booked twice;
         // only a new end date can stop it.
+        // A one-off moved to a past day stays due (overdue), as when it is created there.
         const nextDate = rhythmChanged
-          ? nextOnOrAfter(next, input.startDate > today ? input.startDate : today)
+          ? input.recurrence.unit === "once"
+            ? input.startDate
+            : nextOnOrAfter(next, input.startDate > today ? input.startDate : today)
           : nextOnOrAfter(next, current.nextDate)
         const ended = nextDate === null
         yield* db.use((orm) =>
@@ -355,7 +358,7 @@ export class Schedules extends Context.Service<
             notes: row.name,
             scheduleId: row.id,
           })
-          .pipe(Effect.onError(() => release(row, claimed).pipe(Effect.ignore)))
+          .pipe(Effect.onError(() => release(row, claimed).pipe(Effect.ignore({ log: "Warn", message: "Échéance non rétablie après un échec" }))))
         return { txId, row: claimed }
       })
 

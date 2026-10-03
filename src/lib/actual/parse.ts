@@ -394,8 +394,9 @@ const readSchedules = (
     const recurrence: Recurrence = { unit, interval: recurring ? Math.max(1, Number(date.interval ?? 1)) : 1 }
     const stored = toDay(row.next_date) ?? startDate
     const posted = lastLinked.get(String(row.id))
-    // A transaction entered a few days early still covers the occurrence.
-    const covered = posted != null && posted >= addDays(stored, -Math.min(7, Math.floor(periodDays(recurrence) / 2)))
+    // A transaction entered a few days early still covers the occurrence. The margin stays short:
+    // further back, the transaction is more likely the late payment of the previous occurrence.
+    const covered = posted != null && posted >= addDays(stored, -Math.min(3, Math.floor(periodDays(recurrence) / 4)))
     const following = covered ? nextOnOrAfter({ startDate, endDate, recurrence }, addDays(posted > stored ? posted : stored, 1)) : stored
     const categoryAction = acts.find((a) => a.op === "set" && a.field === "category")
     schedules.push({

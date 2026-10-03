@@ -76,64 +76,66 @@ export function CategoryPicker({
           </button>
         }
       >
-        <Command filter={commandFilter} loop>
-          <Command.Input
-            autoFocus
-            placeholder="Rechercher une catégorie"
-            className="h-9 w-full border-b border-line bg-transparent px-3 outline-none placeholder:text-faint"
-          />
-          <Command.List className={listClass}>
-            <Command.Empty className="px-2 py-3 text-muted">Aucune catégorie</Command.Empty>
-            {allowNone ? (
-              <Command.Item
-                value="__none"
-                keywords={["aucune", "non catégorisé"]}
-                onSelect={() => {
-                  onChange(null)
-                  setOpen(false)
-                }}
-                className={itemClass}
-              >
-                <span className="flex-1 text-muted">Aucune catégorie</span>
-              </Command.Item>
-            ) : null}
-            {(categories.data ?? []).map((g) => {
-              const options = g.categories.filter((c) => (!c.hidden || c.id === value) && !exclude?.includes(c.id))
-              if (options.length === 0) return null
-              return (
-                <Command.Group
-                  key={g.id}
-                  heading={g.name}
-                  className="[&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:pb-1 [&_[cmdk-group-heading]]:pt-2 [&_[cmdk-group-heading]]:text-[11px] [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group-heading]]:text-faint"
+        {open ? (
+          <Command filter={commandFilter} loop>
+            <Command.Input
+              autoFocus
+              placeholder="Rechercher une catégorie"
+              className="h-9 w-full border-b border-line bg-transparent px-3 outline-none placeholder:text-faint"
+            />
+            <Command.List className={listClass}>
+              <Command.Empty className="px-2 py-3 text-muted">Aucune catégorie</Command.Empty>
+              {allowNone ? (
+                <Command.Item
+                  value="__none"
+                  keywords={["aucune", "non catégorisé"]}
+                  onSelect={() => {
+                    onChange(null)
+                    setOpen(false)
+                  }}
+                  className={itemClass}
                 >
-                  {options.map((c) => {
-                    const amount = available?.get(c.id)
-                    return (
-                      <Command.Item
-                        key={c.id}
-                        value={c.id}
-                        keywords={[c.name, g.name]}
-                        onSelect={() => {
-                          onChange(c.id)
-                          setOpen(false)
-                        }}
-                        className={itemClass}
-                      >
-                        <span className="flex-1 truncate">{c.name}</span>
-                        {amount !== undefined && !c.isIncome ? (
-                          <span className={cx("num text-[12px]", amount < 0 ? "text-negative" : "text-positive")}>
-                            {formatMoney(amount)}
-                          </span>
-                        ) : null}
-                        {c.id === value ? <Check size={13} className="text-accent-fg" /> : null}
-                      </Command.Item>
-                    )
-                  })}
-                </Command.Group>
-              )
-            })}
-          </Command.List>
-        </Command>
+                  <span className="flex-1 text-muted">Aucune catégorie</span>
+                </Command.Item>
+              ) : null}
+              {(categories.data ?? []).map((g) => {
+                const options = g.categories.filter((c) => (!c.hidden || c.id === value) && !exclude?.includes(c.id))
+                if (options.length === 0) return null
+                return (
+                  <Command.Group
+                    key={g.id}
+                    heading={g.name}
+                    className="[&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:pb-1 [&_[cmdk-group-heading]]:pt-2 [&_[cmdk-group-heading]]:text-[11px] [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group-heading]]:text-faint"
+                  >
+                    {options.map((c) => {
+                      const amount = available?.get(c.id)
+                      return (
+                        <Command.Item
+                          key={c.id}
+                          value={c.id}
+                          keywords={[c.name, g.name]}
+                          onSelect={() => {
+                            onChange(c.id)
+                            setOpen(false)
+                          }}
+                          className={itemClass}
+                        >
+                          <span className="flex-1 truncate">{c.name}</span>
+                          {amount !== undefined && !c.isIncome ? (
+                            <span className={cx("num text-[12px]", amount < 0 ? "text-negative" : "text-positive")}>
+                              {formatMoney(amount)}
+                            </span>
+                          ) : null}
+                          {c.id === value ? <Check size={13} className="text-accent-fg" /> : null}
+                        </Command.Item>
+                      )
+                    })}
+                  </Command.Group>
+                )
+              })}
+            </Command.List>
+          </Command>
+        ) : null}
       </Popover>
     </div>
   )

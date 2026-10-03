@@ -8,7 +8,7 @@ import { createFileRoute, Link, useNavigate } from "@tanstack/react-router"
 import * as React from "react"
 import { PageHeader } from "~/components/shell"
 import { Chip, cx, EmptyState, Kpi, Money, SectionTitle, SkeletonRows, Tabs } from "~/components/ui"
-import { diffDays, formatDayShort, formatMonthLong, formatMonthName, parseDay } from "~/domain/dates"
+import { formatDayShort, formatMonthLong, formatMonthName, parseDay } from "~/domain/dates"
 import type { UpcomingTag } from "~/domain/forecast"
 import { formatMoney } from "~/domain/money"
 import { q } from "~/lib/queries"
@@ -230,7 +230,7 @@ function UpcomingTable({ f }: { f: ForecastDto }) {
           key={`${u.scheduleId ?? "tx"}-${u.date}-${i}`}
           className="grid h-9 grid-cols-[80px_minmax(0,1fr)_160px_120px] items-center border-t border-line-subtle px-5"
         >
-          <span className="num text-[12px] text-muted">{u.date < f.today ? "en retard" : formatDayShort(u.date)}</span>
+          <span className={cx("num text-[12px]", u.overdue ? "text-warning" : "text-muted")}>{u.overdue ? "en retard" : formatDayShort(u.date)}</span>
           <span className="truncate">{u.name}</span>
           <span>{tagView(u.tag)}</span>
           <Money value={u.amount} className="text-right text-[12px]" colored />
@@ -266,7 +266,7 @@ function MobileForecast({ f }: { f: ForecastDto }) {
             <span className="flex flex-col gap-0.5">
               <span>{u.name}</span>
               <span className="text-[12px] text-faint">
-                {diffDays(f.today, u.date) <= 0 ? "aujourd'hui" : formatDayShort(u.date)}
+                {u.overdue ? "en retard" : u.date === f.today ? "aujourd'hui" : formatDayShort(u.date)}
               </span>
             </span>
             <Money value={u.amount} className="text-[13px]" colored />

@@ -8,6 +8,8 @@ export type UpcomingItem = {
   readonly categoryId: string | null
   readonly source: "schedule" | "transaction"
   readonly scheduleId: string | null
+  /** An occurrence left unpaid: dated today, since it is still to pay. */
+  readonly overdue: boolean
 }
 
 export type ForecastInput = {
@@ -75,7 +77,8 @@ export const computeForecast = (input: ForecastInput): Forecast => {
   for (const u of upcoming) datedByDay.set(u.date, (datedByDay.get(u.date) ?? 0) + u.amount)
   const days: ForecastDay[] = []
   let running = input.openingBalance
-  let projected = balanceToday
+  // What is due today (overdue occurrences included) is not in today's balance yet: it weighs from tomorrow.
+  let projected = balanceToday + (inMonth ? (datedByDay.get(effectiveToday) ?? 0) : 0)
   for (let d = 1; d <= daysInMonth(month); d++) {
     const date = `${month}-${String(d).padStart(2, "0")}`
     if (date <= effectiveToday) {
@@ -87,9 +90,6 @@ export const computeForecast = (input: ForecastInput): Forecast => {
       days.push({ date, balance: projected, kind: "future", hasSchedule: datedByDay.has(date) })
     }
   }
-  // Items dated today are not in today's real balance nor in a future day: the month end still counts them.
-  const last = days[days.length - 1]
-  if (last && last.kind === "future") last.balance = projectedEndBalance
 
   return {
     month,

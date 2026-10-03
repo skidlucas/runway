@@ -22,8 +22,10 @@ export type ForecastScope = {
 
 export type UpcomingDto = { today: Day; until: Day; items: UpcomingItem[] }
 
-// Either one account, or the accounts that count as "money available now".
-const SCOPE = "((?1 IS NULL AND a.in_forecast = 1 AND a.closed = 0 AND a.off_budget = 0) OR a.id = ?1)"
+// Either one account (bound as ?1), or the accounts that count as "money available now". Two
+// separate statements rather than an OR, so that one account reads through its own index.
+const scopeOf = (accountId: string | null, column: "a.id" | "t.account_id") =>
+  accountId === null ? "(a.in_forecast = 1 AND a.closed = 0 AND a.off_budget = 0)" : `${column} = ?1`
 
 /**
  * Turns schedule occurrences into money moving in or out of the scoped accounts. A transfer
@@ -43,6 +45,7 @@ const scheduledItems = (occurrences: ReadonlyArray<Occurrence>, scoped: Readonly
         categoryId: from ? o.categoryId : null,
         source: "schedule" as const,
         scheduleId: o.scheduleId,
+        overdue: o.overdue,
       },
     ]
   })
@@ -66,6 +69,8 @@ export class ForecastService extends Context.Service<
         const today = yield* settings.today
         const m = scope.month ?? today.slice(0, 7)
         if (!isMonth(m)) return yield* new Invalid({ message: "Mois invalide" })
+        // Today's balance and the operations still to come are only known from the current month on.
+        if (m > today.slice(0, 7)) return yield* new Invalid({ message: "La prévision commence au mois en cours" })
         const accountId = scope.accountId ?? null
         const start = `${m}-01`
         const end = lastDay(m)
@@ -76,23 +81,23 @@ export class ForecastService extends Context.Service<
               d1.prepare(
                 `SELECT a.id, a.name, COALESCE(SUM(CASE WHEN t.date <= ?2 THEN t.amount END), 0) AS balance
                  FROM accounts a LEFT JOIN transactions t ON t.account_id = a.id AND t.parent_id IS NULL
-                 WHERE ${SCOPE}
+                 WHERE ${scopeOf(accountId, "a.id")}
                  GROUP BY a.id ORDER BY a.sort_order`,
               ).bind(accountId, today),
               d1.prepare(
                 `SELECT COALESCE(SUM(t.amount), 0) AS total FROM transactions t JOIN accounts a ON a.id = t.account_id
-                 WHERE ${SCOPE} AND t.parent_id IS NULL AND t.date < ?2`,
+                 WHERE ${scopeOf(accountId, "t.account_id")} AND t.parent_id IS NULL AND t.date < ?2`,
               ).bind(accountId, start),
               d1.prepare(
                 `SELECT t.date, SUM(t.amount) AS total FROM transactions t JOIN accounts a ON a.id = t.account_id
-                 WHERE ${SCOPE} AND t.parent_id IS NULL AND t.date BETWEEN ?2 AND ?3
+                 WHERE ${scopeOf(accountId, "t.account_id")} AND t.parent_id IS NULL AND t.date BETWEEN ?2 AND ?3
                  GROUP BY t.date ORDER BY t.date`,
               ).bind(accountId, start, end),
               d1.prepare(
                 `SELECT t.date, t.amount, t.category_id AS categoryId, COALESCE(pa.name, p.name, 'Opération') AS name
                  FROM transactions t JOIN accounts a ON a.id = t.account_id
                  LEFT JOIN payees p ON p.id = t.payee_id LEFT JOIN accounts pa ON pa.id = p.transfer_account_id
-                 WHERE ${SCOPE} AND t.parent_id IS NULL AND t.date > ?2 AND t.date <= ?3`,
+                 WHERE ${scopeOf(accountId, "t.account_id")} AND t.parent_id IS NULL AND t.date > ?2 AND t.date <= ?3`,
               ).bind(accountId, today, end),
             ])
             return {
@@ -114,7 +119,7 @@ export class ForecastService extends Context.Service<
           dailyBalances.set(d.date, running)
         }
         const upcoming: UpcomingItem[] = [
-          ...raw.future.map((t) => ({ ...t, source: "transaction" as const, scheduleId: null })),
+          ...raw.future.map((t) => ({ ...t, source: "transaction" as const, scheduleId: null, overdue: false })),
           ...scheduledItems(occurrences, new Set(raw.accounts.map((a) => a.id))),
         ]
         const forecast = computeForecast({
@@ -141,12 +146,14 @@ export class ForecastService extends Context.Service<
         const [raw, occurrences] = yield* Effect.all([
           db.use(async (_, d1) => {
             const [accounts, future] = await d1.batch([
-              d1.prepare(`SELECT a.id FROM accounts a WHERE ${SCOPE}`).bind(accountId),
+              accountId === null
+                ? d1.prepare(`SELECT a.id FROM accounts a WHERE ${scopeOf(null, "a.id")}`)
+                : d1.prepare("SELECT a.id FROM accounts a WHERE a.id = ?1").bind(accountId),
               d1.prepare(
                 `SELECT t.date, t.amount, t.category_id AS categoryId, COALESCE(pa.name, p.name, 'Opération') AS name
                  FROM transactions t JOIN accounts a ON a.id = t.account_id
                  LEFT JOIN payees p ON p.id = t.payee_id LEFT JOIN accounts pa ON pa.id = p.transfer_account_id
-                 WHERE ${SCOPE} AND t.parent_id IS NULL AND t.date > ?2 AND t.date <= ?3`,
+                 WHERE ${scopeOf(accountId, "t.account_id")} AND t.parent_id IS NULL AND t.date > ?2 AND t.date <= ?3`,
               ).bind(accountId, today, until),
             ])
             return {
@@ -157,7 +164,7 @@ export class ForecastService extends Context.Service<
           schedules.occurrences(today, until),
         ])
         const items: UpcomingItem[] = [
-          ...raw.future.map((t) => ({ ...t, source: "transaction" as const, scheduleId: null })),
+          ...raw.future.map((t) => ({ ...t, source: "transaction" as const, scheduleId: null, overdue: false })),
           ...scheduledItems(occurrences, new Set(raw.accounts.map((a) => a.id))),
         ].sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0))
         return { today, until, items } satisfies UpcomingDto
