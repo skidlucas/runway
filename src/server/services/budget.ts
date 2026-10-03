@@ -343,7 +343,10 @@ export class Budget extends Context.Service<
           deltas.map(([categoryId, delta]) =>
             db.d1
               .prepare(
-                `INSERT INTO budgets (month, category_id, amount) VALUES (?, ?, ?)
+                `INSERT INTO budgets (month, category_id, amount, carryover)
+                 VALUES (?1, ?2, ?3, COALESCE((SELECT b.carryover FROM budgets b
+                                               WHERE b.category_id = ?2 AND b.month < ?1
+                                               ORDER BY b.month DESC LIMIT 1), 0))
                  ON CONFLICT(month, category_id) DO UPDATE SET amount = budgets.amount + excluded.amount`,
               )
               .bind(m, categoryId, delta),

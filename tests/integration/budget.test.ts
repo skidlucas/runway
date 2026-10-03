@@ -41,6 +41,13 @@ describe("Budget moves", () => {
     )
     expect([await budgeted(a), await budgeted(b), await budgeted(c)]).toEqual([7_000, 1_000, 2_000])
   })
+
+  it("keeps the carryover a category inherits when money moves into a new month", async () => {
+    await h.run(Budget.use((s) => s.setCarryover("2026-08", c, true)))
+    await h.run(Budget.use((s) => s.move("2026-10", { kind: "toBudget" }, { kind: "category", id: c }, 500)))
+    const october = (await h.run(Budget.use((s) => s.month("2026-10")))).groups.flatMap((g) => g.categories).find((x) => x.id === c)!
+    expect(october.carryover).toBe(true)
+  })
 })
 
 describe("Age of money", () => {
