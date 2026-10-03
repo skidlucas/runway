@@ -3,6 +3,8 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import { Accounts } from "~/server/services/accounts"
 import { Budget } from "~/server/services/budget"
 import { Categories } from "~/server/services/categories"
+import { ImportExport } from "~/server/services/import-export"
+import { Payees } from "~/server/services/payees"
 import { Rules } from "~/server/services/rules"
 import { Settings } from "~/server/services/settings"
 import { Transactions } from "~/server/services/transactions"
@@ -192,5 +194,27 @@ describe("settings", () => {
     expect(await h.run(Settings.use((s) => s.get("aiEnabled")))).toBe(true)
     expect(await h.run(Settings.use((s) => s.all))).toMatchObject({ aiEnabled: true, timeZone: "Europe/Paris" })
     await h.d1.prepare(`DELETE FROM settings WHERE key IN ('aiEnabled', 'timeZone')`).run()
+  })
+})
+
+describe("bank re-import", () => {
+  it("recognises a line already imported even after a rule renamed its payee", async () => {
+    const [store] = await h.run(Payees.use((p) => p.resolveNames(["Monoprix"]))).then((m) => [...m.values()])
+    await h.run(
+      Rules.use((r) =>
+        r.create({
+          conditionsOp: "and",
+          conditions: [{ field: "imported_payee", op: "contains", value: "carrefour" }],
+          actions: [{ type: "set_payee", payeeId: store! }],
+        }),
+      ),
+    )
+    const line = { accountId: ids.checking, date: "2026-09-12", amount: -1_999, payeeName: "CARREFOUR CITY 75", importedPayee: "CARREFOUR CITY 75", cleared: true }
+    const options = { dedupe: true, applyRules: true }
+    expect(await h.run(ImportExport.use((s) => s.importTransactions([line], options)))).toEqual({ inserted: 1, duplicates: 0 })
+    expect(await h.run(ImportExport.use((s) => s.importTransactions([line, { ...line, amount: -2_999 }], options)))).toEqual({
+      inserted: 1,
+      duplicates: 1,
+    })
   })
 })

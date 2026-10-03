@@ -94,6 +94,8 @@ const ACCOUNT_KINDS = new Set<string>(["checking", "savings", "credit", "investm
 
 const signature = (account: string, date: string, amount: number, payee: string | null) =>
   `${account}|${date}|${amount}|${payee ?? ""}`
+const labelSignature = (account: string, date: string, amount: number, label: string) =>
+  `${account}|${date}|${amount}|label:${label.trim()}`
 
 export class ImportExport extends Context.Service<
   ImportExport,
@@ -380,7 +382,8 @@ export class ImportExport extends Context.Service<
 
         // Duplicates: rows whose id already exists, then a multiset match on
         // (account, date, amount, payee) so two identical coffees on the same day both survive
-        // when only one of them was already imported.
+        // when only one of them was already imported. A row that kept the bank's raw label is
+        // matched on that label: a rule may have renamed its payee since.
         let duplicates = 0
         const skip = new Set<string>()
         const lookups = chunkRows(rows.map((r) => r.id)).map((chunk) =>
@@ -401,23 +404,25 @@ export class ImportExport extends Context.Service<
             const counts = yield* db.use(async (_, d1) => {
               const { results } = await d1
                 .prepare(
-                  `SELECT account_id AS a, date AS d, amount AS m, payee_id AS p, imported_id AS i FROM transactions
+                  `SELECT account_id AS a, date AS d, amount AS m, payee_id AS p, imported_id AS i, imported_payee AS l FROM transactions
                    WHERE parent_id IS NULL AND date BETWEEN ? AND ?
                      AND account_id IN (SELECT value FROM json_each(?))`,
                 )
                 .bind(dates[0], dates[dates.length - 1], JSON.stringify([...new Set(top.map((r) => r.accountId))]))
-                .all<{ a: string; d: string; m: number; p: string | null; i: string | null }>()
+                .all<{ a: string; d: string; m: number; p: string | null; i: string | null; l: string | null }>()
               const map = new Map<string, number>()
               const imported = new Set<string>()
               for (const x of results) {
-                const key = signature(x.a, x.d, x.m, x.p)
+                const key = x.l ? labelSignature(x.a, x.d, x.m, x.l) : signature(x.a, x.d, x.m, x.p)
                 map.set(key, (map.get(key) ?? 0) + 1)
                 if (x.i) imported.add(`${x.a}|${x.i}`)
               }
               return { map, imported }
             })
             for (const r of top) {
-              const key = signature(r.accountId, r.date, r.amount, r.payeeId ?? null)
+              const byLabel = r.importedPayee ? labelSignature(r.accountId, r.date, r.amount, r.importedPayee) : null
+              const key =
+                byLabel && counts.map.get(byLabel) ? byLabel : signature(r.accountId, r.date, r.amount, r.payeeId ?? null)
               const left = counts.map.get(key) ?? 0
               const sameBankId = r.importedId ? counts.imported.has(`${r.accountId}|${r.importedId}`) : false
               if (left > 0 || sameBankId) {
