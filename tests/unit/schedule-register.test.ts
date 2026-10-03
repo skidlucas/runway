@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest"
 import { type Occurrence, registerRows } from "~/server/services/schedules"
 
 const occurrence = (o: Partial<Occurrence> & Pick<Occurrence, "scheduleId" | "date">): Occurrence => ({
+  dueDate: o.date,
   transferAccountId: null,
   amount: -100,
   name: "Loyer",

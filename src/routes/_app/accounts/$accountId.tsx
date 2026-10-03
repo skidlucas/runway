@@ -437,7 +437,7 @@ function interleave<T>(rows: TxRow[], scheduled: ScheduledRow[], ofTx: (tx: TxRo
   return out
 }
 
-const scheduledKey = (row: ScheduledRow) => `schedule:${row.scheduleId}:${row.date}${row.overdue ? ":late" : ""}`
+const scheduledKey = (row: ScheduledRow) => `schedule:${row.scheduleId}:${row.dueDate}`
 
 function useScheduledRow(row: ScheduledRow) {
   const post = useAction(postSchedule, { success: "Opération enregistrée" })

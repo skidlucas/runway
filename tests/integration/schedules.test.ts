@@ -62,6 +62,19 @@ describe("Schedules", () => {
     expect((await schedule(unpaid)).nextDate).toBe(due)
   })
 
+  it("counts every unpaid occurrence of a schedule that is several periods late", async () => {
+    const weekly = (start: string) =>
+      monthly(start, { name: "Ménage", payee: { kind: "name", name: "Femme de ménage" }, amount: -5_000, autoPost: false, recurrence: { unit: "week", interval: 1 } })
+    const late = await h.run(Schedules.use((s) => s.create(weekly(addDays(today, -20)))))
+    const forgotten = await h.run(Schedules.use((s) => s.create({ ...weekly(addDays(today, -400)), recurrence: { unit: "day", interval: 1 } })))
+    const occurrences = await h.run(Schedules.use((s) => s.occurrences(today, today)))
+    const overdue = (id: string) => occurrences.filter((o) => o.scheduleId === id && o.overdue)
+    expect(overdue(late).map((o) => o.dueDate)).toEqual([addDays(today, -20), addDays(today, -13), addDays(today, -6)])
+    expect(overdue(late).every((o) => o.date === today)).toBe(true)
+    expect(overdue(forgotten)).toHaveLength(12)
+    await h.run(Schedules.use((s) => Effect.all([s.remove(late), s.remove(forgotten)])))
+  })
+
   it("books a due occurrence once, even when two syncs run at the same time", async () => {
     const id = await h.run(Schedules.use((s) => s.create(monthly(today))))
     await h.run(Effect.all([Schedules.use((s) => s.sync), Schedules.use((s) => s.sync)], { concurrency: "unbounded" }))

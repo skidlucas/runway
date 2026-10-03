@@ -49,11 +49,15 @@ export type ScheduleInput = {
   autoPost: boolean
 }
 
+const MAX_OVERDUE = 12
+
 export type Occurrence = {
   scheduleId: string
   /** Set for a transfer schedule: the account on the other side. */
   transferAccountId: string | null
   date: Day
+  /** The day it was due: before `date` when overdue. */
+  dueDate: Day
   amount: number
   name: string
   categoryId: string | null
@@ -66,6 +70,7 @@ export type Occurrence = {
 export type ScheduledRow = {
   scheduleId: string
   date: Day
+  dueDate: Day
   name: string
   /** Signed for the register's account (or the schedule's own account when listing them all). */
   amount: number
@@ -91,6 +96,7 @@ export const registerRows = (occurrences: ReadonlyArray<Occurrence>, accountId: 
         {
           scheduleId: o.scheduleId,
           date: o.date,
+          dueDate: o.dueDate,
           name: o.name,
           amount: incoming ? -o.amount : o.amount,
           accountId: incoming ? accountId : o.accountId,
@@ -427,12 +433,14 @@ export class Schedules extends Context.Service<
                 if (Option.isNone(recurrence)) return []
                 const t = { startDate: r.start_date, endDate: r.end_date, recurrence: recurrence.value }
                 const start = r.next_date > from ? r.next_date : from
-                // Overdue occurrences (before `from`) still count: they have not been paid yet.
-                const overdue = r.next_date < from ? [r.next_date] : []
+                // Overdue occurrences (before `from`) still count: they have not been paid yet. The cap
+                // keeps a long-forgotten daily schedule from flooding the register.
+                const overdue = r.next_date < from ? occurrencesBetween(t, r.next_date, addDays(from, -1), MAX_OVERDUE) : []
                 return [...overdue, ...occurrencesBetween(t, start, to)].map((date) => ({
                   scheduleId: r.id,
                   transferAccountId: r.transfer_account_id,
                   date: date < from ? from : date,
+                  dueDate: date,
                   overdue: date < from,
                   amount: r.amount,
                   name: r.label ?? "Échéance",
