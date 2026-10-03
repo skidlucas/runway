@@ -77,5 +77,5 @@ export const shortcutBlocked = (e: KeyboardEvent) => {
   if (e.metaKey || e.ctrlKey || e.altKey) return true
   const el = e.target as HTMLElement | null
   if (el && (el.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(el.tagName))) return true
-  return document.querySelector('[role="dialog"], [role="menu"], [role="listbox"], [data-radix-popper-content-wrapper]') !== null
+  return document.querySelector('[role="dialog"], [role="menu"], [role="listbox"]') !== null
 }

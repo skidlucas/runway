@@ -20,6 +20,7 @@
     "deploy": "bun run build && wrangler d1 migrations apply runway --remote && wrangler deploy"
   },
   "dependencies": {
+    "@base-ui/react": "^1.8.0",
     "@effect/ai-anthropic": "^4.0.0",
     "@effect/ai-openai": "^4.0.0",
     "@effect/ai-typesafe": "^4.0.0",
@@ -37,7 +38,6 @@
     "fflate": "^0.8.3",
     "lucide-react": "^1.50.0",
     "papaparse": "^5.7.0",
-    "radix-ui": "^1.6.7",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
     "sql.js": "^1.14.2"

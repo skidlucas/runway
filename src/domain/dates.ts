@@ -94,6 +94,29 @@ export const todayIn = (timeZone: string, now: Date = new Date()): Day => {
   return parts
 }
 
+/** "03/10/2026", the way a date is typed. */
+export const formatDayInput = (day: Day): string => {
+  const { y, m, d } = parseDay(day)
+  return `${pad(d)}/${pad(m)}/${pad(y, 4)}`
+}
+
+/**
+ * Reads a typed date: "3/10/2026", "03.10.26", "3/10", "3" or ISO. The month and year left out
+ * are taken from `ref`. Null when the text is not a real day.
+ */
+export const parseDayInput = (text: string, ref: Day): Day | null => {
+  const t = text.trim()
+  if (isDay(t)) return t
+  const parts = t.split(/[/.\-\s]+/)
+  const [d, m, y] = parts
+  if (parts.length > 3 || !d || !/^\d{1,2}$/.test(d) || (m !== undefined && !/^\d{1,2}$/.test(m))) return null
+  if (y !== undefined && !/^(\d{2}|\d{4})$/.test(y)) return null
+  const r = parseDay(ref)
+  const year = y === undefined ? r.y : y.length === 2 ? 2000 + Number(y) : Number(y)
+  const day = `${pad(year, 4)}-${pad(m === undefined ? r.m : Number(m))}-${pad(Number(d))}`
+  return isDay(day) ? day : null
+}
+
 // --- French labels -----------------------------------------------------------
 
 const MONTHS_LONG = [

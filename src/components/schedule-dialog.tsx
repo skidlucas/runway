@@ -8,7 +8,7 @@ import { createSchedule, deleteSchedule, updateSchedule } from "~/server/fns/pla
 import type { ScheduleDto } from "~/server/services/schedules"
 import { AccountSelect, CategoryPicker, PayeePicker, type PayeeValue } from "./pickers"
 import { payeeInputOf } from "./transaction-editor"
-import { Button, Dialog, Field, Input, Segmented, Select, Switch } from "./ui"
+import { Button, DateInput, Dialog, Field, Input, Segmented, Select, Switch } from "./ui"
 import { capitalize } from "~/domain/text"
 
 export type ScheduleInitial = {
@@ -160,11 +160,11 @@ export function ScheduleDialog({
           <CategoryPicker value={categoryId} onChange={setCategoryId} />
         </Field>
         <Field label={once ? "Date" : schedule ? "Prochaine date" : "Première date"}>
-          <Input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
+          <DateInput value={startDate} onChange={setStartDate} />
         </Field>
         {once ? null : (
           <Field label="Fin (optionnel)">
-            <Input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
+            <DateInput value={endDate} onChange={setEndDate} optional />
           </Field>
         )}
         <label className="flex items-center justify-between gap-3 self-end pb-1.5">

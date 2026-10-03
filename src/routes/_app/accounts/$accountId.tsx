@@ -36,8 +36,8 @@ import {
   payeeValueOf,
   useDeleteTransactions,
 } from "~/components/transaction-editor"
-import { Button, Checkbox, cx, Dialog, EmptyState, IconButton, Input, Kpi, Menu, Money, SkeletonRows } from "~/components/ui"
-import { formatDayLong, formatDayShort, formatMonthLong } from "~/domain/dates"
+import { Button, Calendar, Checkbox, cx, DateInput, Dialog, EmptyState, IconButton, Input, Kpi, Menu, Money, Popover, SkeletonRows } from "~/components/ui"
+import { type Day, formatDayLong, formatDayShort, formatMonthLong, parseDayInput } from "~/domain/dates"
 import { amountInput, formatMoney, parseAmount } from "~/domain/money"
 import { shortcutBlocked, useDebounced, useIsMobile, useToday } from "~/lib/hooks"
 import { q, useAction } from "~/lib/queries"
@@ -647,7 +647,7 @@ const TransactionRow = React.memo(function TransactionRow({
       </button>
       <Menu
         trigger={
-          <IconButton label="Actions" size="sm" className="opacity-0 focus-visible:opacity-100 group-focus-within:opacity-100 group-hover:opacity-100 data-[state=open]:opacity-100">
+          <IconButton label="Actions" size="sm" className="opacity-0 focus-visible:opacity-100 group-focus-within:opacity-100 group-hover:opacity-100 data-[popup-open]:opacity-100">
             <MoreHorizontal size={14} />
           </IconButton>
         }
@@ -700,31 +700,41 @@ const TransactionRow = React.memo(function TransactionRow({
 })
 
 function InlineDate({ tx }: { tx: TxRow }) {
-  const [editing, setEditing] = React.useState(false)
+  const [open, setOpen] = React.useState(false)
+  const [draft, setDraft] = React.useState(tx.date)
   const update = useAction(updateTransaction)
-  if (editing) {
-    return (
-      <input
-        type="date"
-        autoFocus
-        defaultValue={tx.date}
-        aria-label="Date"
-        onBlur={(e) => {
-          setEditing(false)
-          if (e.target.value && e.target.value !== tx.date) update.mutate({ data: { id: tx.id, date: e.target.value } })
-        }}
-        onKeyDown={(e) => {
-          if (e.key === "Enter") (e.target as HTMLInputElement).blur()
-          if (e.key === "Escape") setEditing(false)
-        }}
-        className="num h-7 w-full rounded-[6px] border border-accent-line bg-bg px-1 text-[12px] outline-none"
-      />
-    )
+  const save = (date: Day) => {
+    setOpen(false)
+    if (date && date !== tx.date) update.mutate({ data: { id: tx.id, date } })
   }
   return (
-    <button type="button" onClick={() => setEditing(true)} className="num text-left text-[12px] text-muted" title={formatDayLong(tx.date)}>
-      {formatDayShort(tx.date)}
-    </button>
+    <Popover
+      open={open}
+      onOpenChange={(next, reason) => {
+        if (next) setDraft(tx.date)
+        else if (reason !== "escape-key") save(draft)
+        setOpen(next)
+      }}
+      trigger={
+        <button type="button" className="num text-left text-[12px] text-muted" title={formatDayLong(tx.date)}>
+          {formatDayShort(tx.date)}
+        </button>
+      }
+    >
+      <div className="border-b border-line p-2.5">
+        <DateInput
+          autoFocus
+          calendar={false}
+          aria-label="Date"
+          value={draft}
+          onChange={setDraft}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") save(parseDayInput(e.currentTarget.value, draft) ?? draft)
+          }}
+        />
+      </div>
+      <Calendar value={draft} onSelect={save} />
+    </Popover>
   )
 }
 

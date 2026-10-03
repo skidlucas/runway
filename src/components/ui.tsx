@@ -1,8 +1,15 @@
 import { clsx } from "clsx"
-import { Check, ChevronDown, X } from "lucide-react"
-import { Checkbox as RCheckbox, Dialog as RDialog, DropdownMenu, Popover as RPopover, Switch as RSwitch } from "radix-ui"
+import { Checkbox as BCheckbox } from "@base-ui/react/checkbox"
+import { Dialog as BDialog } from "@base-ui/react/dialog"
+import { Menu as BMenu } from "@base-ui/react/menu"
+import { Popover as BPopover } from "@base-ui/react/popover"
+import { Select as BSelect } from "@base-ui/react/select"
+import { Switch as BSwitch } from "@base-ui/react/switch"
+import { CalendarDays, Check, ChevronDown, ChevronLeft, ChevronRight, X } from "lucide-react"
 import * as React from "react"
+import { addDays, addMonths, type Day, daysInMonth, firstDay, formatDayInput, formatDayLong, formatMonthLong, monthOf, parseDayInput, weekday } from "~/domain/dates"
 import { formatMoney } from "~/domain/money"
+import { useToday } from "~/lib/hooks"
 
 export const cx = clsx
 
@@ -153,48 +160,282 @@ export const Field = ({
 
 export type Option<T extends string> = { value: T; label: string; hint?: string }
 
-/** Native select styled like the other controls: accessible and reliable on mobile. */
+const popupClass =
+  "animate-pop rounded-[10px] border border-line-control bg-elevated shadow-[var(--shadow-modal)] outline-none"
+
+/** The list opens under the trigger; an empty `value` shows the placeholder, also offered as a choice. */
 export function Select<T extends string>({
   value,
   onChange,
   options,
   className,
   placeholder,
-  ...rest
+  disabled,
+  fit = false,
+  id,
+  "aria-label": ariaLabel,
 }: {
   value: T | ""
   onChange: (value: T) => void
   options: ReadonlyArray<Option<T> | { group: string; options: ReadonlyArray<Option<T>> }>
   className?: string
   placeholder?: string
-} & Omit<React.SelectHTMLAttributes<HTMLSelectElement>, "value" | "onChange">) {
+  disabled?: boolean
+  /** As wide as its value instead of filling the row: for a select inside a sentence. */
+  fit?: boolean
+  id?: string
+  "aria-label"?: string
+}) {
+  const items = [
+    ...(placeholder === undefined ? [] : [{ value: null, label: placeholder }]),
+    ...options.flatMap((o) => ("group" in o ? o.options : [o])),
+  ]
+  const item = (o: { value: T | null; label: string; hint?: string }) => (
+    <BSelect.Item
+      key={o.value ?? ""}
+      value={o.value}
+      className="flex cursor-default select-none items-center gap-2 rounded-[6px] py-1.5 pl-2 pr-2.5 text-fg-2 outline-none data-[disabled]:opacity-40 data-[highlighted]:bg-hover data-[selected]:text-fg"
+    >
+      <span className="flex w-[13px] shrink-0">
+        <BSelect.ItemIndicator>
+          <Check size={13} className="text-accent" />
+        </BSelect.ItemIndicator>
+      </span>
+      <BSelect.ItemText className={cx("flex-1 truncate", o.value === null && "text-muted")}>{o.label}</BSelect.ItemText>
+      {o.hint ? <span className="pl-3 text-[12px] text-faint">{o.hint}</span> : null}
+    </BSelect.Item>
+  )
   return (
-    <span className={cx("relative inline-flex w-full", className)}>
-      <select
-        value={value}
-        onChange={(e) => onChange(e.target.value as T)}
-        className="h-8 w-full appearance-none rounded-[8px] border border-line-control bg-transparent pl-2.5 pr-7 text-fg outline-none focus:border-accent-line [&>*]:bg-elevated"
-        {...rest}
-      >
-        {placeholder !== undefined ? <option value="">{placeholder}</option> : null}
-        {options.map((o) =>
-          "group" in o ? (
-            <optgroup key={o.group} label={o.group}>
-              {o.options.map((opt) => (
-                <option key={opt.value} value={opt.value}>
-                  {opt.label}
-                </option>
-              ))}
-            </optgroup>
-          ) : (
-            <option key={o.value} value={o.value}>
-              {o.label}
-            </option>
-          ),
+    <BSelect.Root<T | null>
+      items={items}
+      value={value === "" ? null : value}
+      onValueChange={(v) => onChange((v ?? "") as T)}
+      disabled={disabled}
+    >
+      <BSelect.Trigger
+        id={id}
+        aria-label={ariaLabel}
+        className={cx(
+          "flex h-8 min-w-0 items-center gap-2 rounded-[8px] border border-line-control bg-transparent pl-2.5 pr-2 text-left text-fg outline-none transition-colors hover:bg-hover focus-visible:border-accent-line data-[disabled]:opacity-50 data-[popup-open]:border-accent-line",
+          fit ? "w-auto" : "w-full",
+          className,
         )}
-      </select>
-      <ChevronDown size={14} className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-faint" />
-    </span>
+      >
+        <BSelect.Value className="min-w-0 flex-1 truncate data-[placeholder]:text-faint" placeholder={placeholder} />
+        <BSelect.Icon className="flex text-faint">
+          <ChevronDown size={14} />
+        </BSelect.Icon>
+      </BSelect.Trigger>
+      <BSelect.Portal>
+        <BSelect.Positioner className="z-50 outline-none" sideOffset={6} alignItemWithTrigger={false}>
+          <BSelect.Popup className={cx(popupClass, "min-w-[var(--anchor-width)]")}>
+            <BSelect.List className="max-h-[min(320px,var(--available-height))] overflow-y-auto p-1">
+              {placeholder === undefined ? null : item({ value: null, label: placeholder })}
+              {options.map((o) =>
+                "group" in o ? (
+                  <BSelect.Group key={o.group}>
+                    <BSelect.GroupLabel className="px-2 pb-1 pt-2 text-[11px] text-faint">{o.group}</BSelect.GroupLabel>
+                    {o.options.map(item)}
+                  </BSelect.Group>
+                ) : (
+                  item(o)
+                ),
+              )}
+            </BSelect.List>
+          </BSelect.Popup>
+        </BSelect.Positioner>
+      </BSelect.Portal>
+    </BSelect.Root>
+  )
+}
+
+const WEEKDAYS = ["lun.", "mar.", "mer.", "jeu.", "ven.", "sam.", "dim."]
+
+const inRange = (day: Day, min?: Day, max?: Day) => (!min || day >= min) && (!max || day <= max)
+
+/** A month grid. Arrow keys move by day and week, Page Up/Down by month. */
+export function Calendar({ value, onSelect, min, max }: { value: Day | ""; onSelect: (day: Day) => void; min?: Day; max?: Day }) {
+  const today = useToday()
+  const [active, setActive] = React.useState<Day>(value || today)
+  const [month, setMonth] = React.useState(monthOf(active))
+  const grid = React.useRef<HTMLDivElement>(null)
+  const keyboard = React.useRef(false)
+
+  React.useEffect(() => {
+    if (!keyboard.current) return
+    keyboard.current = false
+    grid.current?.querySelector<HTMLButtonElement>(`[data-day="${active}"]`)?.focus()
+  }, [active])
+
+  const moveTo = (day: Day) => {
+    keyboard.current = true
+    setActive(day)
+    setMonth(monthOf(day))
+  }
+  const onKeyDown = (e: React.KeyboardEvent) => {
+    const step = { ArrowLeft: -1, ArrowRight: 1, ArrowUp: -7, ArrowDown: 7 }[e.key]
+    if (step !== undefined) moveTo(addDays(active, step))
+    else if (e.key === "PageUp" || e.key === "PageDown") {
+      const target = addMonths(monthOf(active), e.key === "PageUp" ? -1 : 1)
+      moveTo(`${target}-${String(Math.min(Number(active.slice(8)), daysInMonth(target))).padStart(2, "0")}`)
+    } else return
+    e.preventDefault()
+  }
+
+  const start = firstDay(month)
+  const days = Array.from({ length: daysInMonth(month) }, (_, i) => addDays(start, i))
+  return (
+    <div className="w-[260px] p-2.5">
+      <div className="flex items-center justify-between pb-2">
+        <IconButton label="Mois précédent" size="sm" onClick={() => setMonth(addMonths(month, -1))}>
+          <ChevronLeft size={14} />
+        </IconButton>
+        <span className="text-[13px] font-medium">{formatMonthLong(month)}</span>
+        <IconButton label="Mois suivant" size="sm" onClick={() => setMonth(addMonths(month, 1))}>
+          <ChevronRight size={14} />
+        </IconButton>
+      </div>
+      <div ref={grid} className="grid grid-cols-7 gap-0.5 text-center" onKeyDown={onKeyDown}>
+        {WEEKDAYS.map((d) => (
+          <span key={d} className="pb-1 text-[11px] text-faint">
+            {d}
+          </span>
+        ))}
+        {Array.from({ length: weekday(start) }, (_, i) => (
+          <span key={`blank-${i}`} />
+        ))}
+        {days.map((day) => {
+          const selected = day === value
+          return (
+            <button
+              key={day}
+              type="button"
+              data-day={day}
+              tabIndex={day === active || (monthOf(active) !== month && day === start) ? 0 : -1}
+              disabled={!inRange(day, min, max)}
+              aria-label={formatDayLong(day)}
+              aria-pressed={selected}
+              onClick={() => onSelect(day)}
+              className={cx(
+                "num h-8 rounded-[6px] text-[12px] outline-none transition-colors focus-visible:ring-2 focus-visible:ring-accent-line disabled:opacity-30",
+                selected ? "bg-accent font-medium text-white" : "text-fg-2 hover:bg-hover",
+                !selected && day === today && "font-medium text-accent",
+              )}
+            >
+              {Number(day.slice(8))}
+            </button>
+          )
+        })}
+      </div>
+      <div className="flex justify-end pt-2">
+        <Button size="sm" variant="ghost" disabled={!inRange(today, min, max)} onClick={() => onSelect(today)}>
+          Aujourd'hui
+        </Button>
+      </div>
+    </div>
+  )
+}
+
+/**
+ * A date typed as "jj/mm/aaaa" (or "15", "15/3"…) with a calendar beside it. A complete date is
+ * applied as it is typed; a short one when the field is left or Enter is pressed.
+ */
+export function DateInput({
+  value,
+  onChange,
+  min,
+  max,
+  calendar = true,
+  optional = false,
+  className,
+  onKeyDown,
+  onBlur,
+  ...rest
+}: {
+  value: Day | ""
+  onChange: (day: Day) => void
+  min?: Day
+  max?: Day
+  calendar?: boolean
+  /** Emptying the field clears the date (`onChange("")`) instead of restoring it. */
+  optional?: boolean
+  className?: string
+} & Omit<React.InputHTMLAttributes<HTMLInputElement>, "value" | "onChange" | "min" | "max" | "type">) {
+  const today = useToday()
+  const [text, setText] = React.useState(value ? formatDayInput(value) : "")
+  const [open, setOpen] = React.useState(false)
+
+  React.useEffect(() => {
+    setText((t) => (parseDayInput(t, value || today) === value ? t : value ? formatDayInput(value) : ""))
+  }, [value, today])
+
+  const accept = (day: Day | null) => {
+    if (day && inRange(day, min, max) && day !== value) onChange(day)
+  }
+  const commit = () => {
+    if (optional && !text.trim()) {
+      if (value) onChange("")
+      return
+    }
+    const day = parseDayInput(text, value || today)
+    accept(day)
+    const kept = day && inRange(day, min, max) ? day : value
+    setText(kept ? formatDayInput(kept) : "")
+  }
+
+  return (
+    <div className={cx("relative w-full", className)}>
+      <Input
+        {...rest}
+        value={text}
+        inputMode="numeric"
+        placeholder="jj/mm/aaaa"
+        className={cx("num", calendar && "pr-8")}
+        onChange={(e) => {
+          setText(e.target.value)
+          if (/^\d{1,2}[/.-]\d{1,2}[/.-]\d{4}$|^\d{4}-\d{2}-\d{2}$/.test(e.target.value.trim())) accept(parseDayInput(e.target.value, today))
+        }}
+        onBlur={(e) => {
+          commit()
+          onBlur?.(e)
+        }}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") commit()
+          if ((e.key === "ArrowUp" || e.key === "ArrowDown") && value) {
+            e.preventDefault()
+            accept(addDays(value, e.key === "ArrowUp" ? 1 : -1))
+          }
+          onKeyDown?.(e)
+        }}
+      />
+      {calendar ? (
+        <Popover
+          open={open}
+          onOpenChange={setOpen}
+          align="end"
+          trigger={
+            <button
+              type="button"
+              aria-label="Calendrier"
+              className="absolute right-1 top-1/2 inline-flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-[6px] text-faint hover:bg-hover hover:text-fg"
+            >
+              <CalendarDays size={14} />
+            </button>
+          }
+        >
+          <Calendar
+            value={value}
+            min={min}
+            max={max}
+            onSelect={(day) => {
+              accept(day)
+              setText(formatDayInput(day))
+              setOpen(false)
+            }}
+          />
+        </Popover>
+      ) : null}
+    </div>
   )
 }
 
@@ -209,15 +450,15 @@ export const Switch = ({
   label?: string
   disabled?: boolean
 }) => (
-  <RSwitch.Root
+  <BSwitch.Root
     checked={checked}
-    onCheckedChange={onCheckedChange}
+    onCheckedChange={(c) => onCheckedChange(c)}
     aria-label={label}
     disabled={disabled}
-    className="relative h-[18px] w-[30px] shrink-0 rounded-full bg-bar transition-colors duration-[120ms] data-[state=checked]:bg-accent disabled:opacity-50"
+    className="relative h-[18px] w-[30px] shrink-0 rounded-full bg-bar transition-colors duration-[120ms] data-[checked]:bg-accent data-[disabled]:opacity-50"
   >
-    <RSwitch.Thumb className="block h-[14px] w-[14px] translate-x-[2px] rounded-full bg-white transition-transform duration-[120ms] data-[state=checked]:translate-x-[14px]" />
-  </RSwitch.Root>
+    <BSwitch.Thumb className="block h-[14px] w-[14px] translate-x-[2px] rounded-full bg-white transition-transform duration-[120ms] data-[checked]:translate-x-[14px]" />
+  </BSwitch.Root>
 )
 
 export const Checkbox = ({
@@ -229,16 +470,16 @@ export const Checkbox = ({
   onCheckedChange: (checked: boolean) => void
   label?: string
 }) => (
-  <RCheckbox.Root
+  <BCheckbox.Root
     checked={checked}
-    onCheckedChange={(c) => onCheckedChange(c === true)}
+    onCheckedChange={(c) => onCheckedChange(c)}
     aria-label={label}
-    className="flex h-4 w-4 shrink-0 items-center justify-center rounded-[4px] border border-line-strong data-[state=checked]:border-accent data-[state=checked]:bg-accent"
+    className="flex h-4 w-4 shrink-0 items-center justify-center rounded-[4px] border border-line-strong data-[checked]:border-accent data-[checked]:bg-accent"
   >
-    <RCheckbox.Indicator>
+    <BCheckbox.Indicator>
       <Check size={11} strokeWidth={2.5} className="text-white" />
-    </RCheckbox.Indicator>
-  </RCheckbox.Root>
+    </BCheckbox.Indicator>
+  </BCheckbox.Root>
 )
 
 /**
@@ -433,33 +674,33 @@ export const Dialog = ({
   footer?: React.ReactNode
   width?: number
 }) => (
-  <RDialog.Root open={open} onOpenChange={onOpenChange}>
-    <RDialog.Portal>
-      <RDialog.Overlay className="animate-fade fixed inset-0 z-50 bg-overlay" />
-      <RDialog.Content
+  <BDialog.Root open={open} onOpenChange={(o) => onOpenChange(o)}>
+    <BDialog.Portal>
+      <BDialog.Backdrop className="animate-fade fixed inset-0 z-50 bg-overlay" />
+      <BDialog.Popup
         className="animate-pop fixed left-1/2 top-[12vh] z-50 flex max-h-[80vh] w-[calc(100vw-24px)] -translate-x-1/2 flex-col rounded-[12px] border border-line-control bg-elevated shadow-[var(--shadow-modal)] outline-none"
         style={{ maxWidth: width }}
       >
         <div className="flex items-start gap-3 border-b border-line px-5 pb-3.5 pt-[18px]">
           <div className="flex min-w-0 flex-1 flex-col gap-1">
-            <RDialog.Title className="text-[15px] font-medium">{title}</RDialog.Title>
-            {description ? <RDialog.Description className="text-muted">{description}</RDialog.Description> : (
-              <RDialog.Description className="sr-only">{typeof title === "string" ? title : ""}</RDialog.Description>
-            )}
+            <BDialog.Title className="text-[15px] font-medium">{title}</BDialog.Title>
+            {description ? <BDialog.Description className="text-muted">{description}</BDialog.Description> : null}
           </div>
-          <RDialog.Close asChild>
-            <IconButton label="Fermer" size="sm">
-              <X size={14} />
-            </IconButton>
-          </RDialog.Close>
+          <BDialog.Close
+            render={
+              <IconButton label="Fermer" size="sm">
+                <X size={14} />
+              </IconButton>
+            }
+          />
         </div>
         {children ? <div className="min-h-0 overflow-y-auto">{children}</div> : null}
         {footer ? (
           <div className="flex items-center justify-between gap-2 border-t border-line px-5 py-3.5">{footer}</div>
         ) : null}
-      </RDialog.Content>
-    </RDialog.Portal>
-  </RDialog.Root>
+      </BDialog.Popup>
+    </BDialog.Portal>
+  </BDialog.Root>
 )
 
 /** Full-screen sheet used on mobile for entry forms. */
@@ -474,15 +715,14 @@ export const Sheet = ({
   title: string
   children: React.ReactNode
 }) => (
-  <RDialog.Root open={open} onOpenChange={onOpenChange}>
-    <RDialog.Portal>
-      <RDialog.Content className="animate-pop fixed inset-0 z-50 flex flex-col bg-bg outline-none">
-        <RDialog.Title className="sr-only">{title}</RDialog.Title>
-        <RDialog.Description className="sr-only">{title}</RDialog.Description>
+  <BDialog.Root open={open} onOpenChange={(o) => onOpenChange(o)}>
+    <BDialog.Portal>
+      <BDialog.Popup className="animate-pop fixed inset-0 z-50 flex flex-col bg-bg outline-none">
+        <BDialog.Title className="sr-only">{title}</BDialog.Title>
         {children}
-      </RDialog.Content>
-    </RDialog.Portal>
-  </RDialog.Root>
+      </BDialog.Popup>
+    </BDialog.Portal>
+  </BDialog.Root>
 )
 
 export const Popover = ({
@@ -493,28 +733,25 @@ export const Popover = ({
   align = "start",
   className,
 }: {
-  trigger: React.ReactNode
+  trigger: React.ReactElement
   children: React.ReactNode
   open?: boolean
-  onOpenChange?: (open: boolean) => void
+  /** `reason` tells a dismissal by Escape ("escape-key") from a click outside ("outside-press"). */
+  onOpenChange?: (open: boolean, reason: string) => void
   align?: "start" | "center" | "end"
   className?: string
 }) => (
-  <RPopover.Root {...(open === undefined ? {} : { open })} {...(onOpenChange ? { onOpenChange } : {})}>
-    <RPopover.Trigger asChild>{trigger}</RPopover.Trigger>
-    <RPopover.Portal>
-      <RPopover.Content
-        align={align}
-        sideOffset={6}
-        className={cx(
-          "animate-pop z-50 rounded-[10px] border border-line-control bg-elevated shadow-[var(--shadow-modal)] outline-none",
-          className,
-        )}
-      >
-        {children}
-      </RPopover.Content>
-    </RPopover.Portal>
-  </RPopover.Root>
+  <BPopover.Root
+    {...(open === undefined ? {} : { open })}
+    {...(onOpenChange ? { onOpenChange: (o: boolean, details: { reason: string }) => onOpenChange(o, details.reason) } : {})}
+  >
+    <BPopover.Trigger render={trigger} />
+    <BPopover.Portal>
+      <BPopover.Positioner align={align} sideOffset={6} className="z-50">
+        <BPopover.Popup className={cx(popupClass, className)}>{children}</BPopover.Popup>
+      </BPopover.Positioner>
+    </BPopover.Portal>
+  </BPopover.Root>
 )
 
 export type MenuItem =
@@ -526,40 +763,38 @@ export const Menu = ({
   items,
   align = "end",
 }: {
-  trigger: React.ReactNode
+  trigger: React.ReactElement
   items: ReadonlyArray<MenuItem>
   align?: "start" | "end"
 }) => (
-  <DropdownMenu.Root>
-    <DropdownMenu.Trigger asChild>{trigger}</DropdownMenu.Trigger>
-    <DropdownMenu.Portal>
-      <DropdownMenu.Content
-        align={align}
-        sideOffset={6}
-        className="animate-pop z-50 min-w-[200px] rounded-[10px] border border-line-control bg-elevated p-1 shadow-[var(--shadow-modal)]"
-      >
-        {items.map((item, i) =>
-          "separator" in item ? (
-            <DropdownMenu.Separator key={i} className="my-1 h-px bg-line" />
-          ) : (
-            <DropdownMenu.Item
-              key={i}
-              disabled={item.disabled}
-              onSelect={item.onSelect}
-              className={cx(
-                "flex cursor-default items-center gap-2 rounded-[6px] px-2 py-1.5 outline-none data-[disabled]:opacity-40 data-[highlighted]:bg-hover",
-                item.danger ? "text-negative" : "text-fg-2",
-              )}
-            >
-              {item.icon ? <span className="text-muted">{item.icon}</span> : null}
-              <span className="flex-1">{item.label}</span>
-              {item.shortcut ? <Kbd>{item.shortcut}</Kbd> : null}
-            </DropdownMenu.Item>
-          ),
-        )}
-      </DropdownMenu.Content>
-    </DropdownMenu.Portal>
-  </DropdownMenu.Root>
+  <BMenu.Root>
+    <BMenu.Trigger render={trigger} />
+    <BMenu.Portal>
+      <BMenu.Positioner align={align} sideOffset={6} className="z-50">
+        <BMenu.Popup className={cx(popupClass, "min-w-[200px] p-1")}>
+          {items.map((item, i) =>
+            "separator" in item ? (
+              <BMenu.Separator key={i} className="my-1 h-px bg-line" />
+            ) : (
+              <BMenu.Item
+                key={i}
+                disabled={item.disabled}
+                onClick={item.onSelect}
+                className={cx(
+                  "flex cursor-default items-center gap-2 rounded-[6px] px-2 py-1.5 outline-none data-[disabled]:opacity-40 data-[highlighted]:bg-hover",
+                  item.danger ? "text-negative" : "text-fg-2",
+                )}
+              >
+                {item.icon ? <span className="text-muted">{item.icon}</span> : null}
+                <span className="flex-1">{item.label}</span>
+                {item.shortcut ? <Kbd>{item.shortcut}</Kbd> : null}
+              </BMenu.Item>
+            ),
+          )}
+        </BMenu.Popup>
+      </BMenu.Positioner>
+    </BMenu.Portal>
+  </BMenu.Root>
 )
 
 // --- States --------------------------------------------------------------------

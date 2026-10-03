@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
 import { Command } from "cmdk"
-import { Dialog as RDialog } from "radix-ui"
+import { Dialog as BDialog } from "@base-ui/react/dialog"
 import { q } from "~/lib/queries"
 import { commandFilter } from "./pickers"
 import { useAppUi } from "./shell"
@@ -29,12 +29,12 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
   }
 
   return (
-    <RDialog.Root open={open} onOpenChange={onOpenChange}>
-      <RDialog.Portal>
-        <RDialog.Overlay className="animate-fade fixed inset-0 z-50 bg-overlay" />
-        <RDialog.Content className="animate-pop fixed left-1/2 top-[14vh] z-50 w-[calc(100vw-24px)] max-w-[560px] -translate-x-1/2 overflow-hidden rounded-[12px] border border-line-control bg-elevated shadow-[var(--shadow-modal)] outline-none">
-          <RDialog.Title className="sr-only">Palette de commandes</RDialog.Title>
-          <RDialog.Description className="sr-only">Naviguer et lancer des actions</RDialog.Description>
+    <BDialog.Root open={open} onOpenChange={(o) => onOpenChange(o)}>
+      <BDialog.Portal>
+        <BDialog.Backdrop className="animate-fade fixed inset-0 z-50 bg-overlay" />
+        <BDialog.Popup className="animate-pop fixed left-1/2 top-[14vh] z-50 w-[calc(100vw-24px)] max-w-[560px] -translate-x-1/2 overflow-hidden rounded-[12px] border border-line-control bg-elevated shadow-[var(--shadow-modal)] outline-none">
+          <BDialog.Title className="sr-only">Palette de commandes</BDialog.Title>
+          <BDialog.Description className="sr-only">Naviguer et lancer des actions</BDialog.Description>
           <Command filter={commandFilter} loop>
             <Command.Input
               autoFocus
@@ -111,8 +111,8 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
               </Command.Group>
             </Command.List>
           </Command>
-        </RDialog.Content>
-      </RDialog.Portal>
-    </RDialog.Root>
+        </BDialog.Popup>
+      </BDialog.Portal>
+    </BDialog.Root>
   )
 }

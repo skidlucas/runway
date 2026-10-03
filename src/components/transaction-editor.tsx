@@ -7,7 +7,7 @@ import { createRule, deleteTransactions, restoreTransactions, updateTransaction 
 import type { TxRow } from "~/server/services/transactions"
 import { AccountSelect, CategoryPicker, PayeePicker, type PayeeValue } from "./pickers"
 import { toast, toastError } from "./toast"
-import { Button, Checkbox, cx, Dialog, Field, IconButton, Input, Switch } from "./ui"
+import { Button, Checkbox, cx, DateInput, Dialog, Field, IconButton, Input, Select, Switch } from "./ui"
 import { count, plural } from "~/domain/text"
 
 export const payeeValueOf = (tx: Pick<TxRow, "payeeId" | "payeeName" | "transferAccountId">): PayeeValue =>
@@ -141,7 +141,7 @@ export function TransactionEditor({
           <Input value={amount} onChange={(e) => setAmount(e.target.value)} className="num" inputMode="decimal" aria-label="Montant" />
         </Field>
         <Field label="Date">
-          <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+          <DateInput value={date} onChange={setDate} />
         </Field>
         <Field label="Bénéficiaire">
           <PayeePicker value={payee} onChange={setPayee} currentAccountId={accountId} />
@@ -279,24 +279,24 @@ export function RuleFromTransactionDialog({
       <div className="flex flex-col gap-3 px-5 py-4">
         <div className="grid grid-cols-2 gap-2">
           <Field label="Si">
-            <select
+            <Select
               value={field}
-              onChange={(e) => setField(e.target.value as typeof field)}
-              className="h-8 rounded-[8px] border border-line-control bg-transparent px-2 [&>*]:bg-elevated"
-            >
-              <option value="payee">le bénéficiaire</option>
-              <option value="imported_payee">le libellé bancaire</option>
-            </select>
+              onChange={setField}
+              options={[
+                { value: "payee", label: "le bénéficiaire" },
+                { value: "imported_payee", label: "le libellé bancaire" },
+              ]}
+            />
           </Field>
           <Field label="Opérateur">
-            <select
+            <Select
               value={op}
-              onChange={(e) => setOp(e.target.value as typeof op)}
-              className="h-8 rounded-[8px] border border-line-control bg-transparent px-2 [&>*]:bg-elevated"
-            >
-              <option value="is">est</option>
-              <option value="contains">contient</option>
-            </select>
+              onChange={setOp}
+              options={[
+                { value: "is", label: "est" },
+                { value: "contains", label: "contient" },
+              ]}
+            />
           </Field>
         </div>
         <Field label="Texte">

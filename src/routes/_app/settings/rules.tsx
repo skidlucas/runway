@@ -4,7 +4,7 @@ import { ArrowDown, ArrowUp, MoreHorizontal, Play, Plus, Sparkles, Trash2 } from
 import * as React from "react"
 import { CategoryPicker, PayeePicker, type PayeeValue } from "~/components/pickers"
 import { PageHeader } from "~/components/shell"
-import { Button, Chip, cx, Dialog, EmptyState, IconButton, Input, Menu, SectionTitle, SkeletonRows, Switch } from "~/components/ui"
+import { Button, Chip, cx, Dialog, EmptyState, IconButton, Input, Menu, type Option, SectionTitle, Select, SkeletonRows, Switch } from "~/components/ui"
 import { parseAmount } from "~/domain/money"
 import { describeRule, type RuleAction, type RuleCondition, type RuleConditionField, type RuleConditionOp } from "~/domain/rules"
 import { q, useAction } from "~/lib/queries"
@@ -233,7 +233,11 @@ const toDraftCondition = (c: RuleCondition): DraftCondition => ({
   text2: c.field === "amount" && Array.isArray(c.value) ? (Number(c.value[1]) / 100).toFixed(2) : "",
 })
 
-const selectClass = "h-8 rounded-[8px] border border-line-control bg-transparent px-2 outline-none [&>*]:bg-elevated"
+const ACTION_TYPES: ReadonlyArray<Option<RuleAction["type"]>> = [
+  { value: "set_category", label: "Catégoriser en" },
+  { value: "set_payee", label: "Renommer en" },
+  { value: "set_notes", label: "Ajouter la note" },
+]
 
 function RuleEditor({ rule, onClose }: { rule: RuleDto | null; onClose: () => void }) {
   const names = useNames()
@@ -339,55 +343,42 @@ function RuleEditor({ rule, onClose }: { rule: RuleDto | null; onClose: () => vo
         <div className="flex flex-col gap-2">
           <div className="flex items-center gap-2 text-[12px] text-muted">
             Si
-            <select value={op} onChange={(e) => setOp(e.target.value as "and" | "or")} className={selectClass} aria-label="Combinaison">
-              <option value="and">toutes les</option>
-              <option value="or">au moins une des</option>
-            </select>
+            <Select
+              fit
+              value={op}
+              onChange={setOp}
+              aria-label="Combinaison"
+              options={[
+                { value: "and", label: "toutes les" },
+                { value: "or", label: "au moins une des" },
+              ]}
+            />
             {op === "and" ? "conditions suivantes sont remplies :" : "conditions suivantes est remplie :"}
           </div>
           {conditions.map((c, i) => (
             <div key={i} className="grid grid-cols-[170px_150px_minmax(0,1fr)_32px] items-center gap-2 max-md:grid-cols-1">
-              <select
+              <Select
                 value={c.field}
                 aria-label="Champ"
-                className={selectClass}
-                onChange={(e) => {
-                  const field = e.target.value as RuleConditionField
+                options={FIELDS}
+                onChange={(field) =>
                   setConditions((cs) => cs.map((x, j) => (j === i ? { ...x, field, op: OPS[field][0]!.value, text: "" } : x)))
-                }}
-              >
-                {FIELDS.map((f) => (
-                  <option key={f.value} value={f.value}>
-                    {f.label}
-                  </option>
-                ))}
-              </select>
-              <select
+                }
+              />
+              <Select
                 value={c.op}
                 aria-label="Opérateur"
-                className={selectClass}
-                onChange={(e) => setConditions((cs) => cs.map((x, j) => (j === i ? { ...x, op: e.target.value as RuleConditionOp } : x)))}
-              >
-                {OPS[c.field].map((o) => (
-                  <option key={o.value} value={o.value}>
-                    {o.label}
-                  </option>
-                ))}
-              </select>
+                options={OPS[c.field]}
+                onChange={(op) => setConditions((cs) => cs.map((x, j) => (j === i ? { ...x, op } : x)))}
+              />
               {c.field === "account" ? (
-                <select
+                <Select
                   value={c.text}
                   aria-label="Compte"
-                  className={selectClass}
-                  onChange={(e) => setConditions((cs) => cs.map((x, j) => (j === i ? { ...x, text: e.target.value } : x)))}
-                >
-                  <option value="">Choisir</option>
-                  {(accounts.data ?? []).map((a) => (
-                    <option key={a.id} value={a.id}>
-                      {a.name}
-                    </option>
-                  ))}
-                </select>
+                  placeholder="Choisir"
+                  options={(accounts.data ?? []).map((a) => ({ value: a.id, label: a.name }))}
+                  onChange={(text) => setConditions((cs) => cs.map((x, j) => (j === i ? { ...x, text } : x)))}
+                />
               ) : (
                 <div className="flex items-center gap-2">
                   <Input
@@ -433,16 +424,12 @@ function RuleEditor({ rule, onClose }: { rule: RuleDto | null; onClose: () => vo
           <span className="text-[12px] text-muted">Alors :</span>
           {actions.map((a, i) => (
             <div key={i} className="grid grid-cols-[170px_minmax(0,1fr)_32px] items-center gap-2 max-md:grid-cols-1">
-              <select
+              <Select
                 value={a.type}
                 aria-label="Action"
-                className={selectClass}
-                onChange={(e) => setActions((as) => as.map((x, j) => (j === i ? { ...x, type: e.target.value as RuleAction["type"] } : x)))}
-              >
-                <option value="set_category">Catégoriser en</option>
-                <option value="set_payee">Renommer en</option>
-                <option value="set_notes">Ajouter la note</option>
-              </select>
+                options={ACTION_TYPES}
+                onChange={(type) => setActions((as) => as.map((x, j) => (j === i ? { ...x, type } : x)))}
+              />
               {a.type === "set_category" ? (
                 <CategoryPicker
                   value={a.categoryId}

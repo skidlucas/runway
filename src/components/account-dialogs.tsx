@@ -4,7 +4,7 @@ import { localToday } from "~/lib/hooks"
 import { useAction } from "~/lib/queries"
 import { createAccount, reconcileAccount, updateAccount } from "~/server/fns/core"
 import type { AccountDto, AccountKind } from "~/server/services/accounts"
-import { Button, Dialog, Field, Input, Select, Switch } from "./ui"
+import { Button, DateInput, Dialog, Field, Input, Select, Switch } from "./ui"
 
 export const ACCOUNT_KINDS: ReadonlyArray<{ value: AccountKind; label: string }> = [
   { value: "checking", label: "Compte courant" },
@@ -68,7 +68,7 @@ export function CreateAccountDialog({ onClose, onCreated }: { onClose: () => voi
             <Input value={balance} onChange={(e) => setBalance(e.target.value)} className="num" placeholder="0,00" inputMode="decimal" />
           </Field>
           <Field label="Au">
-            <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+            <DateInput value={date} onChange={setDate} />
           </Field>
         </div>
         <label className="flex items-center justify-between gap-3">

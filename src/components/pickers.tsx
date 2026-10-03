@@ -6,7 +6,7 @@ import { formatMoney } from "~/domain/money"
 import { normalizeText } from "~/domain/rules"
 import { useDebounced } from "~/lib/hooks"
 import { q } from "~/lib/queries"
-import { cx, Popover } from "./ui"
+import { cx, Popover, Select } from "./ui"
 
 /** cmdk filter: every word of the search must appear, accents and case ignored. */
 export const commandFilter = (value: string, search: string, keywords?: string[]) => {
@@ -292,21 +292,13 @@ export function AccountSelect({
   const accounts = useQuery(q.accounts())
   const list = (accounts.data ?? []).filter((a) => !a.closed || a.id === value)
   return (
-    <span className={cx("relative inline-flex w-full", className)}>
-      <select
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        aria-label="Compte"
-        className="h-8 w-full appearance-none rounded-[8px] border border-line-control bg-transparent pl-2.5 pr-7 outline-none focus:border-accent-line [&>*]:bg-elevated"
-      >
-        {list.map((a) => (
-          <option key={a.id} value={a.id}>
-            {a.name}
-          </option>
-        ))}
-      </select>
-      <ChevronDown size={14} className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-faint" />
-    </span>
+    <Select
+      value={value}
+      onChange={onChange}
+      options={list.map((a) => ({ value: a.id, label: a.name }))}
+      aria-label="Compte"
+      className={className}
+    />
   )
 }
 

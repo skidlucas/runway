@@ -8,7 +8,7 @@ import type { ValuationSource } from "~/server/db/schema"
 import { addAssetValuation, createAsset, searchCoins, searchCommunes, searchSymbols, updateAsset } from "~/server/fns/wealth"
 import type { WealthItem } from "~/server/services/wealth"
 import { RemotePicker } from "./pickers"
-import { Button, Dialog, Field, Input, Segmented, Select, Textarea } from "./ui"
+import { Button, DateInput, Dialog, Field, Input, Segmented, Select, Textarea } from "./ui"
 
 type SourceKind = ValuationSource["kind"]
 
@@ -239,7 +239,7 @@ export function AssetDialog({
                 <Input value={d.years} onChange={(e) => set("years", e.target.value)} className="num" inputMode="decimal" placeholder="20" />
               </Field>
               <Field label="Date de déblocage">
-                <Input type="date" value={d.startDate} onChange={(e) => set("startDate", e.target.value)} />
+                <DateInput value={d.startDate} onChange={(v) => set("startDate", v)} />
               </Field>
             </div>
             {loanPreview ? <p className="text-[12px] text-muted">{loanPreview}</p> : null}
@@ -251,13 +251,13 @@ export function AssetDialog({
                 <Input value={d.purchase} onChange={(e) => set("purchase", e.target.value)} className="num" inputMode="decimal" placeholder="—" />
               </Field>
               <Field label="Date d'achat">
-                <Input type="date" value={d.purchaseDate} onChange={(e) => set("purchaseDate", e.target.value)} />
+                <DateInput value={d.purchaseDate} onChange={(v) => set("purchaseDate", v)} optional />
               </Field>
               <Field label="Valeur déclarée">
                 <Input value={d.declared} onChange={(e) => set("declared", e.target.value)} className="num" inputMode="decimal" placeholder="—" />
               </Field>
               <Field label="Déclarée le">
-                <Input type="date" value={d.declaredDate} onChange={(e) => set("declaredDate", e.target.value)} />
+                <DateInput value={d.declaredDate} onChange={(v) => set("declaredDate", v)} optional />
               </Field>
             </div>
 

@@ -7,7 +7,7 @@ import { useIsMobile, useToday } from "~/lib/hooks"
 import { q, useAction } from "~/lib/queries"
 import { createTransaction } from "~/server/fns/core"
 import { AccountSelect, CategoryPicker, PayeePicker, type PayeeValue } from "./pickers"
-import { Button, cx, Dialog, Field, Input, Segmented, Sheet } from "./ui"
+import { Button, cx, DateInput, Dialog, Field, Input, Segmented, Sheet } from "./ui"
 
 type Kind = "expense" | "income"
 
@@ -208,11 +208,7 @@ export function TransactionEntry({
             <AccountSelect value={draft.accountId} onChange={(accountId) => state.setDraft((d) => ({ ...d, accountId }))} />
           </Field>
           <Field label="Date">
-            <Input
-              type="date"
-              value={draft.date}
-              onChange={(e) => state.setDraft((d) => ({ ...d, date: e.target.value }))}
-            />
+            <DateInput value={draft.date} onChange={(date) => state.setDraft((d) => ({ ...d, date }))} />
           </Field>
         </div>
         <Field label="Note">

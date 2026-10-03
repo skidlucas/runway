@@ -5,7 +5,7 @@ import * as React from "react"
 import { AssetDialog } from "~/components/asset-dialog"
 import { PageHeader } from "~/components/shell"
 import { toast } from "~/components/toast"
-import { Button, cx, EmptyState, IconButton, Input, Menu, Money, Sheet, SkeletonRows } from "~/components/ui"
+import { Button, cx, DateInput, EmptyState, IconButton, Input, Menu, Money, Sheet, SkeletonRows } from "~/components/ui"
 import { formatDayLong, formatDayShort, formatMonthLong, formatMonthShort, type Month } from "~/domain/dates"
 import { formatMoney, formatPercent, parseAmount } from "~/domain/money"
 import {
@@ -461,7 +461,7 @@ function AddEstimate({ assetId, today }: { assetId: string; today: string }) {
       <span className="text-[12px] text-faint">Nouvelle estimation</span>
       <div className="grid grid-cols-[1fr_130px_auto] gap-2">
         <Input value={amount} onChange={(e) => setAmount(e.target.value)} className="num" inputMode="decimal" placeholder="Montant" aria-label="Montant de l'estimation" />
-        <Input type="date" value={date} max={localToday()} onChange={(e) => setDate(e.target.value)} aria-label="Date de l'estimation" />
+        <DateInput value={date} max={localToday()} onChange={setDate} aria-label="Date de l'estimation" />
         <Button type="submit" size="md" disabled={cents === null} loading={add.isPending}>
           Ajouter
         </Button>
