@@ -14,6 +14,7 @@
     "fixtures:actual": "node scripts/make-actual-fixture.mjs",
     "plan": "ALCHEMY_STATE=cloudflare alchemy plan --stage prod --env-file .env.prod",
     "deploy": "ALCHEMY_STATE=cloudflare alchemy deploy --stage prod --env-file .env.prod",
+    "deploy:ci": "ALCHEMY_STATE=cloudflare alchemy deploy --stage prod --yes",
     "logs": "ALCHEMY_STATE=cloudflare alchemy logs --stage prod --env-file .env.prod --tail"
   },
   "dependencies": {
