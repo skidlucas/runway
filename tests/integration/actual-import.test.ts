@@ -56,6 +56,19 @@ describe("Actual import", () => {
     expect(bundle.schedules[0]).toMatchObject({ name: "Netflix", amount: -1349, recurrence: { unit: "month", interval: 1 } })
   })
 
+  it("moves a schedule past an occurrence Actual already posted but did not advance", async () => {
+    const SQL = await initSqlJs()
+    const file = unzipActual(new Uint8Array(readFileSync(join(fixture, "actual-fixture.zip"))))
+    const db = new SQL.Database(file.db)
+    const id = String(db.exec("SELECT id FROM schedules WHERE tombstone = 0 LIMIT 1")[0]!.values[0]![0])
+    db.run("UPDATE schedules_next_date SET local_next_date = 20261003, base_next_date = 20261003, local_next_date_ts = 1, base_next_date_ts = 1 WHERE schedule_id = ?", [id])
+    db.run("UPDATE transactions SET schedule = ?, date = 20261003 WHERE id = (SELECT id FROM transactions WHERE tombstone = 0 AND isChild = 0 LIMIT 1)", [id])
+    const parsed = parseActual(SQL, { ...file, db: db.export() })
+    const schedule = parsed.schedules.find((s) => s.id === id)!
+    expect(schedule.nextDate > "2026-10-03").toBe(true)
+    expect(schedule.active).toBe(true)
+  })
+
   it("keeps split families together when chunking", () => {
     const rows = bundle.transactions.map((t) => ({ ...t, accountId: t.accountId }))
     const chunks = chunkFamilies(rows, 5)

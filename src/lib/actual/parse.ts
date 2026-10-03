@@ -1,6 +1,7 @@
 import { unzipSync } from "fflate"
 import type { Database, SqlJsStatic } from "sql.js"
-import type { Recurrence } from "~/domain/recurrence"
+import { addDays } from "~/domain/dates"
+import { nextOnOrAfter, type Recurrence } from "~/domain/recurrence"
 import type { RuleAction, RuleCondition } from "~/domain/rules"
 import type { BundleRule, BundleSchedule, BundleTransaction, ImportBundle } from "../import-bundle"
 
@@ -328,6 +329,8 @@ const readRules = (
   return { rules, skipped }
 }
 
+const periodDays = (r: Recurrence) => r.interval * (r.unit === "day" ? 1 : r.unit === "week" ? 7 : r.unit === "month" ? 30 : 365)
+
 const FREQUENCY: Record<string, Recurrence["unit"]> = { daily: "day", weekly: "week", monthly: "month", yearly: "year" }
 
 const readSchedules = (
@@ -345,6 +348,15 @@ const readSchedules = (
      LEFT JOIN rules r ON r.id = s.rule
      LEFT JOIN schedules_next_date n ON n.schedule_id = s.id AND n.tombstone = 0
      WHERE s.tombstone = 0`,
+  )
+  // Actual advances a schedule's stored next date lazily: an occurrence it already posted (or
+  // that was matched by hand) can still be the "next" one. Its latest linked transaction tells.
+  const lastLinked = new Map(
+    columns(db, "transactions").has("schedule")
+      ? all(db, "SELECT schedule, MAX(date) AS date FROM transactions WHERE tombstone = 0 AND schedule IS NOT NULL GROUP BY schedule").map(
+          (r) => [String(r.schedule), toDay(r.date)] as const,
+        )
+      : [],
   )
   const schedules: BundleSchedule[] = []
   let skipped = 0
@@ -373,7 +385,13 @@ const readSchedules = (
       continue
     }
     const startDate = recurring ? date.start : date
-    const nextDate = toDay(row.next_date) ?? startDate
+    const endDate = recurring ? (date.endMode === "on_date" && date.endDate ? date.endDate : null) : startDate
+    const recurrence = { unit, interval: recurring ? Math.max(1, Number(date.interval ?? 1)) : 1 }
+    const stored = toDay(row.next_date) ?? startDate
+    const posted = lastLinked.get(String(row.id))
+    // A transaction entered a few days early still covers the occurrence.
+    const covered = posted != null && posted >= addDays(stored, -Math.min(7, Math.floor(periodDays(recurrence) / 2)))
+    const following = covered ? nextOnOrAfter({ startDate, endDate, recurrence }, addDays(posted > stored ? posted : stored, 1)) : stored
     const categoryAction = acts.find((a) => a.op === "set" && a.field === "category")
     schedules.push({
       id: String(row.id),
@@ -382,13 +400,13 @@ const readSchedules = (
       accountId: account,
       categoryId: validCategory(categoryAction?.value),
       amount,
-      recurrence: { unit, interval: recurring ? Math.max(1, Number(date.interval ?? 1)) : 1 },
+      recurrence,
       startDate,
-      nextDate,
+      nextDate: following ?? stored,
       // A one-off schedule ends on its single date.
-      endDate: recurring ? (date.endMode === "on_date" && date.endDate ? date.endDate : null) : startDate,
+      endDate,
       autoPost: row.posts_transaction === 1,
-      active: row.completed !== 1,
+      active: row.completed !== 1 && following !== null,
     })
   }
   return { schedules, skipped }
