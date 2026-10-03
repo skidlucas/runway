@@ -11,33 +11,36 @@ import { Chip, cx, EmptyState, Kpi, Money, SectionTitle, SkeletonRows, Tabs } fr
 import { formatDayShort, formatMonthLong, formatMonthName, parseDay } from "~/domain/dates"
 import type { UpcomingTag } from "~/domain/forecast"
 import { formatMoney } from "~/domain/money"
-import { q } from "~/lib/queries"
+import { defaultForecastAccount, forecastScope, q } from "~/lib/queries"
 import type { ForecastDto } from "~/server/services/forecast"
 import { capitalize, count } from "~/domain/text"
 
+/** `account` is an account id or "all"; without it the page opens on the default account. */
 type Search = { account?: string }
 
 export const Route = createFileRoute("/_app/forecast")({
   validateSearch: (s: Record<string, unknown>): Search => (typeof s.account === "string" && s.account ? { account: s.account } : {}),
   loaderDeps: ({ search }) => search,
-  loader: ({ context, deps }) => context.queryClient.ensureQueryData(q.forecast(scopeOf(deps))),
+  loader: async ({ context, deps }) => {
+    const account = deps.account ?? defaultForecastAccount(await context.queryClient.ensureQueryData(q.accounts()))
+    return context.queryClient.ensureQueryData(q.forecast(forecastScope(account)))
+  },
   component: ForecastPage,
 })
-
-const scopeOf = (search: Search) => (search.account ? { accountId: search.account } : {})
 
 function ForecastPage() {
   const search = Route.useSearch()
   const navigate = useNavigate({ from: "/forecast" })
-  const forecast = useQuery(q.forecast(scopeOf(search)))
   const accounts = useQuery(q.accounts())
+  const account = search.account ?? defaultForecastAccount(accounts.data ?? [])
+  const forecast = useQuery(q.forecast(forecastScope(account)))
   const f = forecast.data
-  const open = (accounts.data ?? []).filter((a) => !a.closed || a.id === search.account)
+  const open = (accounts.data ?? []).filter((a) => !a.closed || a.id === account)
   // "Tous" is the money available now: savings and closed accounts stay out unless picked.
   const included = open.filter((a) => a.inForecast && !a.closed && !a.offBudget).map((a) => a.name)
   // Off-budget accounts (investments) have no month to plan; one stays reachable by URL.
-  const tabs = open.filter((a) => !a.offBudget || a.id === search.account)
-  const pick = (account: string) => void navigate({ search: account === "all" ? {} : { account } })
+  const tabs = open.filter((a) => !a.offBudget || a.id === account)
+  const pick = (picked: string) => void navigate({ search: { account: picked } })
   return (
     <>
       <PageHeader
@@ -60,14 +63,14 @@ function ForecastPage() {
       />
       <Tabs
         label="Compte"
-        value={search.account ?? "all"}
+        value={account}
         onChange={pick}
-        items={[{ value: "all", label: "Tous" }, ...tabs.map((a) => ({ value: a.id, label: a.name }))]}
+        items={[...tabs.map((a) => ({ value: a.id, label: a.name })), { value: "all", label: "Tous" }]}
       />
       {f ? (
         <p className="border-b border-line px-5 py-2.5 text-[12px] text-faint max-md:hidden">
           Seules les échéances et les opérations déjà saisies sont comptées.
-          {!search.account && included.length ? ` Comptes inclus : ${included.join(", ")}.` : ""}
+          {account === "all" && included.length ? ` Comptes inclus : ${included.join(", ")}.` : ""}
         </p>
       ) : null}
       {!f ? (

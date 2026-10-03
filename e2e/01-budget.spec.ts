@@ -149,11 +149,13 @@ test("plans a one-off schedule and shows it in the register and the account fore
   await page.getByLabel("Rechercher une opération").fill("")
 
   await open(page, "/forecast")
-  await expect(page.getByText("Comptes inclus : Compte joint")).toBeVisible()
-  await page.getByRole("tablist", { name: "Compte" }).getByRole("tab", { name: "Compte joint" }).click()
-  await expect(page).toHaveURL(/account=/)
-  await expect(page.getByRole("tab", { name: "Compte joint" })).toHaveAttribute("aria-selected", "true")
+  const tabs = page.getByRole("tablist", { name: "Compte" })
+  await expect(tabs.getByRole("tab", { name: "Compte joint" })).toHaveAttribute("aria-selected", "true")
   await expect(page.getByText(/Seules les échéances et les opérations déjà saisies sont comptées/)).toBeVisible()
+  await expect(tabs.getByRole("tab").last()).toHaveText("Tous")
+  await tabs.getByRole("tab", { name: "Tous" }).click()
+  await expect(page).toHaveURL(/account=all/)
+  await expect(page.getByText("Comptes inclus : Compte joint")).toBeVisible()
 })
 
 test("saves the short date typed just before pressing Enter", async ({ page }) => {

@@ -26,7 +26,7 @@ import {
 import { addMonths, formatMonthLong, isMonth, monthOf } from "~/domain/dates"
 import { amountInput, formatMoney, parseAmount } from "~/domain/money"
 import { localToday, shortcutBlocked, useIsMobile } from "~/lib/hooks"
-import { BUDGET_QUERIES, q, useAction } from "~/lib/queries"
+import { BUDGET_QUERIES, defaultForecastAccount, forecastScope, q, useAction } from "~/lib/queries"
 import {
   createStarterCategories,
   fillBudget,
@@ -45,7 +45,9 @@ export const Route = createFileRoute("/_app/budget")({
   loader: ({ context, deps }) =>
     Promise.all([
       context.queryClient.ensureQueryData(q.budget(deps.month ?? monthOf(localToday()))),
-      context.queryClient.ensureQueryData(q.forecast()),
+      context.queryClient
+        .ensureQueryData(q.accounts())
+        .then((accounts) => context.queryClient.ensureQueryData(q.forecast(forecastScope(defaultForecastAccount(accounts))))),
     ]),
   component: BudgetPage,
 })

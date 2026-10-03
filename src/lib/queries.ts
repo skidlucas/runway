@@ -14,10 +14,17 @@ import { getWealth } from "~/server/fns/wealth"
 import { getForecast, getScheduledRows, getSchedules, getScheduleSuggestions, getUpcoming } from "~/server/fns/planning"
 import { getCashFlow, getCategorySpending, getDashboards, getNetWorth, getSpendingComparison } from "~/server/fns/reports"
 import type { InsightViewConfig } from "~/server/db/schema"
+import type { AccountDto } from "~/server/services/accounts"
 import type { TxFilter } from "~/server/services/transactions"
 import { toast, toastError } from "~/components/toast"
 
 export const TX_PAGE = 200
+
+/** The forecast opens on the first budget account in the user's order, or on every account ("all") when there is none. */
+export const defaultForecastAccount = (accounts: ReadonlyArray<AccountDto>) =>
+  accounts.find((a) => !a.closed && !a.offBudget)?.id ?? "all"
+
+export const forecastScope = (account: string) => (account === "all" ? {} : { accountId: account })
 
 /** Reports only change with a write, and every write refreshes them: refocusing the tab need not refetch. */
 const REPORT_STALE = 5 * 60_000

@@ -16,6 +16,19 @@ test("the forecast reconciles today's balance with the projection", async ({ pag
   expect(cents(await page.getByTestId("chip-end-of-month").innerText())).toBe(projected)
 })
 
+test("the forecast opens on the first budget account, in the order set on the accounts page", async ({ page }) => {
+  await open(page, "/accounts")
+  const rows = page.getByRole("main").locator("section").first().locator(":scope > div").filter({ has: page.getByRole("link") })
+  const second = (await rows.nth(1).getByRole("link").innerText()).split("\n")[0] ?? ""
+  await rows.nth(1).getByRole("button", { name: "Monter" }).click()
+  await expect(rows.first().getByRole("link")).toContainText(second)
+  await open(page, "/forecast")
+  await expect(page.getByRole("tablist", { name: "Compte" }).getByRole("tab", { name: second })).toHaveAttribute("aria-selected", "true")
+  await open(page, "/accounts")
+  await rows.first().getByRole("button", { name: "Descendre" }).click()
+  await expect(rows.nth(1).getByRole("link")).toContainText(second)
+})
+
 test("insights chart a year of spending and break it down by payee", async ({ page }) => {
   await open(page, "/insights")
   const chart = visible(page.getByRole("img", { name: "Toutes les dépenses par mois" }))

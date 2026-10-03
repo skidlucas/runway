@@ -1,11 +1,12 @@
 import { useQuery } from "@tanstack/react-query"
 import { Link } from "@tanstack/react-router"
 import { formatMoney } from "~/domain/money"
-import { q } from "~/lib/queries"
+import { defaultForecastAccount, forecastScope, q } from "~/lib/queries"
 
 /** The projected end-of-month balance, shown in the top bar of every budget-related screen. */
 export function ForecastChips() {
-  const forecast = useQuery(q.forecast())
+  const accounts = useQuery(q.accounts())
+  const forecast = useQuery({ ...q.forecast(forecastScope(defaultForecastAccount(accounts.data ?? []))), enabled: !!accounts.data })
   if (!forecast.data) return null
   const f = forecast.data
   return (
