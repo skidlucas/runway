@@ -1,5 +1,5 @@
 import { and, asc, eq, lte } from "drizzle-orm"
-import { Context, Effect, Layer, Schema } from "effect"
+import { Context, Effect, Layer, Option, Schema } from "effect"
 import { addDays, addMonths, type Day, diffDays, isDay } from "~/domain/dates"
 import { describeRecurrence, nextOnOrAfter, occurrencesBetween, type Recurrence } from "~/domain/recurrence"
 import { detectRecurring, type HistoryTransaction, type RecurringCandidate } from "~/domain/recurring-detection"
@@ -11,8 +11,11 @@ import { Payees } from "./payees"
 import { Settings } from "./settings"
 import { type TxPayeeInput, Transactions } from "./transactions"
 
-// Raw SQL reads the JSON column as text: a malformed value fails loudly instead of computing wrong dates.
-const decodeRecurrence = Schema.decodeUnknownSync(Schema.fromJsonString(RecurrenceSchema))
+// A stored rhythm that does not decode (old import, hand edit) must never yield guessed dates:
+// such a schedule is listed as stopped, left out of the forecast and never booked.
+const decodeRecurrence = Schema.decodeUnknownOption(Schema.fromJsonString(RecurrenceSchema))
+const isRecurrence = Schema.is(RecurrenceSchema)
+const UNREADABLE: Recurrence = { unit: "once", interval: 1 }
 
 export type ScheduleDto = {
   id: string
@@ -113,7 +116,7 @@ export class Schedules extends Context.Service<
     update(id: string, input: ScheduleInput & { active?: boolean }): Effect.Effect<void, DbError | Invalid | NotFound>
     remove(id: string): Effect.Effect<void, DbError>
     /** Skips the next occurrence without booking it. */
-    skip(id: string): Effect.Effect<void, DbError | NotFound>
+    skip(id: string): Effect.Effect<void, DbError | NotFound | Invalid>
     /** Books the next occurrence as a transaction (dated today by default) and moves on. */
     post(id: string, date?: Day): Effect.Effect<string, DbError | NotFound | Invalid>
     /** Occurrences between two dates for active schedules, from their next date on. */
@@ -174,7 +177,9 @@ export class Schedules extends Context.Service<
           return results
         })
         return rows.map((r): ScheduleDto => {
-          const recurrence = decodeRecurrence(r.recurrence)
+          const decoded = decodeRecurrence(r.recurrence)
+          const recurrence = Option.getOrElse(decoded, () => UNREADABLE)
+          const active = r.active === 1 && Option.isSome(decoded)
           return {
             id: r.id,
             name: r.name,
@@ -186,13 +191,13 @@ export class Schedules extends Context.Service<
             categoryName: r.categoryName,
             amount: r.amount,
             recurrence,
-            recurrenceLabel: describeRecurrence(recurrence),
+            recurrenceLabel: Option.isSome(decoded) ? describeRecurrence(recurrence) : "Rythme illisible, à redéfinir",
             startDate: r.start_date,
             endDate: r.end_date,
             nextDate: r.next_date,
             autoPost: r.auto_post === 1,
-            active: r.active === 1,
-            overdue: r.active === 1 && r.next_date < today,
+            active,
+            overdue: active && r.next_date < today,
           }
         })
       }).pipe(Effect.withSpan("Schedules.list"))
@@ -256,6 +261,11 @@ export class Schedules extends Context.Service<
         return id
       })
 
+      const readable = (row: Row) =>
+        isRecurrence(row.recurrence)
+          ? Effect.succeed(row)
+          : Effect.fail(new Invalid({ message: "Le rythme enregistré de cette échéance est illisible : redéfinis-le" }))
+
       const find = (id: string) =>
         db
           .use((orm) => orm.select().from(schedules).where(eq(schedules.id, id)).get())
@@ -281,7 +291,7 @@ export class Schedules extends Context.Service<
         const ended = nextDate === null
         // Inactive with nothing left to book means it ran out, not that it was paused: a later end
         // date brings it back.
-        const ranOut = !current.active && nextOnOrAfter(timing(current), current.nextDate) === null
+        const ranOut = !current.active && isRecurrence(current.recurrence) && nextOnOrAfter(timing(current), current.nextDate) === null
         const active = ended ? false : input.active ?? (ranOut ? true : undefined)
         yield* db.use((orm) =>
           orm
@@ -344,7 +354,7 @@ export class Schedules extends Context.Service<
         )
 
       const skip = Effect.fn("Schedules.skip")(function* (id: string) {
-        const row = yield* find(id)
+        const row = yield* find(id).pipe(Effect.flatMap(readable))
         if (row.active) yield* claim(row)
       })
 
@@ -376,7 +386,7 @@ export class Schedules extends Context.Service<
 
       const post = Effect.fn("Schedules.post")(function* (id: string, date?: Day) {
         if (date !== undefined && !isDay(date)) return yield* new Invalid({ message: "Date invalide" })
-        const row = yield* find(id)
+        const row = yield* find(id).pipe(Effect.flatMap(readable))
         if (!row.active) return yield* new Invalid({ message: "Cette échéance est terminée" })
         const today = yield* settings.today
         const posted = yield* postRow(row, date ?? (row.nextDate <= today ? row.nextDate : today), yield* payeeInputOf(row))
@@ -413,7 +423,9 @@ export class Schedules extends Context.Service<
           .pipe(
             Effect.map((rows) =>
               rows.flatMap((r) => {
-                const t = { startDate: r.start_date, endDate: r.end_date, recurrence: decodeRecurrence(r.recurrence) }
+                const recurrence = decodeRecurrence(r.recurrence)
+                if (Option.isNone(recurrence)) return []
+                const t = { startDate: r.start_date, endDate: r.end_date, recurrence: recurrence.value }
                 const start = r.next_date > from ? r.next_date : from
                 // Overdue occurrences (before `from`) still count: they have not been paid yet.
                 const overdue = r.next_date < from ? [r.next_date] : []
@@ -437,7 +449,7 @@ export class Schedules extends Context.Service<
       const MAX_POSTS_PER_SYNC = 40
 
       const syncOne = Effect.fn("Schedules.syncOne")(function* (original: Row, today: Day, budget: { posts: number }) {
-        let row = original
+        let row = yield* readable(original)
         let posted = 0
         let matched = 0
         if (row.autoPost) {
@@ -466,11 +478,18 @@ export class Schedules extends Context.Service<
               .first<{ id: string }>(),
           )
           if (!match) break
-          const claimed = yield* claim(row)
-          if (!claimed) break
-          yield* db.use((_, d1) =>
+          // Link first: the occurrence only counts as paid once the transaction is really ours.
+          const linked = yield* db.use((_, d1) =>
             d1.prepare("UPDATE transactions SET schedule_id = ? WHERE id = ? AND schedule_id IS NULL").bind(row.id, match.id).run(),
           )
+          if (linked.meta.changes !== 1) break
+          const claimed = yield* claim(row)
+          if (!claimed) {
+            yield* db.use((_, d1) =>
+              d1.prepare("UPDATE transactions SET schedule_id = NULL WHERE id = ? AND schedule_id = ?").bind(match.id, row.id).run(),
+            )
+            break
+          }
           matched++
           row = claimed
         }

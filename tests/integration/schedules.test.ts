@@ -203,11 +203,17 @@ describe("Schedules", () => {
     expect((await schedule(id)).active).toBe(false)
   })
 
-  it("refuses a stored rhythm it does not know instead of guessing dates", async () => {
+  it("never books or forecasts a stored rhythm it cannot read, and still lists it to be fixed", async () => {
     const id = await h.run(Schedules.use((s) => s.create(monthly(addDays(today, 3), { name: "Rythme abîmé" }))))
     await h.d1.prepare(`UPDATE schedules SET recurrence = '{"unit":"fortnight","interval":1}' WHERE id = ?`).bind(id).run()
     try {
-      await expect(h.run(Schedules.use((s) => s.list))).rejects.toThrow()
+      expect(await schedule(id)).toMatchObject({ active: false, recurrenceLabel: "Rythme illisible, à redéfinir" })
+      const forecast = await h.run(ForecastService.use((f) => f.upcoming({ days: 30 })))
+      expect(forecast.items.some((i) => i.scheduleId === id)).toBe(false)
+      await h.d1.prepare("UPDATE schedules SET next_date = ? WHERE id = ?").bind(today, id).run()
+      await h.run(Schedules.use((s) => s.sync))
+      expect(await booked(id)).toEqual([])
+      expect(await h.fail(Schedules.use((s) => s.post(id)))).toMatchObject({ _tag: "Invalid" })
     } finally {
       await h.run(Schedules.use((s) => s.remove(id)))
     }
