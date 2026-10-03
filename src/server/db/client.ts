@@ -1,8 +1,6 @@
 import { type DrizzleD1Database, drizzle } from "drizzle-orm/d1"
 import { Context, Effect, Layer, Schema } from "effect"
-import * as schema from "./schema"
-
-export type Orm = DrizzleD1Database<typeof schema>
+export type Orm = DrizzleD1Database
 
 export class DbError extends Schema.TaggedError<DbError>()("DbError", {
   message: Schema.String,
@@ -26,7 +24,7 @@ export class Db extends Context.Service<
 }
 
 export const makeDb = (d1: D1Database): Db["Service"] => {
-  const orm = drizzle(d1, { schema })
+  const orm = drizzle(d1)
   const use = <A>(f: (orm: Orm, d1: D1Database) => Promise<A>) =>
     Effect.tryPromise({
       try: () => f(orm, d1),

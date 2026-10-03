@@ -1,8 +1,7 @@
-import { mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs"
-import { tmpdir } from "node:os"
+import { readdirSync, readFileSync } from "node:fs"
 import { join } from "node:path"
 import { Cause, Effect, Exit, Layer, ManagedRuntime, Option, Result } from "effect"
-import { getPlatformProxy } from "wrangler"
+import { Miniflare } from "miniflare"
 import { makeCoreLayer } from "~/server/app-layer"
 import { ExternalError } from "~/server/errors"
 import type { AiProviders } from "~/server/services/ai"
@@ -13,8 +12,8 @@ type Services = Layer.Success<ReturnType<typeof makeCoreLayer>>
 /** Applies the drizzle migrations to a D1 database, statement by statement. */
 export const migrate = async (d1: D1Database) => {
   const dir = join(process.cwd(), "drizzle")
-  for (const file of readdirSync(dir).filter((f) => f.endsWith(".sql")).sort()) {
-    const statements = readFileSync(join(dir, file), "utf8")
+  for (const migration of readdirSync(dir).sort()) {
+    const statements = readFileSync(join(dir, migration, "migration.sql"), "utf8")
       .split("--> statement-breakpoint")
       .map((s) => s.trim())
       .filter(Boolean)
@@ -45,9 +44,19 @@ export const offlineMarket: MarketData["Service"] = (() => {
 })()
 
 export const createHarness = async (options: { ai?: AiProviders; market?: Partial<MarketData["Service"]> } = {}) => {
-  const dir = mkdtempSync(join(tmpdir(), "runway-it-"))
-  const proxy = await getPlatformProxy<Env>({ persist: { path: dir } })
-  const d1 = proxy.env.DB
+  const mf = new Miniflare({
+    workers: [
+      {
+        config: {
+          name: "runway-tests",
+          compatibilityDate: "2026-09-30",
+          manifest: { mainModule: "index.js", modules: { "index.js": { type: "esm", contents: "export default {}" } } },
+          env: { DB: { type: "d1" } },
+        },
+      },
+    ],
+  })
+  const d1 = (await mf.getD1Database("DB")) as unknown as D1Database
   await migrate(d1)
   const runtime = ManagedRuntime.make(
     makeCoreLayer(d1, options.ai, Layer.succeed(MarketData, MarketData.of({ ...offlineMarket, ...options.market }))),
@@ -64,8 +73,7 @@ export const createHarness = async (options: { ai?: AiProviders; market?: Partia
     },
     dispose: async () => {
       await runtime.dispose()
-      await proxy.dispose()
-      rmSync(dir, { recursive: true, force: true })
+      await mf.dispose()
     },
   }
 }
