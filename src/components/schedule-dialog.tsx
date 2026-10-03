@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query"
 import * as React from "react"
 import { describeRecurrence, type Recurrence } from "~/domain/recurrence"
-import { parseAmount } from "~/domain/money"
+import { amountInput, parseAmount } from "~/domain/money"
 import { localToday } from "~/lib/hooks"
 import { q, useAction } from "~/lib/queries"
 import { createSchedule, deleteSchedule, updateSchedule } from "~/server/fns/planning"
@@ -9,6 +9,7 @@ import type { ScheduleDto } from "~/server/services/schedules"
 import { AccountSelect, CategoryPicker, PayeePicker, type PayeeValue } from "./pickers"
 import { payeeInputOf } from "./transaction-editor"
 import { Button, Dialog, Field, Input, Segmented, Select, Switch } from "./ui"
+import { capitalize } from "~/domain/text"
 
 export type ScheduleInitial = {
   name?: string
@@ -58,9 +59,15 @@ export function ScheduleDialog({
   const [accountId, setAccountId] = React.useState(base.accountId ?? "")
   const [categoryId, setCategoryId] = React.useState<string | null>(base.categoryId ?? null)
   const [kind, setKind] = React.useState<"expense" | "income">((base.amount ?? -1) > 0 ? "income" : "expense")
-  const [amount, setAmount] = React.useState(base.amount ? (Math.abs(base.amount) / 100).toFixed(2).replace(".", ",") : "")
+  const [amount, setAmount] = React.useState(base.amount ? amountInput(Math.abs(base.amount)) : "")
   const [startDate, setStartDate] = React.useState(base.startDate ?? localToday())
   const [frequency, setFrequency] = React.useState(keyOf(base.recurrence ?? { unit: "month", interval: 1 }))
+  // A rhythm imported from Actual ("every 5 weeks") stays selectable instead of falling back to monthly.
+  const frequencies = React.useMemo(() => {
+    const own = base.recurrence
+    if (!own || FREQUENCIES.some((f) => f.value === keyOf(own))) return FREQUENCIES
+    return [...FREQUENCIES, { value: keyOf(own), label: capitalize(describeRecurrence(own)), recurrence: own }]
+  }, [base.recurrence])
   const [endDate, setEndDate] = React.useState(schedule?.endDate ?? "")
   const [autoPost, setAutoPost] = React.useState(schedule?.autoPost ?? false)
 
@@ -76,7 +83,7 @@ export function ScheduleDialog({
   const remove = useAction(deleteSchedule, { success: "Échéance supprimée", onSuccess: onClose })
 
   const cents = parseAmount(amount)
-  const recurrence = FREQUENCIES.find((f) => f.value === frequency)?.recurrence ?? { unit: "month", interval: 1 }
+  const recurrence = frequencies.find((f) => f.value === frequency)?.recurrence ?? { unit: "month", interval: 1 }
   const valid = cents !== null && cents !== 0 && accountId !== "" && startDate !== ""
 
   const submit = () => {
@@ -88,7 +95,9 @@ export function ScheduleDialog({
       categoryId,
       amount: kind === "expense" ? -Math.abs(cents) : Math.abs(cents),
       recurrence,
-      startDate,
+      // The form shows the next date; the rhythm keeps its original anchor unless that date is moved
+      // (a schedule on the 31st that went through February must stay on the 31st).
+      startDate: schedule && startDate === schedule.nextDate ? schedule.startDate : startDate,
       endDate: endDate || null,
       autoPost,
     }
@@ -105,7 +114,7 @@ export function ScheduleDialog({
       footer={
         <>
           {schedule ? (
-            <Button variant="danger" onClick={() => remove.mutate({ data: { id: schedule.id } })} loading={remove.isPending}>
+            <Button variant="danger" onClick={() => window.confirm(`Supprimer l'échéance « ${schedule.name ?? schedule.payeeName ?? ""} » ? Les opérations déjà passées restent.`) && remove.mutate({ data: { id: schedule.id } })} loading={remove.isPending}>
               Supprimer
             </Button>
           ) : (
@@ -137,7 +146,7 @@ export function ScheduleDialog({
           <Input value={amount} onChange={(e) => setAmount(e.target.value)} className="num" inputMode="decimal" aria-label="Montant" />
         </Field>
         <Field label="Fréquence">
-          <Select value={frequency} onChange={setFrequency} options={FREQUENCIES} aria-label="Fréquence" />
+          <Select value={frequency} onChange={setFrequency} options={frequencies} aria-label="Fréquence" />
         </Field>
         <Field label="Bénéficiaire">
           <PayeePicker value={payee} onChange={setPayee} currentAccountId={accountId} />

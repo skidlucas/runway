@@ -9,6 +9,7 @@ import { Demo } from "./services/demo"
 import { ForecastService } from "./services/forecast"
 import { ImportExport } from "./services/import-export"
 import { Insights } from "./services/insights"
+import { LoginGuard } from "./services/login-guard"
 import { MarketData } from "./services/market-data"
 import { Payees } from "./services/payees"
 import { Rules } from "./services/rules"
@@ -23,7 +24,7 @@ export const makeCoreLayer = (
   ai: AiProviders = noAiProviders,
   market: Layer.Layer<MarketData> = MarketData.layer,
 ) => {
-  const base = Layer.mergeAll(Settings.layer, Ai.layer).pipe(
+  const base = Layer.mergeAll(Settings.layer, Ai.layer, LoginGuard.layer).pipe(
     Layer.provideMerge(Layer.mergeAll(Db.layer(d1), Layer.succeed(AiConfig, ai), market)),
   )
   const leaves = Layer.mergeAll(Categories.layer, Payees.layer, Rules.layer).pipe(Layer.provideMerge(base))

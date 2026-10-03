@@ -5,9 +5,10 @@ import { Accounts } from "~/server/services/accounts"
 import { Budget } from "~/server/services/budget"
 import { Categories } from "~/server/services/categories"
 import { ForecastService } from "~/server/services/forecast"
-import { type ImportRow, ImportExport } from "~/server/services/import-export"
+import { type ExportCursor, type ExportTransaction, type ImportRow, ImportExport } from "~/server/services/import-export"
 import { Insights } from "~/server/services/insights"
 import { Payees } from "~/server/services/payees"
+import { Transactions } from "~/server/services/transactions"
 import { Wealth } from "~/server/services/wealth"
 import { createHarness, type Harness } from "./harness"
 
@@ -19,13 +20,14 @@ const month = todayIn("Europe/Paris").slice(0, 7)
 describe("Volume", () => {
   let h: Harness
   let rows: ImportRow[]
+  let account: string
 
   beforeAll(async () => {
     h = await createHarness()
     await h.run(Categories.use((c) => c.createStarterSet))
     const tree = await h.run(Categories.use((c) => c.tree))
     const categoryIds = tree.filter((g) => !g.isIncome).flatMap((g) => g.categories.map((c) => c.id))
-    const account = await h.run(
+    account = await h.run(
       Accounts.use((a) => a.create({ name: "Courant", kind: "checking", offBudget: false, startingBalance: 0, startingDate: `${addMonths(month, -36)}-01` })),
     )
     const payees = [...(await h.run(Payees.use((p) => p.resolveNames(Array.from({ length: 500 }, (_, i) => `Marchand ${i}`))))).values()]
@@ -74,12 +76,19 @@ describe("Volume", () => {
     await time("insights", () => h.run(Insights.use((i) => i.view({ measure: "expenses", target: { kind: "all" }, months: 12, rolling: 6 }))))
     await time("findings", () => h.run(Insights.use((i) => i.findings)))
     await time("wealth", () => h.run(Wealth.use((w) => w.overview)))
+    const register = await time("register", () => h.run(Transactions.use((t) => t.list({ accountId: account, limit: 200 }))))
+    const accounts = await h.run(Accounts.use((a) => a.list))
+    expect(register.rows[0]!.balance).toBe(accounts.find((a) => a.id === account)!.balance)
+    const last = register.rows.at(-1)!
+    expect(register.rows.at(-2)!.balance! - register.rows.at(-2)!.amount).toBe(last.balance)
+    await time("register deep page", () => h.run(Transactions.use((t) => t.list({ limit: 200, offset: 50_000 }))))
     const exported = await time("export", async () => {
       let count = 0
-      for (let offset = 0; ; offset += 20_000) {
-        const page = await h.run(ImportExport.use((s) => s.exportTransactions(offset, 20_000)))
+      for (let cursor: ExportCursor | null = null; ; ) {
+        const page: ExportTransaction[] = await h.run(ImportExport.use((s) => s.exportTransactions(cursor, 20_000)))
         count += page.length
         if (page.length < 20_000) return count
+        cursor = page.at(-1)!
       }
     })
     expect(exported).toBe(ROWS)

@@ -1,4 +1,4 @@
-import { queryOptions, useMutation, useQueryClient } from "@tanstack/react-query"
+import { infiniteQueryOptions, queryOptions, useMutation, useQueryClient } from "@tanstack/react-query"
 import {
   getAccounts,
   getBudgetMonth,
@@ -15,16 +15,23 @@ import type { InsightViewConfig } from "~/server/db/schema"
 import type { TxFilter } from "~/server/services/transactions"
 import { toast, toastError } from "~/components/toast"
 
+export const TX_PAGE = 200
+
 export const q = {
   accounts: () => queryOptions({ queryKey: ["accounts"], queryFn: () => getAccounts() }),
   categories: () => queryOptions({ queryKey: ["categories"], queryFn: () => getCategories() }),
   payees: () => queryOptions({ queryKey: ["payees"], queryFn: () => getPayees() }),
   budget: (month: string) =>
     queryOptions({ queryKey: ["budget", month], queryFn: () => getBudgetMonth({ data: { month } }) }),
-  transactions: (filter: TxFilter) =>
-    queryOptions({
+  transactions: (filter: Omit<TxFilter, "limit" | "offset">) =>
+    infiniteQueryOptions({
       queryKey: ["transactions", filter],
-      queryFn: () => listTransactions({ data: { ...filter } }),
+      queryFn: ({ pageParam }) => listTransactions({ data: { ...filter, limit: TX_PAGE, offset: pageParam } }),
+      initialPageParam: 0,
+      getNextPageParam: (last, pages) => {
+        const loaded = pages.reduce((n, p) => n + p.rows.length, 0)
+        return last.rows.length > 0 && loaded < last.total ? loaded : undefined
+      },
       placeholderData: (prev) => prev,
     }),
   rules: () => queryOptions({ queryKey: ["rules"], queryFn: () => getRules() }),
@@ -46,20 +53,31 @@ export const q = {
   aiStatus: () => queryOptions({ queryKey: ["aiStatus"], queryFn: () => getAiStatus(), staleTime: Infinity }),
 }
 
+type QueryName = keyof typeof q
+
+/** What a budget edit can change: the month itself, the projection and the alerts built on it. */
+export const BUDGET_QUERIES: ReadonlyArray<QueryName> = ["budget", "forecast", "findings"]
+
 /**
- * Wraps a server function call in a mutation. Every success refreshes all active
- * queries: the app has a single user and small payloads, so correctness wins over
- * fine-grained cache updates.
+ * Wraps a server function call in a mutation. By default a success refreshes every active
+ * query, since most writes (a transaction, a category) show up on many pages. Frequent
+ * actions with a known reach list the queries they touch in `invalidates`.
  */
 export function useAction<TInput, TOutput>(
   fn: (input: TInput) => Promise<TOutput>,
-  options: { success?: string | ((output: TOutput) => string | undefined); onSuccess?: (output: TOutput) => void } = {},
+  options: {
+    success?: string | ((output: TOutput) => string | undefined)
+    onSuccess?: (output: TOutput) => void
+    invalidates?: ReadonlyArray<QueryName>
+  } = {},
 ) {
   const client = useQueryClient()
   return useMutation({
     mutationFn: fn,
     onSuccess: async (output) => {
-      await client.invalidateQueries()
+      await (options.invalidates
+        ? Promise.all(options.invalidates.map((name) => client.invalidateQueries({ queryKey: [name] })))
+        : client.invalidateQueries())
       const message = typeof options.success === "function" ? options.success(output) : options.success
       if (message) toast(message)
       options.onSuccess?.(output)

@@ -1,5 +1,6 @@
 import { addDays, addMonths, type Day, daysInMonth, formatDayShort, formatMonthName, type Month, monthOf, parseDay } from "./dates"
 import { formatMoney } from "./money"
+import { count } from "./text"
 
 // Everything here works on positive "measured" amounts in cents: money spent for the
 // expense measure, money received for the income measure. Refunds lower the total.
@@ -115,7 +116,9 @@ export const computeView = (input: {
   })
   const last = totals[totals.length - 1]
   const current = last?.month === currentMonth ? last.total : 0
-  const history = totals.slice(Math.max(0, totals.length - 1 - Math.max(rolling, 3)), totals.length - 1)
+  // Months before the first transaction are not "months with nothing spent": counting them would
+  // pull the projection and the average towards zero for a category that just started.
+  const history = totals.slice(Math.max(firstData, totals.length - 1 - Math.max(rolling, 3)), totals.length - 1)
   const average = rolling > 0 ? trailingAverage(values, totals.length - 1, rolling, firstData) : null
   const projection = last?.month === currentMonth ? projectMonthEnd(last, history, today) : current
   const reference = budget && budget > 0 ? budget : average
@@ -173,7 +176,8 @@ const projectionFinding = (c: CategoryInsightInput, today: Day): (Finding & { we
   const current = c.history[c.history.length - 1]
   if (!current || current.toDate <= 0) return null
   const past = c.history.slice(0, -1)
-  const recent = past.slice(-6)
+  const firstData = past.findIndex((h) => h.count > 0)
+  const recent = firstData < 0 ? [] : past.slice(Math.max(firstData, past.length - 6))
   const projection = projectMonthEnd(current, recent, today)
   const average6 = recent.length >= 3 ? Math.round(mean(recent.map((h) => h.total))) : null
   const overBudget = c.budgeted > 0 && projection > c.budgeted * 1.05 && projection - c.budgeted >= 1000
@@ -298,7 +302,7 @@ export const computeFindings = (input: {
       text: second
         ? `Top bénéficiaire du mois : ${first.name} (${euros(first.amount)}), puis ${second.name} (${euros(second.amount)}).`
         : `Top bénéficiaire du mois : ${first.name} (${euros(first.amount)}).`,
-      context: `${first.count} opération${first.count > 1 ? "s" : ""}${total > 0 ? ` · ${pct(first.amount / total)} des dépenses du mois` : ""}`,
+      context: `${count(first.count, "opération")}${total > 0 ? ` · ${pct(first.amount / total)} des dépenses du mois` : ""}`,
       payeeId: first.id,
     })
   }

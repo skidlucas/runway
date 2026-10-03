@@ -8,6 +8,7 @@ import { PageHeader, useAppUi } from "~/components/shell"
 import {
   AmountPill,
   Button,
+  buttonClass,
   cx,
   Dialog,
   EmptyState,
@@ -22,9 +23,9 @@ import {
   Switch,
 } from "~/components/ui"
 import { addMonths, formatMonthLong, isMonth, monthOf } from "~/domain/dates"
-import { formatMoney, parseAmount } from "~/domain/money"
-import { localToday, useIsMobile } from "~/lib/hooks"
-import { q, useAction } from "~/lib/queries"
+import { amountInput, formatMoney, parseAmount } from "~/domain/money"
+import { localToday, shortcutBlocked, useIsMobile } from "~/lib/hooks"
+import { BUDGET_QUERIES, q, useAction } from "~/lib/queries"
 import {
   createStarterCategories,
   fillBudget,
@@ -34,6 +35,7 @@ import {
 } from "~/server/fns/core"
 import { seedDemo } from "~/server/fns/data"
 import type { BudgetCategoryRow, BudgetGroupRow, BudgetMonthDto } from "~/server/services/budget"
+import { count, plural } from "~/domain/text"
 
 export const Route = createFileRoute("/_app/budget")({
   validateSearch: (search: Record<string, unknown>): { month?: string } =>
@@ -64,9 +66,7 @@ function BudgetPage() {
 
   React.useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      const el = e.target as HTMLElement
-      if (["INPUT", "TEXTAREA", "SELECT"].includes(el.tagName) || el.isContentEditable) return
-      if (e.metaKey || e.ctrlKey || e.altKey) return
+      if (shortcutBlocked(e)) return
       if (e.key === "ArrowLeft") goMonth(-1)
       if (e.key === "ArrowRight") goMonth(1)
     }
@@ -121,7 +121,7 @@ function BudgetPage() {
               className="flex items-center gap-2 border-b border-line bg-warning-soft px-5 py-2 text-warning"
             >
               <AlertTriangle size={14} />
-              {data.uncategorized.count} opération{data.uncategorized.count > 1 ? "s" : ""} à catégoriser (
+              {count(data.uncategorized.count, "opération")} à catégoriser (
               {formatMoney(data.uncategorized.amount)}) · non comptées dans le budget
             </Link>
           ) : null}
@@ -202,7 +202,7 @@ const Line = ({ label, value, strong }: { label: string; value: number; strong?:
 
 function StarterEmptyState() {
   const create = useAction(createStarterCategories, { success: "Catégories créées" })
-  const demo = useAction(seedDemo, { success: (r) => `Démo chargée : ${r.transactions} opérations` })
+  const demo = useAction(seedDemo, { success: (r) => `Démo chargée : ${count(r.transactions, "opération")}` })
   return (
     <EmptyState
       title="Aucune catégorie pour l'instant. Pars d'un jeu de catégories types, ou importe ton budget Actual."
@@ -211,8 +211,8 @@ function StarterEmptyState() {
           <Button variant="primary" onClick={() => create.mutate(undefined)} loading={create.isPending}>
             Créer les catégories types
           </Button>
-          <Link to="/settings/data">
-            <Button>Importer depuis Actual</Button>
+          <Link to="/settings/data" className={buttonClass()}>
+            Importer depuis Actual
           </Link>
           <Button variant="ghost" onClick={() => demo.mutate(undefined)} loading={demo.isPending}>
             Charger une démo
@@ -232,7 +232,7 @@ function BudgetTable({ budget, month, showHidden }: { budget: BudgetMonthDto; mo
   // Flat list of editable category ids, so Tab / Enter can move to the next row.
   const editable = expenseGroups.flatMap((g) => g.categories.filter((c) => showHidden || !c.hidden).map((c) => c.id))
   const [editing, setEditing] = React.useState<string | null>(null)
-  const fill = useAction(fillBudget, { success: (n) => `${n} catégories mises à jour` })
+  const fill = useAction(fillBudget, { success: (n) => `${count(n, "catégorie")} ${plural(n, "mise")} à jour`, invalidates: BUDGET_QUERIES })
 
   return (
     <div role="table" aria-label="Budget du mois">
@@ -398,59 +398,17 @@ function BudgetedCell({
   editing: boolean
   onEdit: (next: boolean | "next" | "prev") => void
 }) {
-  const save = useAction(setBudgetAmount)
-  const [text, setText] = React.useState("")
-  const [invalid, setInvalid] = React.useState(false)
-  const inputRef = React.useRef<HTMLInputElement>(null)
-
-  React.useEffect(() => {
-    if (editing) {
-      setText(category.budgeted ? (category.budgeted / 100).toFixed(2).replace(".", ",") : "")
-      setInvalid(false)
-      requestAnimationFrame(() => inputRef.current?.select())
-    }
-  }, [editing, category.budgeted])
-
-  const commit = (then: boolean | "next" | "prev") => {
-    const value = text.trim() === "" ? 0 : parseAmount(text)
-    if (value === null) {
-      setInvalid(true)
-      return
-    }
-    if (value !== category.budgeted) save.mutate({ data: { month, categoryId: category.id, amount: value } })
-    onEdit(then)
-  }
-
-  if (editing) {
+  const save = useAction(setBudgetAmount, { invalidates: BUDGET_QUERIES })
+  if (editing)
     return (
-      <input
-        ref={inputRef}
-        aria-label={`Budget ${category.name}`}
-        value={text}
-        onChange={(e) => {
-          setText(e.target.value)
-          setInvalid(false)
+      <BudgetInput
+        category={category}
+        onCommit={(amount, then) => {
+          if (amount !== null && amount !== category.budgeted) save.mutate({ data: { month, categoryId: category.id, amount } })
+          onEdit(then)
         }}
-        onBlur={() => commit(false)}
-        onKeyDown={(e) => {
-          if (e.key === "Enter") {
-            e.preventDefault()
-            commit("next")
-          } else if (e.key === "Tab") {
-            e.preventDefault()
-            commit(e.shiftKey ? "prev" : "next")
-          } else if (e.key === "Escape") {
-            e.preventDefault()
-            onEdit(false)
-          }
-        }}
-        className={cx(
-          "num h-7 w-full rounded-[6px] border bg-bg px-2 text-right text-[12px] outline-none",
-          invalid ? "border-negative" : "border-accent-line",
-        )}
       />
     )
-  }
   return (
     <button
       type="button"
@@ -473,10 +431,74 @@ function BudgetedCell({
   )
 }
 
+// Mounted per edit so the text starts from the stored amount and is fully selected:
+// typing replaces it instead of appending to it.
+function BudgetInput({
+  category,
+  onCommit,
+}: {
+  category: BudgetCategoryRow
+  onCommit: (amount: number | null, then: boolean | "next" | "prev") => void
+}) {
+  const [text, setText] = React.useState(() => (category.budgeted ? amountInput(category.budgeted) : ""))
+  const [invalid, setInvalid] = React.useState(false)
+  // Leaving with Enter or Tab unmounts the input, which also fires blur.
+  const done = React.useRef(false)
+
+  const commit = (then: boolean | "next" | "prev") => {
+    if (done.current) return
+    const value = text.trim() === "" ? 0 : parseAmount(text)
+    if (value === null) {
+      setInvalid(true)
+      return
+    }
+    done.current = true
+    onCommit(value, then)
+  }
+
+  return (
+    <input
+      autoFocus
+      aria-label={`Budget ${category.name}`}
+      aria-invalid={invalid || undefined}
+      value={text}
+      onFocus={(e) => e.currentTarget.select()}
+      onChange={(e) => {
+        setText(e.target.value)
+        setInvalid(false)
+      }}
+      onBlur={() => {
+        if (done.current) return
+        const value = text.trim() === "" ? 0 : parseAmount(text)
+        done.current = true
+        // An invalid amount is dropped on blur rather than trapping focus in the cell.
+        onCommit(value, false)
+      }}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") {
+          e.preventDefault()
+          commit("next")
+        } else if (e.key === "Tab") {
+          e.preventDefault()
+          commit(e.shiftKey ? "prev" : "next")
+        } else if (e.key === "Escape") {
+          e.preventDefault()
+          done.current = true
+          onCommit(null, false)
+        }
+      }}
+      className={cx(
+        "num h-7 w-full rounded-[6px] border bg-bg px-2 text-right text-[12px] outline-none",
+        invalid ? "border-negative" : "border-accent-line",
+      )}
+    />
+  )
+}
+
 function AvailableMenu({ category, month, budget }: { category: BudgetCategoryRow; month: string; budget: BudgetMonthDto }) {
   const [open, setOpen] = React.useState(false)
   const [mode, setMode] = React.useState<"cover" | "transfer" | null>(null)
-  const carry = useAction(setBudgetCarryover)
+  const carry = useAction(setBudgetCarryover, { invalidates: BUDGET_QUERIES })
   const overspent = category.available < 0
   return (
     <>
@@ -563,10 +585,10 @@ function MoveMoneyDialog({
 }) {
   const [other, setOther] = React.useState<string | null>(null)
   const [amount, setAmount] = React.useState(
-    ((mode === "cover" ? -category.available : category.available) / 100).toFixed(2).replace(".", ","),
+    amountInput(mode === "cover" ? -category.available : category.available),
   )
   const available = new Map(budget.groups.flatMap((g) => g.categories.map((c) => [c.id, c.available] as const)))
-  const move = useAction(moveBudget, { success: "Budget mis à jour", onSuccess: onClose })
+  const move = useAction(moveBudget, { success: "Budget mis à jour", onSuccess: onClose, invalidates: BUDGET_QUERIES })
   const cents = parseAmount(amount)
   const fromToBudget = other === "__toBudget"
   const submit = () => {
@@ -604,7 +626,7 @@ function MoveMoneyDialog({
         <Field label="Montant">
           <Input value={amount} onChange={(e) => setAmount(e.target.value)} className="num" autoFocus />
         </Field>
-        <Field label={mode === "cover" ? "Prendre dans" : "Vers"}>
+        <Field label={mode === "cover" ? "Prendre dans" : "Vers"} group>
           <div className="flex flex-col gap-2">
             <button
               type="button"
@@ -620,6 +642,7 @@ function MoveMoneyDialog({
             <CategoryPicker
               value={fromToBudget ? null : other}
               onChange={setOther}
+              exclude={[category.id]}
               available={available}
               allowNone={false}
               placeholder="Une catégorie"
@@ -674,8 +697,8 @@ function MobileBudget({ budget, month, showHidden }: { budget: BudgetMonthDto; m
 }
 
 function MobileBudgetDialog({ category, month, onClose }: { category: BudgetCategoryRow; month: string; onClose: () => void }) {
-  const [text, setText] = React.useState(category.budgeted ? (category.budgeted / 100).toFixed(2).replace(".", ",") : "")
-  const save = useAction(setBudgetAmount, { onSuccess: onClose })
+  const [text, setText] = React.useState(category.budgeted ? amountInput(category.budgeted) : "")
+  const save = useAction(setBudgetAmount, { onSuccess: onClose, invalidates: BUDGET_QUERIES })
   const value = text.trim() === "" ? 0 : parseAmount(text)
   return (
     <Dialog
@@ -685,7 +708,7 @@ function MobileBudgetDialog({ category, month, onClose }: { category: BudgetCate
       description={`Dépensé ${formatMoney(category.spent)} · moyenne 3 mois ${formatMoney(category.average3)}`}
       footer={
         <>
-          <Button variant="ghost" onClick={() => setText((category.average3 / 100).toFixed(2).replace(".", ","))}>
+          <Button variant="ghost" onClick={() => setText(amountInput(category.average3))}>
             Moyenne
           </Button>
           <Button

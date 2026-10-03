@@ -7,6 +7,7 @@ import { diffDays, formatDayShort, formatMonthLong, formatMonthName, parseDay } 
 import type { Forecast, UpcomingTag } from "~/domain/forecast"
 import { formatMoney } from "~/domain/money"
 import { q } from "~/lib/queries"
+import { capitalize, count } from "~/domain/text"
 
 export const Route = createFileRoute("/_app/forecast")({
   loader: ({ context }) => context.queryClient.ensureQueryData(q.forecast()),
@@ -69,7 +70,7 @@ function DesktopForecast({ f }: { f: Forecast }) {
             label="Reste à dépenser · budget"
             value={formatMoney(f.remainingToSpend)}
             valueClassName="text-[24px]"
-            hint={f.daysLeft > 0 ? `soit ${formatMoney(f.perDay)} / jour pendant ${f.daysLeft} jour${f.daysLeft > 1 ? "s" : ""}` : "Mois terminé"}
+            hint={f.daysLeft > 0 ? `soit ${formatMoney(f.perDay)} / jour pendant ${count(f.daysLeft, "jour")}` : "Mois terminé"}
           />
         </div>
         <div className="p-5">
@@ -279,4 +280,3 @@ function MobileForecast({ f }: { f: Forecast }) {
   )
 }
 
-const capitalize = (s: string) => s.charAt(0).toUpperCase() + s.slice(1)

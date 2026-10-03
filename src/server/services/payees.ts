@@ -1,7 +1,7 @@
-import { eq, inArray, isNull } from "drizzle-orm"
+import { eq, isNull } from "drizzle-orm"
 import { Context, Effect, Layer } from "effect"
 import { normalizeText } from "~/domain/rules"
-import { bulkInsertStatements, chunkIds, Db, type DbError, newId } from "../db/client"
+import { bulkInsertStatements, Db, type DbError, newId } from "../db/client"
 import { payees, rules } from "../db/schema"
 import { Invalid, NotFound } from "../errors"
 
@@ -27,6 +27,7 @@ export class Payees extends Context.Service<
     readonly deleteUnused: Effect.Effect<number, DbError>
     /** Most used category for a payee, to pre-fill a new transaction. */
     suggestCategory(payeeId: string): Effect.Effect<string | null, DbError>
+    suggestCategories(payeeIds: ReadonlyArray<string>): Effect.Effect<Map<string, string>, DbError>
   }
 >()("runway/server/services/Payees") {
   static readonly layer = Layer.effect(
@@ -97,33 +98,38 @@ export class Payees extends Context.Service<
       const merge = Effect.fn("Payees.merge")(function* (sourceIds: ReadonlyArray<string>, targetId: string) {
         const sources = sourceIds.filter((id) => id !== targetId)
         if (sources.length === 0) return
-        const involved = yield* db.use((orm) =>
-          orm
-            .select()
-            .from(payees)
-            .where(inArray(payees.id, [...sources, targetId])),
+        const json = JSON.stringify([...sources, targetId])
+        const transfers = yield* db.use((_, d1) =>
+          d1
+            .prepare("SELECT COUNT(*) AS n FROM payees WHERE transfer_account_id IS NOT NULL AND id IN (SELECT value FROM json_each(?))")
+            .bind(json)
+            .first<{ n: number }>(),
         )
-        if (involved.some((p) => p.transferAccountId)) {
-          return yield* new Invalid({ message: "Les virements ne peuvent pas être fusionnés" })
-        }
-        yield* db.use(async (orm, d1) => {
-          for (const chunk of chunkIds(sources)) {
-            const marks = chunk.map(() => "?").join(",")
-            await d1.batch([
-              d1.prepare(`UPDATE transactions SET payee_id = ? WHERE payee_id IN (${marks})`).bind(targetId, ...chunk),
-              d1.prepare(`UPDATE schedules SET payee_id = ? WHERE payee_id IN (${marks})`).bind(targetId, ...chunk),
-              d1.prepare(`DELETE FROM payees WHERE id IN (${marks})`).bind(...chunk),
-            ])
-          }
-          const allRules = await orm.select().from(rules)
-          for (const rule of allRules) {
-            if (!rule.actions.some((a) => a.type === "set_payee" && sources.includes(a.payeeId))) continue
-            const actions = rule.actions.map((a) =>
-              a.type === "set_payee" && sources.includes(a.payeeId) ? { ...a, payeeId: targetId } : a,
-            )
-            await orm.update(rules).set({ actions }).where(eq(rules.id, rule.id))
-          }
-        })
+        if ((transfers?.n ?? 0) > 0) return yield* new Invalid({ message: "Les virements ne peuvent pas être fusionnés" })
+        const merged = new Set(sources)
+        const allRules = yield* db.use((orm) => orm.select().from(rules))
+        const ruleUpdates = allRules.flatMap((rule) =>
+          rule.actions.some((a) => a.type === "set_payee" && merged.has(a.payeeId))
+            ? [
+                db.d1
+                  .prepare("UPDATE rules SET actions = ? WHERE id = ?")
+                  .bind(
+                    JSON.stringify(rule.actions.map((a) => (a.type === "set_payee" && merged.has(a.payeeId) ? { ...a, payeeId: targetId } : a))),
+                    rule.id,
+                  ),
+              ]
+            : [],
+        )
+        const sourcesJson = JSON.stringify(sources)
+        const inSources = "IN (SELECT value FROM json_each(?))"
+        // Rules are rewritten in the same batch: a rule left pointing at a deleted payee would make
+        // every matching transaction fail on the foreign key.
+        yield* db.batch([
+          db.d1.prepare(`UPDATE transactions SET payee_id = ? WHERE payee_id ${inSources}`).bind(targetId, sourcesJson),
+          db.d1.prepare(`UPDATE schedules SET payee_id = ? WHERE payee_id ${inSources}`).bind(targetId, sourcesJson),
+          ...ruleUpdates,
+          db.d1.prepare(`DELETE FROM payees WHERE id ${inSources}`).bind(sourcesJson),
+        ])
       })
 
       const deleteUnused = db.use(async (_, d1) => {
@@ -132,29 +138,46 @@ export class Payees extends Context.Service<
             `DELETE FROM payees WHERE transfer_account_id IS NULL
                AND id NOT IN (SELECT payee_id FROM transactions WHERE payee_id IS NOT NULL)
                AND id NOT IN (SELECT payee_id FROM schedules WHERE payee_id IS NOT NULL)
-               AND NOT EXISTS (SELECT 1 FROM rules, json_each(rules.actions) a
-                               WHERE json_extract(a.value, '$.payeeId') = payees.id)`,
+               AND id NOT IN (SELECT json_extract(a.value, '$.payeeId') FROM rules, json_each(rules.actions) a
+                              WHERE json_extract(a.value, '$.payeeId') IS NOT NULL)`,
           )
           .run()
         return res.meta.changes ?? 0
       })
 
-      const suggestCategory = (payeeId: string) =>
-        db.use(async (_, d1) => {
-          const row = await d1
+      // The most frequent category among each payee's last 10 categorized transactions,
+      // the most recent one winning ties. One query for any number of payees.
+      const suggestCategories = Effect.fn("Payees.suggestCategories")(function* (payeeIds: ReadonlyArray<string>) {
+        const ids = [...new Set(payeeIds)]
+        if (ids.length === 0) return new Map<string, string>()
+        const rows = yield* db.use(async (_, d1) => {
+          const { results } = await d1
             .prepare(
-              `SELECT category_id AS id, COUNT(*) AS n FROM (
-                 SELECT category_id FROM transactions
-                 WHERE payee_id = ? AND category_id IS NOT NULL AND is_parent = 0
-                 ORDER BY date DESC LIMIT 10)
-               GROUP BY category_id ORDER BY n DESC LIMIT 1`,
+              `WITH recent AS (
+                 SELECT payee_id, category_id, ROW_NUMBER() OVER (PARTITION BY payee_id ORDER BY date DESC, created_at DESC) AS rn
+                 FROM transactions
+                 WHERE payee_id IN (SELECT value FROM json_each(?)) AND category_id IS NOT NULL AND is_parent = 0
+               )
+               SELECT payee_id AS payeeId, category_id AS categoryId, COUNT(*) AS n, MIN(rn) AS latest
+               FROM recent WHERE rn <= 10
+               GROUP BY payee_id, category_id`,
             )
-            .bind(payeeId)
-            .first<{ id: string }>()
-          return row?.id ?? null
+            .bind(JSON.stringify(ids))
+            .all<{ payeeId: string; categoryId: string; n: number; latest: number }>()
+          return results
         })
+        const best = new Map<string, { categoryId: string; n: number; latest: number }>()
+        for (const r of rows) {
+          const current = best.get(r.payeeId)
+          if (!current || r.n > current.n || (r.n === current.n && r.latest < current.latest)) best.set(r.payeeId, r)
+        }
+        return new Map([...best].map(([payeeId, r]) => [payeeId, r.categoryId]))
+      })
 
-      return Payees.of({ list, resolveNames, rename, merge, deleteUnused, suggestCategory })
+      const suggestCategory = (payeeId: string) =>
+        suggestCategories([payeeId]).pipe(Effect.map((found) => found.get(payeeId) ?? null))
+
+      return Payees.of({ list, resolveNames, rename, merge, deleteUnused, suggestCategory, suggestCategories })
     }),
   )
 }

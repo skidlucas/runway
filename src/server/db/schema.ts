@@ -87,10 +87,16 @@ export const transactions = sqliteTable(
     createdAt: createdAt(),
   },
   (t) => [
-    index("tx_account_date_idx").on(t.accountId, t.date),
+    // Registers page through these in display order (date, then entry order).
+    index("tx_account_order_idx").on(t.accountId, t.date, t.createdAt, t.id),
+    index("tx_order_idx").on(t.date, t.createdAt, t.id),
     index("tx_date_category_idx").on(t.date, t.categoryId),
     index("tx_payee_idx").on(t.payeeId),
-    index("tx_parent_idx").on(t.parentId),
+    // Partial indexes: nearly every row has these columns null. A full index on parent_id made
+    // SQLite pick it for `parent_id IS NULL`, which matches the whole table.
+    index("tx_parent_idx").on(t.parentId).where(sql`parent_id IS NOT NULL`),
+    index("tx_transfer_idx").on(t.transferId).where(sql`transfer_id IS NOT NULL`),
+    index("tx_schedule_idx").on(t.scheduleId).where(sql`schedule_id IS NOT NULL`),
     index("tx_imported_idx").on(t.importedId),
   ],
 )

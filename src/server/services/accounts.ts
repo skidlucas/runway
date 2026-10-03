@@ -1,12 +1,12 @@
 import { eq, sql } from "drizzle-orm"
 import { Context, Effect, Layer } from "effect"
+import { isDay } from "~/domain/dates"
 import { Db, type DbError, newId } from "../db/client"
 import { accounts, payees, transactions } from "../db/schema"
 import { Invalid, NotFound } from "../errors"
 import { Categories } from "./categories"
 import { Payees } from "./payees"
 import { Settings } from "./settings"
-import { Transactions } from "./transactions"
 
 export type AccountKind = "checking" | "savings" | "credit" | "investment" | "other"
 
@@ -57,7 +57,6 @@ export class Accounts extends Context.Service<
     Effect.gen(function* () {
       const db = yield* Db
       const categoriesService = yield* Categories
-      const transactionsService = yield* Transactions
       const payeesService = yield* Payees
       const settings = yield* Settings
 
@@ -97,35 +96,45 @@ export class Accounts extends Context.Service<
             .from(accounts)
             .get(),
         )
+        const date = input.startingDate ?? (yield* settings.today)
+        if (!isDay(date)) return yield* new Invalid({ message: "Date du solde initial invalide" })
+        const opening =
+          input.startingBalance === 0
+            ? null
+            : {
+                categoryId: input.offBudget ? null : yield* categoriesService.startingBalanceCategory,
+                payeeId: (yield* payeesService.resolveNames(["Solde initial"])).get("Solde initial") ?? null,
+              }
         const id = newId()
+        // Account, transfer payee and opening balance in one transaction: a retry after a failure
+        // never leaves an account without its starting balance.
         yield* db.use((orm) =>
-          orm.insert(accounts).values({
-            id,
-            name,
-            kind: input.kind,
-            offBudget: input.offBudget,
-            inForecast: !input.offBudget && (input.kind === "checking" || input.kind === "credit"),
-            sortOrder: (max?.max ?? 0) + 1,
-          }),
-        )
-        yield* transactionsService.transferPayee(id)
-        if (input.startingBalance !== 0) {
-          const categoryId = input.offBudget ? null : yield* categoriesService.startingBalanceCategory
-          const payeeIds = yield* payeesService.resolveNames(["Solde initial"])
-          const date = input.startingDate ?? (yield* settings.today)
-          yield* db.use((orm) =>
-            orm.insert(transactions).values({
-              id: newId(),
-              accountId: id,
-              date,
-              amount: input.startingBalance,
-              payeeId: payeeIds.get("Solde initial") ?? null,
-              categoryId,
-              cleared: true,
-              startingBalance: true,
+          orm.batch([
+            orm.insert(accounts).values({
+              id,
+              name,
+              kind: input.kind,
+              offBudget: input.offBudget,
+              inForecast: !input.offBudget && (input.kind === "checking" || input.kind === "credit"),
+              sortOrder: (max?.max ?? 0) + 1,
             }),
-          )
-        }
+            orm.insert(payees).values({ id: newId(), name, transferAccountId: id }).onConflictDoNothing(),
+            ...(opening
+              ? [
+                  orm.insert(transactions).values({
+                    id: newId(),
+                    accountId: id,
+                    date,
+                    amount: input.startingBalance,
+                    payeeId: opening.payeeId,
+                    categoryId: opening.categoryId,
+                    cleared: true,
+                    startingBalance: true,
+                  }),
+                ]
+              : []),
+          ]),
+        )
         return id
       })
 
@@ -184,35 +193,24 @@ export class Accounts extends Context.Service<
       const reconcile = Effect.fn("Accounts.reconcile")(function* (id: string, statementBalance: number) {
         const account = yield* find(id)
         if (!Number.isInteger(statementBalance)) return yield* new Invalid({ message: "Solde invalide" })
-        const row = yield* db.use((_, d1) =>
-          d1
-            .prepare(
-              "SELECT COALESCE(SUM(amount), 0) AS cleared FROM transactions WHERE account_id = ? AND cleared = 1 AND parent_id IS NULL",
-            )
-            .bind(id)
-            .first<{ cleared: number }>(),
-        )
-        const adjustment = statementBalance - (row?.cleared ?? 0)
         const today = yield* settings.today
-        if (adjustment !== 0) {
-          const payeeIds = yield* payeesService.resolveNames(["Ajustement de rapprochement"])
-          yield* db.use((orm) =>
-            orm.insert(transactions).values({
-              id: newId(),
-              accountId: account.id,
-              date: today,
-              amount: adjustment,
-              payeeId: payeeIds.get("Ajustement de rapprochement") ?? null,
-              cleared: true,
-              notes: "Écart constaté au rapprochement",
-            }),
-          )
-        }
-        yield* db.use(async (_, d1) => {
-          await d1.batch([
+        const payeeIds = yield* payeesService.resolveNames(["Ajustement de rapprochement"])
+        // The difference is computed inside the batch: submitting the same statement twice books it once.
+        const adjustment = yield* db.use(async (_, d1) => {
+          const [inserted] = await d1.batch([
+            d1
+              .prepare(
+                `INSERT INTO transactions (id, account_id, date, amount, payee_id, cleared, notes)
+                 SELECT ?1, ?2, ?3, ?4 - COALESCE(SUM(amount), 0), ?5, 1, 'Écart constaté au rapprochement'
+                 FROM transactions WHERE account_id = ?2 AND cleared = 1 AND parent_id IS NULL
+                 HAVING ?4 - COALESCE(SUM(amount), 0) != 0
+                 RETURNING amount`,
+              )
+              .bind(newId(), account.id, today, statementBalance, payeeIds.get("Ajustement de rapprochement") ?? null),
             d1.prepare("UPDATE transactions SET reconciled = 1 WHERE account_id = ? AND cleared = 1").bind(id),
             d1.prepare("UPDATE accounts SET last_reconciled_at = ? WHERE id = ?").bind(today, id),
           ])
+          return ((inserted?.results ?? []) as Array<{ amount: number }>)[0]?.amount ?? 0
         })
         return { adjustment }
       })

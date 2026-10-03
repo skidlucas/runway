@@ -27,7 +27,6 @@ export class ForecastService extends Context.Service<
         const today = yield* settings.today
         const m = requested ?? today.slice(0, 7)
         if (!isMonth(m)) return yield* new Invalid({ message: "Mois invalide" })
-        yield* schedules.sync
         const start = `${m}-01`
         const end = lastDay(m)
 
@@ -93,16 +92,23 @@ export class ForecastService extends Context.Service<
         )
         const upcoming: UpcomingItem[] = [
           ...raw.future.map((t) => ({ ...t, source: "transaction" as const, scheduleId: null })),
-          ...occurrences
-            .filter((o) => forecastAccounts.has(o.accountId))
-            .map((o) => ({
-              date: o.date,
-              name: o.name,
-              amount: o.amount,
-              categoryId: o.categoryId,
-              source: "schedule" as const,
-              scheduleId: o.scheduleId,
-            })),
+          // A scheduled transfer between two forecast accounts moves nothing out of the forecast;
+          // one coming from outside it (savings into checking) is money coming in.
+          ...occurrences.flatMap((o) => {
+            const from = forecastAccounts.has(o.accountId)
+            const to = o.transferAccountId !== null && forecastAccounts.has(o.transferAccountId)
+            if (from === to) return []
+            return [
+              {
+                date: o.date,
+                name: o.name,
+                amount: from ? o.amount : -o.amount,
+                categoryId: from ? o.categoryId : null,
+                source: "schedule" as const,
+                scheduleId: o.scheduleId,
+              },
+            ]
+          }),
         ]
         const forecast = computeForecast({
           today,

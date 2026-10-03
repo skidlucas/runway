@@ -106,6 +106,41 @@ describe("Ai with a decision model (Jev path)", () => {
   })
 })
 
+describe("Ai with a decision model that fails on some items", () => {
+  let h: Harness
+  beforeAll(async () => {
+    const decisionModel = Layer.effect(
+      DecisionModel.DecisionModel,
+      DecisionModel.make({
+        decide: (options) => {
+          const decision = options.decisions.label as { criteria: Record<string, string> }
+          if (JSON.stringify(options.state).toLowerCase().includes("uber")) {
+            return Effect.fail({ _tag: "UnknownError", isRetryable: false, message: "boom" } as never)
+          }
+          const labels = Object.keys(decision.criteria)
+          const label = labels[0]!
+          const probabilities = Object.fromEntries(labels.map((l) => [l, l === label ? 1 : 0]))
+          return Effect.succeed({
+            answers: { label: { _tag: "Classify" as const, label, probabilities, confidence: 0.8 } },
+            usage: { inputTokens: 1, outputTokens: 1 },
+          })
+        },
+      }),
+    )
+    h = await createHarness({ ai: { provider: "openai", model: null, languageModel: null, decisionModel } })
+  })
+  afterAll(() => h?.dispose())
+
+  it("keeps the answers it got", async () => {
+    const { ids } = await seedUncategorized(h)
+    const result = await h.run(Categorizer.use((c) => c.suggest()))
+    const answered = new Set(result.suggestions.map((s) => s.transactionId))
+    expect(answered.has(ids[0]!)).toBe(true)
+    expect(answered.has(ids[3]!)).toBe(true)
+    expect(answered.has(ids[2]!)).toBe(false)
+  })
+})
+
 describe("Ai with a language model only", () => {
   let h: Harness
   const model = fakeLanguageModel((prompt) => {

@@ -1,7 +1,7 @@
 import { eq } from "drizzle-orm"
 import { Context, Effect, Layer } from "effect"
 import { isDay } from "~/domain/dates"
-import { chunkIds, Db, type DbError, newId } from "../db/client"
+import { bulkInsertStatements, chunkIds, chunkRows, Db, type DbError, newId } from "../db/client"
 import { accounts, payees, transactions } from "../db/schema"
 import { Invalid, NotFound } from "../errors"
 import { Payees } from "./payees"
@@ -12,6 +12,26 @@ export type TxPayeeInput =
   | { readonly kind: "id"; readonly id: string }
   | { readonly kind: "transfer"; readonly accountId: string }
   | { readonly kind: "none" }
+
+type NewTxRow = typeof transactions.$inferInsert & { createdAt: string }
+
+const INSERT_COLUMNS = [
+  "id",
+  "account_id",
+  "date",
+  "amount",
+  "payee_id",
+  "category_id",
+  "notes",
+  "cleared",
+  "reconciled",
+  "transfer_id",
+  "is_parent",
+  "parent_id",
+  "imported_payee",
+  "schedule_id",
+  "created_at",
+]
 
 export type SplitInput = { readonly amount: number; readonly categoryId: string | null; readonly notes?: string | null }
 
@@ -183,28 +203,48 @@ export class Transactions extends Context.Service<
           !filter.month &&
           !filter.from &&
           !filter.to
-        const balanceExpr = withBalance
-          ? ", SUM(t.amount) OVER (ORDER BY t.date, t.created_at, t.id ROWS UNBOUNDED PRECEDING) AS balance"
-          : ", NULL AS balance"
         const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : ""
         const limit = Math.min(Math.max(filter.limit ?? 200, 1), 1000)
         const offset = Math.max(filter.offset ?? 0, 0)
+        // Only search and "uncategorized" filter on joined columns: otherwise count the bare table.
+        const countFrom = search || filter.uncategorized ? FROM_ROW : "FROM transactions t"
 
         const { rows, total } = yield* db.use(async (_, d1) => {
           const [page, count] = await d1.batch([
             d1
               .prepare(
-                `SELECT * FROM (SELECT ${SELECT_ROW}, t.created_at AS createdAt${balanceExpr} ${FROM_ROW} ${whereSql})
-                 ORDER BY date DESC, createdAt DESC, id DESC LIMIT ? OFFSET ?`,
+                `SELECT ${SELECT_ROW}, t.created_at AS createdAt, NULL AS balance ${FROM_ROW} ${whereSql}
+                 ORDER BY t.date DESC, t.created_at DESC, t.id DESC LIMIT ? OFFSET ?`,
               )
               .bind(...params, limit, offset),
-            d1.prepare(`SELECT COUNT(*) AS n ${FROM_ROW} ${whereSql}`).bind(...params),
+            d1.prepare(`SELECT COUNT(*) AS n ${countFrom} ${whereSql}`).bind(...params),
           ])
           return {
             rows: (page?.results as RawRow[] | undefined) ?? [],
             total: ((count?.results?.[0] as { n: number } | undefined)?.n ?? 0) as number,
           }
         })
+
+        // Running balance: the first row's balance is the sum of everything up to it, then each
+        // row below is the one above minus its amount. One indexed sum instead of a window
+        // function over the account's whole history.
+        const top = rows[0] as (RawRow & { createdAt: string }) | undefined
+        if (withBalance && top) {
+          const upTo = yield* db.use((_, d1) =>
+            d1
+              .prepare(
+                `SELECT COALESCE(SUM(amount), 0) AS n FROM transactions
+                 WHERE account_id = ? AND parent_id IS NULL AND (date, created_at, id) <= (?, ?, ?)`,
+              )
+              .bind(filter.accountId, top.date, top.createdAt, top.id)
+              .first<{ n: number }>(),
+          )
+          let balance = upTo?.n ?? 0
+          for (const row of rows) {
+            row.balance = balance
+            balance -= row.amount
+          }
+        }
 
         const parentIds = rows.filter((r) => r.isParent === 1).map((r) => r.id)
         const children: Record<string, TxRow[]> = {}
@@ -303,12 +343,22 @@ export class Transactions extends Context.Service<
         return Effect.void
       }
 
-      const create = Effect.fn("Transactions.create")(function* (input: TxInput) {
+      /**
+       * Computes the rows of a transaction (parent, split lines, transfer mirror) without writing.
+       * `keep` reuses the ids and creation time of a transaction being rewritten.
+       */
+      const prepare = Effect.fn("Transactions.prepare")(function* (
+        input: TxInput,
+        keep?: { id: string; mirrorId: string | null; createdAt: string; reconciled: boolean },
+      ) {
         if (!isDay(input.date)) return yield* new Invalid({ message: "Date invalide" })
         if (!Number.isInteger(input.amount)) return yield* new Invalid({ message: "Montant invalide" })
         const account = yield* findAccount(input.accountId)
         const payee = yield* resolvePayee(input.payee, account.id)
         yield* validateSplits(input.amount, input.splits)
+        if (payee.transferAccountId && input.splits?.length) {
+          return yield* new Invalid({ message: "Un virement ne peut pas être ventilé" })
+        }
 
         let categoryId: string | null = input.categoryId ?? null
         let payeeId = payee.payeeId
@@ -333,31 +383,25 @@ export class Transactions extends Context.Service<
           if (!categoryId && payeeId) categoryId = yield* payeesService.suggestCategory(payeeId)
         }
 
-        const id = newId()
+        const id = keep?.id ?? newId()
         const isParent = (input.splits?.length ?? 0) > 0
+        const createdAt = keep?.createdAt ?? new Date().toISOString()
         const base = {
           accountId: account.id,
           date: input.date,
           payeeId,
           cleared: input.cleared ?? false,
+          reconciled: keep?.reconciled ?? false,
           importedPayee: input.importedPayee ?? null,
           scheduleId: input.scheduleId ?? null,
+          createdAt,
         }
-        const rows: (typeof transactions.$inferInsert)[] = [
-          { ...base, id, amount: input.amount, categoryId: isParent ? null : categoryId, notes, isParent },
-        ]
+        const rows: NewTxRow[] = [{ ...base, id, amount: input.amount, categoryId: isParent ? null : categoryId, notes, isParent }]
         for (const split of input.splits ?? []) {
-          rows.push({
-            ...base,
-            id: newId(),
-            amount: split.amount,
-            categoryId: split.categoryId,
-            notes: split.notes ?? null,
-            parentId: id,
-          })
+          rows.push({ ...base, id: newId(), amount: split.amount, categoryId: split.categoryId, notes: split.notes ?? null, parentId: id })
         }
         if (otherAccount) {
-          const mirrorId = newId()
+          const mirrorId = keep?.mirrorId ?? newId()
           const mirrorPayee = yield* transferPayee(account.id)
           rows[0] = { ...rows[0]!, transferId: mirrorId }
           rows.push({
@@ -371,26 +415,55 @@ export class Transactions extends Context.Service<
             notes,
             transferId: id,
             cleared: false,
+            createdAt,
           })
         }
-        yield* db.use((orm) => orm.insert(transactions).values(rows))
+        return { id, rows }
+      })
+
+      // Through json_each: drizzle's multi-row insert binds every column of every row and hits
+      // D1's 100-parameter limit from the 7th split line.
+      const insertStatements = (rows: ReadonlyArray<NewTxRow>) =>
+        bulkInsertStatements(
+          db.d1,
+          "transactions",
+          INSERT_COLUMNS,
+          rows.map((r) => [
+            r.id,
+            r.accountId,
+            r.date,
+            r.amount,
+            r.payeeId ?? null,
+            r.categoryId ?? null,
+            r.notes ?? null,
+            r.cleared ? 1 : 0,
+            r.reconciled ? 1 : 0,
+            r.transferId ?? null,
+            r.isParent ? 1 : 0,
+            r.parentId ?? null,
+            r.importedPayee ?? null,
+            r.scheduleId ?? null,
+            r.createdAt,
+          ]),
+        )
+
+      const create = Effect.fn("Transactions.create")(function* (input: TxInput) {
+        const { id, rows } = yield* prepare(input)
+        yield* db.batch(insertStatements(rows))
         return id
       })
 
-      const deleteWithLinks = (ids: ReadonlyArray<string>) =>
-        db.use(async (_, d1) => {
-          for (const chunk of chunkIds(ids, 45)) {
-            const marks = chunk.map(() => "?").join(",")
-            await d1.batch([
-              d1
-                .prepare(
-                  `DELETE FROM transactions WHERE id IN (SELECT transfer_id FROM transactions WHERE id IN (${marks}) AND transfer_id IS NOT NULL)`,
-                )
-                .bind(...chunk),
-              d1.prepare(`DELETE FROM transactions WHERE parent_id IN (${marks})`).bind(...chunk),
-              d1.prepare(`DELETE FROM transactions WHERE id IN (${marks})`).bind(...chunk),
-            ])
-          }
+      /** Deletes transactions with their split lines and transfer mirrors (and the mirrors' lines). */
+      const deleteStatements = (ids: ReadonlyArray<string>) =>
+        chunkRows(ids).flatMap((chunk) => {
+          const json = JSON.stringify(chunk)
+          const mirrors = "SELECT transfer_id FROM transactions WHERE id IN (SELECT value FROM json_each(?1)) AND transfer_id IS NOT NULL"
+          return [
+            db.d1.prepare(`DELETE FROM transactions WHERE parent_id IN (${mirrors})`).bind(json),
+            db.d1.prepare(`DELETE FROM transactions WHERE id IN (${mirrors})`).bind(json),
+            db.d1.prepare("DELETE FROM transactions WHERE parent_id IN (SELECT value FROM json_each(?1))").bind(json),
+            db.d1.prepare("DELETE FROM transactions WHERE id IN (SELECT value FROM json_each(?1))").bind(json),
+          ]
         })
 
       const update = Effect.fn("Transactions.update")(function* (id: string, patch: TxPatch) {
@@ -433,15 +506,23 @@ export class Transactions extends Context.Service<
           if (current.isParent && patch.amount !== undefined && patch.amount !== current.amount) {
             return yield* new Invalid({ message: "Modifie les lignes de la ventilation pour changer le total" })
           }
-          if (Object.keys(values).length) {
-            yield* db.use((orm) => orm.update(transactions).set(values).where(eq(transactions.id, id)))
-          }
-          if (current.transferId && (patch.amount !== undefined || patch.date !== undefined)) {
-            const mirror: Partial<typeof transactions.$inferInsert> = {}
-            if (patch.amount !== undefined) mirror.amount = -patch.amount
-            if (patch.date !== undefined) mirror.date = patch.date
-            yield* db.use((orm) => orm.update(transactions).set(mirror).where(eq(transactions.id, current.transferId!)))
-          }
+          const updates = [
+            { where: eq(transactions.id, id), values },
+            // Split lines are counted by the budget on their own date: they must move with the parent.
+            {
+              where: eq(transactions.parentId, id),
+              values: current.isParent ? { date: patch.date, cleared: patch.cleared } : {},
+            },
+            {
+              where: eq(transactions.id, current.transferId ?? ""),
+              values: current.transferId ? { amount: patch.amount === undefined ? undefined : -patch.amount, date: patch.date } : {},
+            },
+          ].flatMap(({ where, values }) => {
+            const defined = Object.fromEntries(Object.entries(values).filter(([, v]) => v !== undefined))
+            return Object.keys(defined).length ? [db.orm.update(transactions).set(defined).where(where)] : []
+          })
+          const [first, ...rest] = updates
+          if (first) yield* db.use((orm) => orm.batch([first, ...rest]))
           return
         }
 
@@ -469,33 +550,18 @@ export class Transactions extends Context.Service<
           scheduleId: current.scheduleId,
           ...(splits ? { splits } : {}),
         }
-        yield* validateSplits(input.amount, input.splits)
-        const newIdValue = yield* create(input)
-        yield* deleteWithLinks([id])
-        // Keep the original ids (transaction and transfer mirror) so open views and links stay valid.
-        const created = yield* db.use((orm) =>
-          orm.select({ transferId: transactions.transferId }).from(transactions).where(eq(transactions.id, newIdValue)).get(),
-        )
-        yield* db.use(async (_, d1) => {
-          const keepMirror = current.transferId && created?.transferId
-          await d1.batch([
-            ...(keepMirror
-              ? [
-                  d1.prepare("UPDATE transactions SET id = ? WHERE id = ?").bind(current.transferId, created.transferId),
-                  d1.prepare("UPDATE transactions SET transfer_id = ? WHERE id = ?").bind(current.transferId, newIdValue),
-                ]
-              : []),
-            d1.prepare("UPDATE transactions SET id = ? WHERE id = ?").bind(id, newIdValue),
-            d1.prepare("UPDATE transactions SET parent_id = ? WHERE parent_id = ?").bind(id, newIdValue),
-            d1.prepare("UPDATE transactions SET transfer_id = ? WHERE transfer_id = ?").bind(id, newIdValue),
-            d1
-              .prepare("UPDATE transactions SET reconciled = ?, created_at = ? WHERE id = ?")
-              .bind(current.reconciled ? 1 : 0, current.createdAt, id),
-          ])
+        // Same ids and creation time, deleted and rewritten in one batch: links and open views stay
+        // valid, and a failure leaves the original untouched.
+        const { rows } = yield* prepare(input, {
+          id,
+          mirrorId: current.transferId,
+          createdAt: current.createdAt,
+          reconciled: current.reconciled,
         })
+        yield* db.batch([...deleteStatements([id]), ...insertStatements(rows)])
       })
 
-      const remove = (ids: ReadonlyArray<string>) => deleteWithLinks(ids)
+      const remove = (ids: ReadonlyArray<string>) => db.batch(deleteStatements(ids))
 
       const setCleared = (ids: ReadonlyArray<string>, cleared: boolean) =>
         db.batch(

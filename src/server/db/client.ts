@@ -64,13 +64,15 @@ export const bulkInsertStatements = (
   return chunkRows(rows).map((chunk) => d1.prepare(sql).bind(JSON.stringify(chunk)))
 }
 
-/** Splits rows so that each JSON-encoded chunk stays under the D1 bound value limit. */
+const utf8 = new TextEncoder()
+
+/** Splits rows so that each JSON-encoded chunk stays under the D1 bound value limit (in UTF-8 bytes). */
 export const chunkRows = <T>(rows: ReadonlyArray<T>, maxBytes = MAX_JSON_BYTES): T[][] => {
   const chunks: T[][] = []
   let current: T[] = []
   let size = 2
   for (const row of rows) {
-    const rowSize = JSON.stringify(row).length + 1
+    const rowSize = utf8.encode(JSON.stringify(row)).length + 1
     if (current.length > 0 && size + rowSize > maxBytes) {
       chunks.push(current)
       current = []

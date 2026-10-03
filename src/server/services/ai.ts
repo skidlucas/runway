@@ -1,7 +1,7 @@
 import { AnthropicClient, AnthropicLanguageModel } from "@effect/ai-anthropic"
 import { OpenAiClient, OpenAiLanguageModel } from "@effect/ai-openai"
 import { TypeSafeClient, TypeSafeDecisionModel } from "@effect/ai-typesafe"
-import { Context, Effect, Layer, Redacted, Schema } from "effect"
+import { Context, type Duration, Effect, Layer, Redacted, Schema } from "effect"
 import { type AiError, Decision, DecisionModel, LanguageModel } from "effect/ai"
 import { FetchHttpClient } from "effect/http"
 import { Db, type DbError } from "../db/client"
@@ -121,6 +121,14 @@ export class Ai extends Context.Service<
         classification: providers.decisionModel ? "jev" : providers.languageModel ? "llm" : null,
       }
 
+      // Neither provider SDK sets a timeout: a stalled call would otherwise hold the request until
+      // the Worker is killed.
+      const giveUpAfter = (duration: Duration.Input, service: string) =>
+        Effect.timeoutOrElse({
+          duration,
+          orElse: () => Effect.fail(new ExternalError({ service, message: "Le service d'IA ne répond pas, réessaie dans un instant." })),
+        })
+
       const notConfigured = new ExternalError({
         service: "ai",
         message: "Aucune clé d'API IA configurée (OPENAI_API_KEY ou ANTHROPIC_API_KEY)",
@@ -142,7 +150,8 @@ export class Ai extends Context.Service<
             d1.prepare("SELECT value FROM ai_cache WHERE key = ?").bind(key).first<{ value: string }>(),
           )
           if (cached) {
-            const decoded = Schema.decodeUnknownOption(args.schema)(JSON.parse(cached.value))
+            // A corrupt entry is a cache miss, not an error for the next 60 days.
+            const decoded = Schema.decodeUnknownOption(Schema.fromJsonString(args.schema))(cached.value)
             if (decoded._tag === "Some") return decoded.value as S["Type"]
           }
           const response = yield* LanguageModel.generateObject({
@@ -157,6 +166,7 @@ export class Ai extends Context.Service<
             Effect.mapError(
               (error) => new ExternalError({ service: providers.provider, message: describeAiError(error), cause: error }),
             ),
+            giveUpAfter("60 seconds", providers.provider),
           )
           const value = response.value as S["Type"]
           const encoded = yield* Schema.encodeUnknownEffect(args.schema)(value).pipe(Effect.orElseSucceed(() => value))
@@ -179,22 +189,27 @@ export class Ai extends Context.Service<
           input: Input,
           decisions: { label: Decision.classify({ instructions: args.instructions, criteria: args.criteria }) },
         })
-        return Effect.forEach(
-          args.items,
-          (item) =>
-            DecisionModel.decide(definition, { input: item.input }).pipe(
-              Effect.map((r) => {
-                const answer = r.answers.label as Decision.ClassifyAnswer<L>
-                const confidence = answer.confidence ?? answer.probabilities[answer.label] ?? 0
-                return [item.key, { label: answer.label, confidence, source: "jev" as const }] as const
-              }),
-              Effect.retry({ times: 1, while: (e) => e.isRetryable }),
-            ),
-          { concurrency: 6 },
-        ).pipe(
-          Effect.map((entries) => new Map<string, Classification<L>>(entries)),
+        const decide = (item: ClassifyArgs<L>["items"][number]) =>
+          DecisionModel.decide(definition, { input: item.input }).pipe(
+            Effect.map((r) => {
+              const answer = r.answers.label as Decision.ClassifyAnswer<L>
+              const confidence = answer.confidence ?? answer.probabilities[answer.label] ?? 0
+              return [item.key, { label: answer.label, confidence, source: "jev" as const }] as const
+            }),
+            Effect.retry({ times: 1, while: (e) => e.isRetryable }),
+            Effect.mapError((error) => new ExternalError({ service: "typesafe", message: describeAiError(error), cause: error })),
+            giveUpAfter("30 seconds", "typesafe"),
+          )
+        // Items the model could not answer are left out; the call fails only when none succeeded
+        // (a wrong key, the service down).
+        return Effect.forEach(args.items, (item) => Effect.result(decide(item)), { concurrency: 6 }).pipe(
           Effect.provide(layer),
-          Effect.mapError((error) => new ExternalError({ service: "typesafe", message: describeAiError(error), cause: error })),
+          Effect.flatMap((results) => {
+            const answered = results.flatMap((r) => (r._tag === "Success" ? [r.success] : []))
+            const firstFailure = results.find((r) => r._tag === "Failure")
+            if (answered.length === 0 && firstFailure?._tag === "Failure") return Effect.fail(firstFailure.failure)
+            return Effect.succeed(new Map<string, Classification<L>>(answered))
+          }),
         )
       }
 
@@ -228,6 +243,7 @@ export class Ai extends Context.Service<
           Effect.mapError(
             (error) => new ExternalError({ service: providers.provider, message: describeAiError(error), cause: error }),
           ),
+          giveUpAfter("60 seconds", providers.provider),
         )
 
       const classify = <L extends string>(args: ClassifyArgs<L>): Effect.Effect<Map<string, Classification<L>>, ExternalError> => {

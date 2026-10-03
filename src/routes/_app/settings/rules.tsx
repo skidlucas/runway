@@ -10,6 +10,7 @@ import { describeRule, type RuleAction, type RuleCondition, type RuleConditionFi
 import { q, useAction } from "~/lib/queries"
 import { applyRule, createRule, deleteRule, reorderRules, resolvePayee, updateRule } from "~/server/fns/core"
 import type { RuleDto } from "~/server/services/rules"
+import { count, plural } from "~/domain/text"
 
 export const Route = createFileRoute("/_app/settings/rules")({
   loader: ({ context }) =>
@@ -34,9 +35,9 @@ function RulesSettings() {
   const suggestions = useQuery(q.ruleSuggestions())
   const names = useNames()
   const [editing, setEditing] = React.useState<RuleDto | "new" | null>(null)
-  const reorder = useAction(reorderRules)
+  const reorder = useAction(reorderRules, { invalidates: ["rules"] })
   const create = useAction(createRule, {
-    success: (r) => (r.applied ? `Règle créée · ${r.applied} opération(s) catégorisée(s)` : "Règle créée"),
+    success: (r) => (r.applied ? `Règle créée · ${count(r.applied, "opération")} ${plural(r.applied, "catégorisée")}` : "Règle créée"),
   })
   const list = rules.data ?? []
 
@@ -145,7 +146,7 @@ function RuleRow({
   const text = describeRule(rule, names)
   const update = useAction(updateRule)
   const remove = useAction(deleteRule, { success: "Règle supprimée" })
-  const apply = useAction(applyRule, { success: (n) => `${n} opération(s) mise(s) à jour` })
+  const apply = useAction(applyRule, { success: (n) => `${count(n, "opération")} ${plural(n, "mise")} à jour` })
   return (
     <div data-testid="rule-row" className={cx("group flex items-center gap-3 border-t border-line-subtle px-5 py-2.5 hover:bg-hover", !rule.enabled && "opacity-50")}>
       <Switch
@@ -158,7 +159,7 @@ function RuleRow({
         <span className="truncate">{text.actions}.</span>
       </button>
       {rule.origin !== "manual" ? <Chip>{rule.origin === "imported" ? "importée" : "suggérée"}</Chip> : null}
-      <span className="flex items-center gap-1 opacity-0 group-hover:opacity-100">
+      <span className="flex items-center gap-1 opacity-0 group-focus-within:opacity-100 group-hover:opacity-100">
         <IconButton label="Monter" size="sm" disabled={!canUp} onClick={() => onMove(-1)}>
           <ArrowUp size={13} />
         </IconButton>
@@ -176,7 +177,7 @@ function RuleRow({
           { label: "Appliquer aux opérations non catégorisées", icon: <Play size={13} />, onSelect: () => apply.mutate({ data: { id: rule.id } }) },
           { label: "Modifier…", onSelect: onEdit },
           { separator: true },
-          { label: "Supprimer", danger: true, icon: <Trash2 size={13} />, onSelect: () => remove.mutate({ data: { id: rule.id } }) },
+          { label: "Supprimer", danger: true, icon: <Trash2 size={13} />, onSelect: () => window.confirm("Supprimer cette règle ?") && remove.mutate({ data: { id: rule.id } }) },
         ]}
       />
     </div>
@@ -252,8 +253,6 @@ function RuleEditor({ rule, onClose }: { rule: RuleDto | null; onClose: () => vo
       : [{ type: "set_category", categoryId: null, payee: { kind: "none" }, notes: "" }],
   )
   const [applyNow, setApplyNow] = React.useState(true)
-  const create = useAction(createRule, { success: "Règle créée", onSuccess: onClose })
-  const update = useAction(updateRule, { success: "Règle modifiée", onSuccess: onClose })
 
   const built = React.useMemo(() => {
     const conds: RuleCondition[] = []
@@ -292,6 +291,23 @@ function RuleEditor({ rule, onClose }: { rule: RuleDto | null; onClose: () => vo
 
   const preview = built ? describeRule(built, names) : null
 
+  // Resolving a new payee name is part of the save: its errors are toasted and the button stays busy.
+  const save = useAction(
+    async (input: NonNullable<typeof built>) => {
+      const actions = await Promise.all(
+        input.actions.map(async (a) =>
+          a.type === "set_payee" && a.payeeId.startsWith("name:")
+            ? { ...a, payeeId: await resolvePayee({ data: { name: a.payeeId.slice(5) } }) }
+            : a,
+        ),
+      )
+      const ruleInput = { ...input, actions }
+      if (rule) await updateRule({ data: { id: rule.id, rule: { ...ruleInput, enabled: rule.enabled } } })
+      else await createRule({ data: { rule: ruleInput, applyNow } })
+    },
+    { success: rule ? "Règle modifiée" : "Règle créée", onSuccess: onClose },
+  )
+
   return (
     <Dialog
       open
@@ -311,20 +327,8 @@ function RuleEditor({ rule, onClose }: { rule: RuleDto | null; onClose: () => vo
           <Button
             variant="primary"
             disabled={!built}
-            loading={create.isPending || update.isPending}
-            onClick={async () => {
-              if (!built) return
-              const resolved = await Promise.all(
-                built.actions.map(async (a) =>
-                  a.type === "set_payee" && a.payeeId.startsWith("name:")
-                    ? { ...a, payeeId: await resolvePayee({ data: { name: a.payeeId.slice(5) } }) }
-                    : a,
-                ),
-              )
-              const ruleInput = { ...built, actions: resolved }
-              if (rule) update.mutate({ data: { id: rule.id, rule: { ...ruleInput, enabled: rule.enabled } } })
-              else create.mutate({ data: { rule: ruleInput, applyNow } })
-            }}
+            loading={save.isPending}
+            onClick={() => built && !save.isPending && save.mutate(built)}
           >
             Enregistrer
           </Button>
@@ -336,10 +340,10 @@ function RuleEditor({ rule, onClose }: { rule: RuleDto | null; onClose: () => vo
           <div className="flex items-center gap-2 text-[12px] text-muted">
             Si
             <select value={op} onChange={(e) => setOp(e.target.value as "and" | "or")} className={selectClass} aria-label="Combinaison">
-              <option value="and">toutes</option>
-              <option value="or">au moins une</option>
+              <option value="and">toutes les</option>
+              <option value="or">au moins une des</option>
             </select>
-            de ces conditions sont vraies :
+            {op === "and" ? "conditions suivantes sont remplies :" : "conditions suivantes est remplie :"}
           </div>
           {conditions.map((c, i) => (
             <div key={i} className="grid grid-cols-[170px_150px_minmax(0,1fr)_32px] items-center gap-2 max-md:grid-cols-1">

@@ -2,19 +2,11 @@ import { useQuery } from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
 import { Command } from "cmdk"
 import { Dialog as RDialog } from "radix-ui"
-import { normalizeText } from "~/domain/rules"
 import { q } from "~/lib/queries"
+import { commandFilter } from "./pickers"
 import { useAppUi } from "./shell"
+import { applyTheme, type ThemePref } from "./theme"
 import { Kbd } from "./ui"
-
-const filter = (value: string, search: string, keywords?: string[]) => {
-  const haystack = normalizeText([value, ...(keywords ?? [])].join(" "))
-  return normalizeText(search)
-    .split(" ")
-    .every((p) => haystack.includes(p))
-    ? 1
-    : 0
-}
 
 const item =
   "flex cursor-default items-center gap-2 rounded-[6px] px-2.5 py-2 text-fg-2 data-[selected=true]:bg-hover data-[selected=true]:text-fg"
@@ -31,12 +23,8 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
     void navigate({ to, ...(params ? { params } : {}) } as never)
   }
 
-  const setTheme = (theme: "system" | "light" | "dark") => {
-    try {
-      localStorage.setItem("runway-theme", theme)
-    } catch {}
-    const dark = theme === "dark" || (theme === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches)
-    document.documentElement.dataset.theme = dark ? "dark" : "light"
+  const setTheme = (theme: ThemePref) => {
+    applyTheme(theme)
     onOpenChange(false)
   }
 
@@ -47,7 +35,7 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
         <RDialog.Content className="animate-pop fixed left-1/2 top-[14vh] z-50 w-[calc(100vw-24px)] max-w-[560px] -translate-x-1/2 overflow-hidden rounded-[12px] border border-line-control bg-elevated shadow-[var(--shadow-modal)] outline-none">
           <RDialog.Title className="sr-only">Palette de commandes</RDialog.Title>
           <RDialog.Description className="sr-only">Naviguer et lancer des actions</RDialog.Description>
-          <Command filter={filter} loop>
+          <Command filter={commandFilter} loop>
             <Command.Input
               autoFocus
               placeholder="Aller à, créer, chercher…"

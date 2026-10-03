@@ -35,7 +35,7 @@ describe("Actual export", () => {
     })
 
     const meta = await h.run(ImportExport.use((s) => s.exportMeta))
-    const transactions = await h.run(ImportExport.use((s) => s.exportTransactions(0, 20_000)))
+    const transactions = await h.run(ImportExport.use((s) => s.exportTransactions(null, 20_000)))
     expect(transactions).toHaveLength(meta.transactionCount)
     const template = new Uint8Array(readFileSync(join(process.cwd(), "public/actual-template.sqlite")))
     const { zip, skippedRules } = buildActualExport(SQL, template, meta, transactions, "Export test")

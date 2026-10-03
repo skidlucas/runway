@@ -304,7 +304,7 @@ export const setBudgetBuffered = createServerFn({ method: "POST" })
 const RuleCondition = Schema.Struct({
   field: Schema.Literals(["payee", "imported_payee", "notes", "amount", "account"]),
   op: Schema.Literals(["is", "contains", "starts_with", "matches", "gt", "lt", "between"]),
-  value: Schema.Union([Schema.String, Schema.Number, Schema.Tuple([Schema.Number, Schema.Number])]),
+  value: Schema.Union([Schema.String, Schema.Finite, Schema.Tuple([Schema.Finite, Schema.Finite])]),
 })
 
 const RuleAction = Schema.Union([

@@ -152,10 +152,21 @@ function ScheduleRow({ schedule: s, onEdit }: { schedule: ScheduleDto; onEdit: (
       <span className="flex justify-end gap-1.5 max-md:hidden">
         {s.active ? (
           <>
-            <Button size="sm" variant="ghost" onClick={() => skip.mutate({ data: { id: s.id } })}>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => skip.mutate({ data: { id: s.id } })}
+              loading={skip.isPending}
+              disabled={skip.isPending || post.isPending}
+            >
               Passer
             </Button>
-            <Button size="sm" onClick={() => post.mutate({ data: { id: s.id } })}>
+            <Button
+              size="sm"
+              onClick={() => post.mutate({ data: { id: s.id } })}
+              loading={post.isPending}
+              disabled={skip.isPending || post.isPending}
+            >
               Enregistrer
             </Button>
           </>

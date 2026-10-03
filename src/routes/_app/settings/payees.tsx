@@ -8,6 +8,7 @@ import { formatDayShort } from "~/domain/dates"
 import { normalizeText } from "~/domain/rules"
 import { q, useAction } from "~/lib/queries"
 import { deleteUnusedPayees, mergePayees, renamePayee } from "~/server/fns/core"
+import { count, plural } from "~/domain/text"
 
 export const Route = createFileRoute("/_app/settings/payees")({
   loader: ({ context }) => context.queryClient.ensureQueryData(q.payees()),
@@ -20,7 +21,7 @@ function PayeesSettings() {
   const [filter, setFilter] = React.useState("")
   const [selected, setSelected] = React.useState<Set<string>>(new Set())
   const [merging, setMerging] = React.useState(false)
-  const cleanup = useAction(deleteUnusedPayees, { success: (n) => `${n} bénéficiaire(s) supprimé(s)` })
+  const cleanup = useAction(deleteUnusedPayees, { success: (n) => `${count(n, "bénéficiaire")} ${plural(n, "supprimé")}` })
   const catName = new Map((categories.data ?? []).flatMap((g) => g.categories.map((c) => [c.id, c.name] as const)))
   const list = (payees.data ?? []).filter((p) => !p.transferAccountId && normalizeText(p.name).includes(normalizeText(filter)))
 
@@ -36,7 +37,7 @@ function PayeesSettings() {
                 Fusionner {selected.size} bénéficiaires
               </Button>
             ) : null}
-            <Button variant="ghost" onClick={() => cleanup.mutate(undefined)} loading={cleanup.isPending}>
+            <Button variant="ghost" onClick={() => window.confirm("Supprimer les bénéficiaires sans opération, règle ni échéance ?") && cleanup.mutate(undefined)} loading={cleanup.isPending}>
               Supprimer les inutilisés
             </Button>
           </>

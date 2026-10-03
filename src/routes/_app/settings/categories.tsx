@@ -135,7 +135,7 @@ function GroupRow({
       <InlineName value={group.name} onSave={(name) => update.mutate({ data: { id: group.id, name } })} />
       {group.isIncome ? <span className="text-[11px] font-normal text-faint">revenus</span> : null}
       {group.hidden ? <span className="text-[11px] font-normal text-faint">masqué</span> : null}
-      <span className="ml-auto flex items-center gap-1 opacity-0 group-hover:opacity-100">
+      <span className="ml-auto flex items-center gap-1 opacity-0 group-focus-within:opacity-100 group-hover:opacity-100">
         <IconButton label="Monter" size="sm" disabled={!canUp} onClick={() => onMove(-1)}>
           <ArrowUp size={13} />
         </IconButton>
@@ -192,7 +192,7 @@ function CategoryRow({
         onSave={(name) => update.mutate({ data: { id: category.id, name } })}
       />
       {category.hidden ? <span className="text-[11px] text-faint">masquée</span> : null}
-      <span className="ml-auto flex items-center gap-1 opacity-0 group-hover:opacity-100">
+      <span className="ml-auto flex items-center gap-1 opacity-0 group-focus-within:opacity-100 group-hover:opacity-100">
         <IconButton label="Monter" size="sm" disabled={!canUp} onClick={() => onMove(-1)}>
           <ArrowUp size={13} />
         </IconButton>
@@ -259,28 +259,10 @@ function DeleteDialog({
     >
       <div className="px-5 py-4">
         <Field label="Transférer vers">
-          <CategoryPickerExcluding value={target} onChange={setTarget} exclude={exclude} />
+          <CategoryPicker value={target} onChange={setTarget} exclude={exclude} placeholder="Aucune (laisser sans catégorie)" />
         </Field>
       </div>
     </Dialog>
-  )
-}
-
-function CategoryPickerExcluding({
-  value,
-  onChange,
-  exclude,
-}: {
-  value: string | null
-  onChange: (v: string | null) => void
-  exclude: string[]
-}) {
-  return (
-    <CategoryPicker
-      value={value}
-      onChange={(v) => onChange(v && exclude.includes(v) ? null : v)}
-      placeholder="Aucune (laisser sans catégorie)"
-    />
   )
 }
 

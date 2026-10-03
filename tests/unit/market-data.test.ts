@@ -1,5 +1,6 @@
 import { Effect } from "effect"
 import { describe, expect, it } from "vitest"
+import type { ExternalError } from "~/server/errors"
 import { makeLiveMarketData } from "~/server/services/market-data"
 
 // Routes a URL to a canned JSON body; anything else is a 404.
@@ -100,5 +101,27 @@ describe("communes", () => {
     await run(market.searchCommunes("Lyon"))
     expect(urls[0]).toContain("codePostal=69007")
     expect(urls[1]).toContain("nom=Lyon")
+  })
+})
+
+describe("Unexpected responses", () => {
+  it("fails with an ExternalError when an API changes shape", async () => {
+    const market = makeLiveMarketData(
+      fakeFetch([
+        [/coingecko.*market_chart/, { prices: "soon" }],
+        [/coingecko.*search/, { results: [] }],
+        [/tabular-api/, { data: [{ annee_mois: 202501 }] }],
+      ]),
+    )
+    const calls: Array<Effect.Effect<unknown, ExternalError>> = [
+      market.cryptoHistory("bitcoin"),
+      market.searchCoins("btc"),
+      market.dvfPricePerM2("69387", "house"),
+    ]
+    for (const call of calls) {
+      // flip: a typed failure becomes the value; a defect would reject the promise.
+      const error = await run(Effect.flip(call))
+      expect(error.message).toContain("réponse inattendue")
+    }
   })
 })

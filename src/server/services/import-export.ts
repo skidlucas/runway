@@ -1,14 +1,15 @@
+import { sql } from "drizzle-orm"
 import { Context, Effect, Layer } from "effect"
-import { isDay } from "~/domain/dates"
+import { isDay, isMonth } from "~/domain/dates"
 import { normalizeText, type RuleAction, type RuleSubject } from "~/domain/rules"
 import type { BundleExtras, BundleStructure, IdMaps } from "~/lib/import-bundle"
 import { bulkInsertStatements, chunkRows, Db, type DbError, newId } from "../db/client"
 import * as schema from "../db/schema"
 import { Invalid, type NotFound } from "../errors"
 import { Payees } from "./payees"
-import { Rules } from "./rules"
+import { ruleInputError, Rules } from "./rules"
 import { Settings } from "./settings"
-import { Transactions } from "./transactions"
+import { sourceProblem } from "./wealth"
 
 export type ImportRow = {
   id?: string | null
@@ -60,6 +61,8 @@ export type ExportMeta = {
 
 export type ExportTransaction = typeof schema.transactions.$inferSelect
 
+export type ExportCursor = Pick<ExportTransaction, "date" | "createdAt" | "id">
+
 const TX_COLUMNS = [
   "id",
   "account_id",
@@ -78,6 +81,8 @@ const TX_COLUMNS = [
   "starting_balance",
 ] as const
 
+const ACCOUNT_KINDS = new Set<string>(["checking", "savings", "credit", "investment", "other"])
+
 const signature = (account: string, date: string, amount: number, payee: string | null) =>
   `${account}|${date}|${amount}|${payee ?? ""}`
 
@@ -94,7 +99,8 @@ export class ImportExport extends Context.Service<
     /** Deletes every user record: used by "replace all data". */
     readonly wipe: Effect.Effect<void, DbError>
     readonly exportMeta: Effect.Effect<ExportMeta, DbError>
-    exportTransactions(offset: number, limit: number): Effect.Effect<ExportTransaction[], DbError>
+    /** One page in (date, created_at, id) order, after `cursor` (the last row of the previous page). */
+    exportTransactions(cursor: ExportCursor | null, limit: number): Effect.Effect<ExportTransaction[], DbError>
   }
 >()("runway/server/services/ImportExport") {
   static readonly layer = Layer.effect(
@@ -104,7 +110,6 @@ export class ImportExport extends Context.Service<
       const settings = yield* Settings
       const payeesService = yield* Payees
       const rulesService = yield* Rules
-      const transactionsService = yield* Transactions
 
       const importStructure = Effect.fn("ImportExport.importStructure")(function* (
         structure: BundleStructure,
@@ -129,9 +134,15 @@ export class ImportExport extends Context.Service<
           return chosen
         }
 
+        // Everything is computed in memory first, then written in one batch: one round trip
+        // whatever the number of categories, payees or rules, and nothing half-imported on failure.
+        const writes: D1PreparedStatement[] = []
+        const bool = (b: boolean | null | undefined) => (b ? 1 : 0)
+
         // Accounts: matched by name.
         const accountMap: Record<string, string> = {}
         const accountByName = new Map(existing.accounts.map((a) => [normalizeText(a.name), a.id]))
+        const newAccounts: unknown[][] = []
         let order = existing.accounts.length
         for (const a of structure.accounts) {
           const found = accountByName.get(normalizeText(a.name))
@@ -142,23 +153,17 @@ export class ImportExport extends Context.Service<
           const id = claim(a.id)
           accountMap[a.id] = id
           accountByName.set(normalizeText(a.name), id)
-          yield* db.use((orm) =>
-            orm.insert(schema.accounts).values({
-              id,
-              name: a.name,
-              kind: (a.kind as typeof schema.accounts.$inferInsert.kind) ?? (a.offBudget ? "savings" : "checking"),
-              offBudget: a.offBudget,
-              closed: a.closed,
-              inForecast: !a.offBudget,
-              sortOrder: ++order,
-            }),
-          )
+          const kind = ACCOUNT_KINDS.has(a.kind ?? "") ? a.kind : a.offBudget ? "savings" : "checking"
+          newAccounts.push([id, a.name, kind, bool(a.offBudget), bool(a.closed), bool(!a.offBudget), ++order])
         }
+        writes.push(
+          ...bulkInsertStatements(db.d1, "accounts", ["id", "name", "kind", "off_budget", "closed", "in_forecast", "sort_order"], newAccounts),
+        )
 
         // Groups and categories: matched by name (categories within their group first).
         const groupMap: Record<string, string> = {}
         const groupByName = new Map(existing.groups.map((g) => [`${g.isIncome}|${normalizeText(g.name)}`, g.id]))
-        const newGroups: Array<typeof schema.categoryGroups.$inferInsert> = []
+        const newGroups: unknown[][] = []
         for (const g of structure.groups) {
           const key = `${g.isIncome}|${normalizeText(g.name)}`
           const found = groupByName.get(key)
@@ -169,15 +174,15 @@ export class ImportExport extends Context.Service<
           const id = claim(g.id)
           groupMap[g.id] = id
           groupByName.set(key, id)
-          newGroups.push({ id, name: g.name, isIncome: g.isIncome, hidden: g.hidden, sortOrder: g.sortOrder + existing.groups.length })
+          newGroups.push([id, g.name, bool(g.isIncome), bool(g.hidden), g.sortOrder + existing.groups.length])
         }
-        if (newGroups.length) yield* db.use((orm) => orm.insert(schema.categoryGroups).values(newGroups))
+        writes.push(...bulkInsertStatements(db.d1, "category_groups", ["id", "name", "is_income", "hidden", "sort_order"], newGroups))
 
         const categoryMap: Record<string, string> = {}
         const catKey = (groupId: string, name: string) => `${groupId}|${normalizeText(name)}`
         const catByGroup = new Map(existing.categories.map((c) => [catKey(c.groupId, c.name), c.id]))
         const catByName = new Map(existing.categories.map((c) => [`${c.isIncome}|${normalizeText(c.name)}`, c.id]))
-        const newCats: Array<typeof schema.categories.$inferInsert> = []
+        const newCats: unknown[][] = []
         for (const c of structure.categories) {
           const groupId = groupMap[c.groupId]
           if (!groupId) continue
@@ -189,28 +194,32 @@ export class ImportExport extends Context.Service<
           const id = claim(c.id)
           categoryMap[c.id] = id
           catByGroup.set(catKey(groupId, c.name), id)
-          newCats.push({ id, groupId, name: c.name, isIncome: c.isIncome, hidden: c.hidden, sortOrder: c.sortOrder })
+          newCats.push([id, groupId, c.name, bool(c.isIncome), bool(c.hidden), c.sortOrder])
         }
-        for (const chunk of chunkRows(newCats, 50_000)) yield* db.use((orm) => orm.insert(schema.categories).values(chunk))
-
-        // Actual's "Starting Balances" becomes the category for new accounts' opening balances.
-        const starting = structure.categories.find((c) => c.isIncome && /starting balance|solde(s)? initia/i.test(c.name))
-        if (starting && categoryMap[starting.id] && !(yield* settings.get("startingBalanceCategoryId"))) {
-          yield* settings.set("startingBalanceCategoryId", categoryMap[starting.id]!)
-        }
+        writes.push(...bulkInsertStatements(db.d1, "categories", ["id", "group_id", "name", "is_income", "hidden", "sort_order"], newCats))
 
         // Payees: transfer payees map to the transfer payee of the mapped account.
         const payeeMap: Record<string, string> = {}
-        const regular = structure.payees.filter((p) => !p.transferAccountId)
-        for (const p of structure.payees.filter((p) => p.transferAccountId)) {
-          const accountId = accountMap[p.transferAccountId!]
-          if (accountId) payeeMap[p.id] = yield* transactionsService.transferPayee(accountId)
+        const transferPayees = new Map(existing.payees.flatMap((p) => (p.transferAccountId ? [[p.transferAccountId, p.id] as const] : [])))
+        const accountNames = new Map([...existing.accounts.map((a) => [a.id, a.name] as const), ...structure.accounts.map((a) => [accountMap[a.id]!, a.name] as const)])
+        const newTransferPayees: unknown[][] = []
+        for (const p of structure.payees) {
+          const accountId = p.transferAccountId ? accountMap[p.transferAccountId] : undefined
+          if (!accountId) continue
+          let id = transferPayees.get(accountId)
+          if (!id) {
+            id = newId()
+            transferPayees.set(accountId, id)
+            newTransferPayees.push([id, accountNames.get(accountId) ?? "Virement", accountId])
+          }
+          payeeMap[p.id] = id
         }
         const payeeByName = new Map(
           existing.payees.filter((p) => !p.transferAccountId).map((p) => [normalizeText(p.name), p.id]),
         )
         const newPayees: Array<[string, string]> = []
-        for (const p of regular) {
+        for (const p of structure.payees) {
+          if (p.transferAccountId) continue
           const key = normalizeText(p.name)
           if (key === "") continue
           const found = payeeByName.get(key)
@@ -223,37 +232,46 @@ export class ImportExport extends Context.Service<
           payeeByName.set(key, id)
           newPayees.push([id, p.name.trim()])
         }
-        yield* db.batch(bulkInsertStatements(db.d1, "payees", ["id", "name"], newPayees))
+        writes.push(
+          ...bulkInsertStatements(db.d1, "payees", ["id", "name", "transfer_account_id"], newTransferPayees),
+          ...bulkInsertStatements(db.d1, "payees", ["id", "name"], newPayees),
+        )
 
         if (include.budgets) {
           const budgetRows = structure.budgets.flatMap((b) =>
-            categoryMap[b.categoryId] ? [[b.month, categoryMap[b.categoryId]!, b.amount, b.carryover ? 1 : 0]] : [],
+            categoryMap[b.categoryId] && isMonth(b.month) ? [[b.month, categoryMap[b.categoryId]!, b.amount, b.carryover ? 1 : 0]] : [],
           )
-          const statements = chunkRows(budgetRows).map((chunk) =>
-            db.d1
-              .prepare(
-                `INSERT INTO budgets (month, category_id, amount, carryover)
-                 SELECT json_extract(value, '$[0]'), json_extract(value, '$[1]'), json_extract(value, '$[2]'), json_extract(value, '$[3]')
-                 FROM json_each(?) WHERE true
-                 ON CONFLICT(month, category_id) DO UPDATE SET amount = excluded.amount, carryover = excluded.carryover`,
-              )
-              .bind(JSON.stringify(chunk)),
-          )
-          for (const b of structure.buffered) {
-            statements.push(
+          for (const chunk of chunkRows(budgetRows)) {
+            writes.push(
               db.d1
                 .prepare(
-                  "INSERT INTO budget_months (month, buffered) VALUES (?, ?) ON CONFLICT(month) DO UPDATE SET buffered = excluded.buffered",
+                  `INSERT INTO budgets (month, category_id, amount, carryover)
+                   SELECT json_extract(value, '$[0]'), json_extract(value, '$[1]'), json_extract(value, '$[2]'), json_extract(value, '$[3]')
+                   FROM json_each(?) WHERE true
+                   ON CONFLICT(month, category_id) DO UPDATE SET amount = excluded.amount, carryover = excluded.carryover`,
                 )
-                .bind(b.month, b.amount),
+                .bind(JSON.stringify(chunk)),
             )
           }
-          yield* db.batch(statements)
+          const buffered = structure.buffered.filter((b) => isMonth(b.month)).map((b) => [b.month, b.amount])
+          for (const chunk of chunkRows(buffered)) {
+            writes.push(
+              db.d1
+                .prepare(
+                  `INSERT INTO budget_months (month, buffered)
+                   SELECT json_extract(value, '$[0]'), json_extract(value, '$[1]') FROM json_each(?) WHERE true
+                   ON CONFLICT(month) DO UPDATE SET buffered = excluded.buffered`,
+                )
+                .bind(JSON.stringify(chunk)),
+            )
+          }
         }
 
         if (include.rules) {
           const current = yield* rulesService.list
           const seen = new Set(current.map((r) => JSON.stringify([r.conditionsOp, r.conditions, r.actions])))
+          let sortOrder = current.reduce((max, r) => Math.max(max, r.sortOrder), 0)
+          const newRules: unknown[][] = []
           for (const rule of structure.rules) {
             const actions = rule.actions.flatMap((a): RuleAction[] => {
               if (a.type === "set_category") return categoryMap[a.categoryId] ? [{ ...a, categoryId: categoryMap[a.categoryId]! }] : []
@@ -264,34 +282,56 @@ export class ImportExport extends Context.Service<
               c.field === "account" && typeof c.value === "string" ? { ...c, value: accountMap[c.value] ?? c.value } : c,
             )
             const key = JSON.stringify([rule.conditionsOp, conditions, actions])
-            if (actions.length === 0 || seen.has(key)) continue
+            // A rule Runway cannot run (empty condition, broken regex) is left behind rather than failing the import.
+            if (seen.has(key) || ruleInputError({ conditionsOp: rule.conditionsOp, conditions, actions })) continue
             seen.add(key)
-            yield* rulesService.create({ conditionsOp: rule.conditionsOp, conditions, actions, origin: "imported" })
+            newRules.push([newId(), rule.conditionsOp, JSON.stringify(conditions), JSON.stringify(actions), 1, "imported", ++sortOrder])
           }
+          writes.push(
+            ...bulkInsertStatements(db.d1, "rules", ["id", "conditions_op", "conditions", "actions", "enabled", "origin", "sort_order"], newRules),
+          )
         }
 
         if (include.schedules) {
           const known = new Set(existing.schedules.map((s) => s.id))
-          for (const s of structure.schedules) {
+          const newSchedules = structure.schedules.flatMap((s) => {
             const accountId = accountMap[s.accountId]
-            if (!accountId || known.has(s.id) || !isDay(s.startDate) || !isDay(s.nextDate)) continue
-            yield* db.use((orm) =>
-              orm.insert(schema.schedules).values({
-                id: s.id,
-                name: s.name,
-                payeeId: s.payeeId ? (payeeMap[s.payeeId] ?? null) : null,
+            const rhythmOk = ["day", "week", "month", "year"].includes(s.recurrence.unit) && Number.isInteger(s.recurrence.interval) && s.recurrence.interval >= 1
+            if (!accountId || known.has(s.id) || !rhythmOk || !isDay(s.startDate) || !isDay(s.nextDate)) return []
+            known.add(s.id)
+            return [
+              [
+                s.id,
+                s.name,
+                s.payeeId ? (payeeMap[s.payeeId] ?? null) : null,
                 accountId,
-                categoryId: s.categoryId ? (categoryMap[s.categoryId] ?? null) : null,
-                amount: s.amount,
-                recurrence: s.recurrence,
-                startDate: s.startDate,
-                endDate: s.endDate,
-                nextDate: s.nextDate,
-                autoPost: s.autoPost,
-                active: s.active,
-              }),
-            )
-          }
+                s.categoryId ? (categoryMap[s.categoryId] ?? null) : null,
+                s.amount,
+                JSON.stringify(s.recurrence),
+                s.startDate,
+                s.endDate,
+                s.nextDate,
+                bool(s.autoPost),
+                bool(s.active),
+              ],
+            ]
+          })
+          writes.push(
+            ...bulkInsertStatements(
+              db.d1,
+              "schedules",
+              ["id", "name", "payee_id", "account_id", "category_id", "amount", "recurrence", "start_date", "end_date", "next_date", "auto_post", "active"],
+              newSchedules,
+            ),
+          )
+        }
+
+        yield* db.batch(writes)
+
+        // Actual's "Starting Balances" becomes the category for new accounts' opening balances.
+        const starting = structure.categories.find((c) => c.isIncome && /starting balance|solde(s)? initia/i.test(c.name))
+        if (starting && categoryMap[starting.id] && !(yield* settings.get("startingBalanceCategoryId"))) {
+          yield* settings.set("startingBalanceCategoryId", categoryMap[starting.id]!)
         }
 
         return { accounts: accountMap, groups: groupMap, categories: categoryMap, payees: payeeMap }
@@ -392,6 +432,7 @@ export class ImportExport extends Context.Service<
             const { results } = await d1.prepare("SELECT id, name, transfer_account_id AS t FROM payees").all<{ id: string; name: string; t: string | null }>()
             return new Map(results.map((p) => [p.id, p]))
           })
+          const pending: typeof kept = []
           for (const r of kept) {
             if (r.categoryId || r.isParent || r.transferId || (r.payeeId && names.get(r.payeeId)?.t)) continue
             const subject: RuleSubject = {
@@ -405,8 +446,10 @@ export class ImportExport extends Context.Service<
             if (out.categoryId && known.categories.has(out.categoryId)) r.categoryId = out.categoryId
             if (out.payeeId && known.payees.has(out.payeeId)) r.payeeId = out.payeeId
             if (out.notes && !r.notes) r.notes = out.notes
-            if (!r.categoryId && r.payeeId) r.categoryId = yield* payeesService.suggestCategory(r.payeeId)
+            if (!r.categoryId && r.payeeId) pending.push(r)
           }
+          const usual = yield* payeesService.suggestCategories(pending.map((r) => r.payeeId!))
+          for (const r of pending) r.categoryId = usual.get(r.payeeId!) ?? null
         }
 
         const values = kept.map((r) => [
@@ -433,7 +476,10 @@ export class ImportExport extends Context.Service<
       // Assets and valuations keep their ids and existing ones win, so restoring the same backup
       // twice changes nothing. Views point at categories, groups or payees: their target is
       // translated, and a view whose target was not imported is dropped.
-      const importExtras = Effect.fn("ImportExport.importExtras")(function* (extras: BundleExtras, maps: IdMaps) {
+      const importExtras = Effect.fn("ImportExport.importExtras")(function* (input: BundleExtras, maps: IdMaps) {
+        // A hand-edited or older backup must not bring an asset the app cannot value (a loan over
+        // 0 months makes the whole net worth NaN).
+        const extras = { ...input, assets: input.assets.filter((a) => sourceProblem(a.type, a.source) === null) }
         const assetIds = new Set(extras.assets.map((a) => a.id))
         const existingViews = yield* db.use((orm) =>
           orm.select({ name: schema.savedViews.name, sortOrder: schema.savedViews.sortOrder }).from(schema.savedViews),
@@ -491,22 +537,29 @@ export class ImportExport extends Context.Service<
       const countDuplicates = Effect.fn("ImportExport.countDuplicates")(function* (probes: ReadonlyArray<DuplicateProbe>) {
         if (probes.length === 0) return 0
         const dates = probes.map((p) => p.date).sort()
+        const probedAccounts = new Set(probes.map((p) => normalizeText(p.account)))
+        const accountIds = (yield* db.use((orm) => orm.select({ id: schema.accounts.id, name: schema.accounts.name }).from(schema.accounts)))
+          .filter((a) => probedAccounts.has(normalizeText(a.name)))
+          .map((a) => a.id)
         const existing = yield* db.use(async (_, d1) => {
           const { results } = await d1
             .prepare(
               `SELECT t.id, a.name AS a, t.date AS d, t.amount AS m, COALESCE(pa.name, p.name) AS p
                FROM transactions t JOIN accounts a ON a.id = t.account_id
                LEFT JOIN payees p ON p.id = t.payee_id LEFT JOIN accounts pa ON pa.id = p.transfer_account_id
-               WHERE t.parent_id IS NULL AND t.date BETWEEN ? AND ?`,
+               WHERE t.parent_id IS NULL AND t.date BETWEEN ? AND ? AND t.account_id IN (SELECT value FROM json_each(?))`,
             )
-            .bind(dates[0], dates[dates.length - 1])
+            .bind(dates[0], dates[dates.length - 1], JSON.stringify(accountIds))
             .all<{ id: string; a: string; d: string; m: number; p: string | null }>()
           return results
         })
         const ids = new Set(existing.map((e) => e.id))
         const counts = new Map<string, number>()
         const key = (a: string, d: string, m: number, p: string | null) => `${normalizeText(a)}|${d}|${m}|${normalizeText(p ?? "")}`
-        for (const e of existing) counts.set(key(e.a, e.d, e.m, e.p), (counts.get(key(e.a, e.d, e.m, e.p)) ?? 0) + 1)
+        for (const e of existing) {
+          const k = key(e.a, e.d, e.m, e.p)
+          counts.set(k, (counts.get(k) ?? 0) + 1)
+        }
         let n = 0
         for (const p of probes) {
           if (p.id && ids.has(p.id)) {
@@ -562,15 +615,18 @@ export class ImportExport extends Context.Service<
         }
       })
 
-      const exportTransactions = (offset: number, limit: number) =>
-        db.use((orm) =>
-          orm
+      // Keyset pagination on the (date, created_at, id) index: each page is an index seek, where
+      // OFFSET re-read every previous row.
+      const exportTransactions = (cursor: ExportCursor | null, limit: number) =>
+        db.use((orm) => {
+          const t = schema.transactions
+          return orm
             .select()
-            .from(schema.transactions)
-            .orderBy(schema.transactions.date, schema.transactions.id)
+            .from(t)
+            .where(cursor ? sql`(${t.date}, ${t.createdAt}, ${t.id}) > (${cursor.date}, ${cursor.createdAt}, ${cursor.id})` : undefined)
+            .orderBy(t.date, t.createdAt, t.id)
             .limit(Math.min(Math.max(limit, 1), 20_000))
-            .offset(Math.max(offset, 0)),
-        )
+        })
 
       return ImportExport.of({ importStructure, importTransactions, importExtras, countDuplicates, wipe, exportMeta, exportTransactions })
     }),

@@ -1,9 +1,10 @@
 import { createServerFn } from "@tanstack/react-start"
-import { Schema } from "effect"
+import { Effect, Schema } from "effect"
 import { authMiddleware } from "../auth"
 import { runApp } from "../runtime"
 import { ForecastService } from "../services/forecast"
 import { Schedules } from "../services/schedules"
+import { Settings } from "../services/settings"
 
 const v = Schema.toStandardSchemaV1
 
@@ -66,6 +67,27 @@ export const postSchedule = createServerFn({ method: "POST" })
   .validator(v(Schema.Struct({ id: Schema.String, date: Schema.optional(Schema.String) })))
   .handler(({ data }) => runApp(Schedules.use((s) => s.post(data.id, data.date))))
 
+const isTimeZone = (tz: string) => {
+  try {
+    new Intl.DateTimeFormat("fr-FR", { timeZone: tz })
+    return true
+  } catch {
+    return false
+  }
+}
+
+/** Books due schedules. The browser sends its time zone so the server's "today" follows the user. */
 export const syncSchedules = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
-  .handler(() => runApp(Schedules.use((s) => s.sync)))
+  .validator(v(Schema.Struct({ timeZone: Schema.optional(Schema.String) })))
+  .handler(({ data }) =>
+    runApp(
+      Effect.gen(function* () {
+        const settings = yield* Settings
+        if (data.timeZone && isTimeZone(data.timeZone) && data.timeZone !== (yield* settings.get("timeZone"))) {
+          yield* settings.set("timeZone", data.timeZone)
+        }
+        return yield* Schedules.use((s) => s.sync)
+      }),
+    ),
+  )

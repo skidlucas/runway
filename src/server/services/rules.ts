@@ -26,6 +26,23 @@ export type RuleSuggestion = {
   uncategorized: number
 }
 
+/** Why a rule cannot be saved, or null when it is valid. */
+export const ruleInputError = (input: RuleInput): string | null => {
+  if (input.conditions.length === 0) return "Ajoute au moins une condition"
+  if (input.actions.length === 0) return "Ajoute au moins une action"
+  for (const c of input.conditions) {
+    if (c.op === "matches" && typeof c.value === "string") {
+      try {
+        new RegExp(c.value)
+      } catch {
+        return `Expression invalide : ${c.value}`
+      }
+    }
+    if (typeof c.value === "string" && c.value.trim() === "" && c.field !== "account") return "Une condition est vide"
+  }
+  return null
+}
+
 export class Rules extends Context.Service<
   Rules,
   {
@@ -50,21 +67,8 @@ export class Rules extends Context.Service<
       const list = db.use((orm) => orm.select().from(rules).orderBy(asc(rules.sortOrder), asc(rules.createdAt)))
 
       const validate = (input: RuleInput) => {
-        if (input.conditions.length === 0) return Effect.fail(new Invalid({ message: "Ajoute au moins une condition" }))
-        if (input.actions.length === 0) return Effect.fail(new Invalid({ message: "Ajoute au moins une action" }))
-        for (const c of input.conditions) {
-          if (c.op === "matches" && typeof c.value === "string") {
-            try {
-              new RegExp(c.value)
-            } catch {
-              return Effect.fail(new Invalid({ message: `Expression invalide : ${c.value}` }))
-            }
-          }
-          if (typeof c.value === "string" && c.value.trim() === "" && c.field !== "account") {
-            return Effect.fail(new Invalid({ message: "Une condition est vide" }))
-          }
-        }
-        return Effect.void
+        const problem = ruleInputError(input)
+        return problem ? Effect.fail(new Invalid({ message: problem })) : Effect.void
       }
 
       const create = Effect.fn("Rules.create")(function* (input: RuleInput) {
@@ -170,11 +174,15 @@ export class Rules extends Context.Service<
           db.use(async (_, d1) => {
             const { results } = await d1
               .prepare(
-                `SELECT t.payee_id AS payeeId, p.name AS payeeName, t.category_id AS categoryId, COUNT(*) AS n,
+                `WITH u AS (
+                   SELECT payee_id, COUNT(*) AS n FROM transactions
+                   WHERE category_id IS NULL AND is_parent = 0 AND payee_id IS NOT NULL GROUP BY payee_id
+                 )
+                 SELECT t.payee_id AS payeeId, p.name AS payeeName, t.category_id AS categoryId, COUNT(*) AS n,
                         SUM(COUNT(*)) OVER (PARTITION BY t.payee_id) AS total,
-                        (SELECT COUNT(*) FROM transactions u
-                          WHERE u.payee_id = t.payee_id AND u.category_id IS NULL AND u.is_parent = 0) AS uncategorized
+                        COALESCE(MAX(u.n), 0) AS uncategorized
                  FROM transactions t JOIN payees p ON p.id = t.payee_id
+                 LEFT JOIN u ON u.payee_id = t.payee_id
                  WHERE t.category_id IS NOT NULL AND t.is_parent = 0 AND p.transfer_account_id IS NULL
                  GROUP BY t.payee_id, t.category_id`,
               )

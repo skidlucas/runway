@@ -25,6 +25,16 @@ export type ButtonProps = React.ButtonHTMLAttributes<HTMLButtonElement> & {
   loading?: boolean
 }
 
+/** Button styles, also for links that look like buttons (a <button> inside an <a> is invalid). */
+export const buttonClass = ({ variant = "secondary", size = "md" }: Pick<ButtonProps, "variant" | "size"> = {}) =>
+  cx(
+    "inline-flex select-none items-center justify-center gap-1.5 whitespace-nowrap rounded-[6px] transition-colors duration-[120ms] disabled:pointer-events-none disabled:opacity-50",
+    size === "sm" && "h-7 px-2.5 text-[12px]",
+    size === "md" && "h-8 px-3",
+    size === "lg" && "h-11 px-4 text-[15px]",
+    buttonVariants[variant],
+  )
+
 export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(function Button(
   { variant = "secondary", size = "md", icon, loading, className, children, disabled, type = "button", ...rest },
   ref,
@@ -34,14 +44,7 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(function 
       ref={ref}
       type={type}
       disabled={disabled || loading}
-      className={cx(
-        "inline-flex select-none items-center justify-center gap-1.5 whitespace-nowrap rounded-[6px] transition-colors duration-[120ms] disabled:pointer-events-none disabled:opacity-50",
-        size === "sm" && "h-7 px-2.5 text-[12px]",
-        size === "md" && "h-8 px-3",
-        size === "lg" && "h-11 px-4 text-[15px]",
-        buttonVariants[variant],
-        className,
-      )}
+      className={cx(buttonClass({ variant, size }), className)}
       {...rest}
     >
       {loading ? <Spinner /> : icon}
@@ -121,23 +124,32 @@ export const Textarea = React.forwardRef<HTMLTextAreaElement, React.TextareaHTML
   },
 )
 
+/**
+ * A labelled control. With several controls inside, pass `group`: a <label> would forward
+ * every click on it to the first button.
+ */
 export const Field = ({
   label,
   hint,
   children,
   className,
+  group = false,
 }: {
   label: string
   hint?: React.ReactNode
   children: React.ReactNode
   className?: string
-}) => (
-  <label className={cx("flex flex-col gap-1.5", className)}>
-    <span className="text-[12px] text-muted">{label}</span>
-    {children}
-    {hint ? <span className="text-[12px] text-faint">{hint}</span> : null}
-  </label>
-)
+  group?: boolean
+}) => {
+  const Tag = group ? "div" : "label"
+  return (
+    <Tag className={cx("flex flex-col gap-1.5", className)} {...(group ? { role: "group", "aria-label": label } : {})}>
+      <span className="text-[12px] text-muted">{label}</span>
+      {children}
+      {hint ? <span className="text-[12px] text-faint">{hint}</span> : null}
+    </Tag>
+  )
+}
 
 export type Option<T extends string> = { value: T; label: string; hint?: string }
 

@@ -1,3 +1,5 @@
+import { capitalize } from "./text"
+
 // Calendar helpers on plain ISO strings. Days are `YYYY-MM-DD`, months are `YYYY-MM`.
 // Everything is computed in UTC on purpose: the strings already carry the user's local date.
 
@@ -6,8 +8,23 @@ export type Month = string
 
 const pad = (n: number, width = 2) => String(n).padStart(width, "0")
 
-export const isDay = (value: string): boolean => /^\d{4}-\d{2}-\d{2}$/.test(value)
-export const isMonth = (value: string): boolean => /^\d{4}-\d{2}$/.test(value)
+// Years are bounded: a budget walks every month between its first and last transaction, so a
+// typo like 0201 or 9999 would mean thousands of months computed on each page.
+const MIN_YEAR = 1900
+const MAX_YEAR = 2199
+
+export const isMonth = (value: string): boolean => {
+  if (!/^\d{4}-\d{2}$/.test(value)) return false
+  const y = Number(value.slice(0, 4))
+  const m = Number(value.slice(5, 7))
+  return y >= MIN_YEAR && y <= MAX_YEAR && m >= 1 && m <= 12
+}
+
+export const isDay = (value: string): boolean => {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value) || !isMonth(value.slice(0, 7))) return false
+  const d = Number(value.slice(8, 10))
+  return d >= 1 && d <= daysInMonth(value.slice(0, 7))
+}
 
 export const monthOf = (day: Day): Month => day.slice(0, 7)
 
@@ -35,7 +52,8 @@ export const compareMonths = (a: Month, b: Month): number => (a < b ? -1 : a > b
 /** Inclusive list of months from `from` to `to`. */
 export const monthRange = (from: Month, to: Month): Month[] => {
   const out: Month[] = []
-  for (let m = from; m <= to; m = addMonths(m, 1)) out.push(m)
+  // Bounded by the valid years, so a malformed month can never loop forever.
+  for (let m = from; m <= to && out.length <= (MAX_YEAR - MIN_YEAR + 1) * 12; m = addMonths(m, 1)) out.push(m)
   return out
 }
 
@@ -93,8 +111,6 @@ const MONTHS_LONG = [
   "décembre",
 ]
 const MONTHS_SHORT = ["janv.", "févr.", "mars", "avr.", "mai", "juin", "juil.", "août", "sept.", "oct.", "nov.", "déc."]
-
-const capitalize = (s: string) => s.charAt(0).toUpperCase() + s.slice(1)
 
 /** "Octobre 2026" */
 export const formatMonthLong = (month: Month): string =>

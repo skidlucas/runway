@@ -110,7 +110,7 @@ function SidebarLink({ item, active }: { item: NavItem; active: boolean }) {
 function SavedViews() {
   const views = useQuery(q.savedViews())
   const search = useRouterState({ select: (s) => s.location.searchStr })
-  const remove = useAction((id: string) => deleteView({ data: { id } }), { success: "Vue supprimée" })
+  const remove = useAction((id: string) => deleteView({ data: { id } }), { success: "Vue supprimée", invalidates: ["savedViews"] })
   if (!views.data?.length) return null
   return (
     <div className="flex flex-col gap-px max-[1100px]:hidden">

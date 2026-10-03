@@ -9,6 +9,7 @@ import { setTransactionsCategory } from "~/server/fns/core"
 import { suggestCategories } from "~/server/fns/insights"
 import type { CategorySuggestion } from "~/server/services/categorize"
 import type { TxRow } from "~/server/services/transactions"
+import { count } from "~/domain/text"
 
 const CONFIDENT = 0.8
 
@@ -113,7 +114,7 @@ export function SuggestionsBar({ s }: { s: ReturnType<typeof useCategorySuggesti
     <div className="flex flex-wrap items-center gap-2 border-b border-line bg-accent-soft px-5 py-2">
       <Sparkles size={13} className="text-accent" />
       <span>
-        {s.pending.length} suggestion{s.pending.length > 1 ? "s" : ""}
+        {count(s.pending.length, "suggestion")}
         <span className="text-muted"> · relis-les dans la colonne Catégorie</span>
       </span>
       <Button

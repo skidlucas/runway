@@ -66,7 +66,7 @@ describe("Runway backup", () => {
     await source.run(Wealth.use((w) => w.addValuation({ assetId: watch, date: "2026-01-15", amount: 9_900_00 })))
 
     const meta = await source.run(ImportExport.use((s) => s.exportMeta))
-    const transactions = await source.run(ImportExport.use((s) => s.exportTransactions(0, 20_000)))
+    const transactions = await source.run(ImportExport.use((s) => s.exportTransactions(null, 20_000)))
     backup = { ...meta, format: "runway-backup", transactions }
   })
   afterAll(async () => {

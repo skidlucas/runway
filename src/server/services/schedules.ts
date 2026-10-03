@@ -1,4 +1,4 @@
-import { asc, eq } from "drizzle-orm"
+import { and, asc, eq, lte } from "drizzle-orm"
 import { Context, Effect, Layer } from "effect"
 import { addDays, addMonths, type Day, diffDays, isDay } from "~/domain/dates"
 import { describeRecurrence, nextOnOrAfter, occurrencesBetween, type Recurrence } from "~/domain/recurrence"
@@ -44,6 +44,8 @@ export type ScheduleInput = {
 
 export type Occurrence = {
   scheduleId: string
+  /** Set for a transfer schedule: the account on the other side. */
+  transferAccountId: string | null
   date: Day
   amount: number
   name: string
@@ -73,7 +75,7 @@ export class Schedules extends Context.Service<
      * transaction already entered or imported (same payee and account, close amount
      * and date), so "upcoming" never lists something already paid.
      */
-    readonly sync: Effect.Effect<{ posted: number; matched: number }, DbError | Invalid | NotFound>
+    readonly sync: Effect.Effect<{ posted: number; matched: number }, DbError>
     readonly suggestions: Effect.Effect<RecurringSuggestion[], DbError>
   }
 >()("runway/server/services/Schedules") {
@@ -162,24 +164,31 @@ export class Schedules extends Context.Service<
         return Effect.void
       }
 
-      const resolvePayeeId = Effect.fn("Schedules.resolvePayeeId")(function* (payee: TxPayeeInput) {
+      const resolvePayeeId = Effect.fn("Schedules.resolvePayeeId")(function* (payee: TxPayeeInput, accountId: string) {
         switch (payee.kind) {
           case "none":
             return null
-          case "id":
+          case "id": {
+            const found = yield* db.use((_, d1) =>
+              d1.prepare("SELECT transfer_account_id AS t FROM payees WHERE id = ?").bind(payee.id).first<{ t: string | null }>(),
+            )
+            if (!found) return yield* new NotFound({ entity: "Bénéficiaire", id: payee.id })
+            if (found.t === accountId) return yield* new Invalid({ message: "Un virement doit viser un autre compte" })
             return payee.id
+          }
           case "name": {
             const ids = yield* payeesService.resolveNames([payee.name])
             return ids.get(payee.name) ?? null
           }
           case "transfer":
+            if (payee.accountId === accountId) return yield* new Invalid({ message: "Un virement doit viser un autre compte" })
             return yield* transactionsService.transferPayee(payee.accountId)
         }
       })
 
       const create = Effect.fn("Schedules.create")(function* (input: ScheduleInput) {
         yield* validate(input)
-        const payeeId = yield* resolvePayeeId(input.payee)
+        const payeeId = yield* resolvePayeeId(input.payee, input.accountId)
         const id = newId()
         yield* db.use((orm) =>
           orm.insert(schedules).values({
@@ -207,19 +216,18 @@ export class Schedules extends Context.Service<
       const update = Effect.fn("Schedules.update")(function* (id: string, input: ScheduleInput & { active?: boolean }) {
         yield* validate(input)
         const current = yield* find(id)
-        const payeeId = yield* resolvePayeeId(input.payee)
+        const payeeId = yield* resolvePayeeId(input.payee, input.accountId)
         const today = yield* settings.today
-        const timingChanged =
-          current.startDate !== input.startDate ||
-          JSON.stringify(current.recurrence) !== JSON.stringify(input.recurrence) ||
-          current.endDate !== (input.endDate ?? null)
-        // A new rhythm restarts from the first occurrence that is not in the past.
-        const nextDate = timingChanged
-          ? (nextOnOrAfter(
-              { startDate: input.startDate, endDate: input.endDate ?? null, recurrence: input.recurrence },
-              input.startDate > today ? input.startDate : today,
-            ) ?? input.startDate)
-          : current.nextDate
+        const rhythmChanged =
+          current.startDate !== input.startDate || JSON.stringify(current.recurrence) !== JSON.stringify(input.recurrence)
+        const next = { startDate: input.startDate, endDate: input.endDate ?? null, recurrence: input.recurrence }
+        // A new rhythm restarts from the first occurrence that is not in the past. Otherwise the
+        // schedule keeps its place, so an overdue occurrence is neither skipped nor booked twice;
+        // only a new end date can stop it.
+        const nextDate = rhythmChanged
+          ? nextOnOrAfter(next, input.startDate > today ? input.startDate : today)
+          : nextOnOrAfter(next, current.nextDate)
+        const ended = nextDate === null
         yield* db.use((orm) =>
           orm
             .update(schedules)
@@ -232,9 +240,9 @@ export class Schedules extends Context.Service<
               recurrence: input.recurrence,
               startDate: input.startDate,
               endDate: input.endDate ?? null,
-              nextDate,
+              nextDate: nextDate ?? current.nextDate,
               autoPost: input.autoPost,
-              ...(input.active === undefined ? {} : { active: input.active }),
+              ...(ended ? { active: false } : input.active === undefined ? {} : { active: input.active }),
             })
             .where(eq(schedules.id, id)),
         )
@@ -250,47 +258,71 @@ export class Schedules extends Context.Service<
           })
           .pipe(Effect.asVoid)
 
-      const advance = (row: Row) => {
+      /**
+       * Moves the schedule past its current occurrence, only if nobody did it meanwhile
+       * (another tab, a second sync). Returns the schedule as it now stands, or null when
+       * the occurrence was already taken: the caller must then not book it.
+       */
+      const claim = Effect.fn("Schedules.claim")(function* (row: Row) {
         const next = nextOnOrAfter(timing(row), addDays(row.nextDate, 1))
-        return next === null
-          ? db.use((orm) => orm.update(schedules).set({ active: false }).where(eq(schedules.id, row.id)))
-          : db.use((orm) => orm.update(schedules).set({ nextDate: next }).where(eq(schedules.id, row.id)))
-      }
+        const result = yield* db.use((_, d1) =>
+          d1
+            .prepare("UPDATE schedules SET next_date = ?, active = ? WHERE id = ? AND next_date = ? AND active = 1")
+            .bind(next ?? row.nextDate, next === null ? 0 : 1, row.id, row.nextDate)
+            .run(),
+        )
+        if (result.meta.changes !== 1) return null
+        const claimed: Row = { ...row, nextDate: next ?? row.nextDate, active: next !== null }
+        return claimed
+      })
+
+      const release = (row: Row, claimed: Row) =>
+        db.use((_, d1) =>
+          d1
+            .prepare("UPDATE schedules SET next_date = ?, active = 1 WHERE id = ? AND next_date = ? AND active = ?")
+            .bind(row.nextDate, row.id, claimed.nextDate, claimed.active ? 1 : 0)
+            .run(),
+        )
 
       const skip = Effect.fn("Schedules.skip")(function* (id: string) {
         const row = yield* find(id)
-        yield* advance(row)
+        if (row.active) yield* claim(row)
       })
 
-      const postRow = Effect.fn("Schedules.postRow")(function* (row: Row, date: Day) {
-        const payee = row.payeeId
-          ? yield* db.use((_, d1) =>
-              d1.prepare("SELECT transfer_account_id AS t FROM payees WHERE id = ?").bind(row.payeeId).first<{ t: string | null }>(),
-            )
-          : null
-        const payeeInput: TxPayeeInput = !row.payeeId
-          ? { kind: "none" }
-          : payee?.t
-            ? { kind: "transfer", accountId: payee.t }
-            : { kind: "id", id: row.payeeId }
-        const txId = yield* transactionsService.create({
-          accountId: row.accountId,
-          date,
-          amount: row.amount,
-          payee: payeeInput,
-          categoryId: row.categoryId,
-          notes: row.name,
-          scheduleId: row.id,
-        })
-        yield* advance(row)
-        return txId
+      const payeeInputOf = Effect.fn("Schedules.payeeInputOf")(function* (row: Row) {
+        if (!row.payeeId) return { kind: "none" } satisfies TxPayeeInput
+        const payee = yield* db.use((_, d1) =>
+          d1.prepare("SELECT transfer_account_id AS t FROM payees WHERE id = ?").bind(row.payeeId).first<{ t: string | null }>(),
+        )
+        return (payee?.t ? { kind: "transfer", accountId: payee.t } : { kind: "id", id: row.payeeId }) satisfies TxPayeeInput
+      })
+
+      /** Books the current occurrence of `row`. Null when it was already booked or skipped. */
+      const postRow = Effect.fn("Schedules.postRow")(function* (row: Row, date: Day, payee: TxPayeeInput) {
+        const claimed = yield* claim(row)
+        if (!claimed) return null
+        const txId = yield* transactionsService
+          .create({
+            accountId: row.accountId,
+            date,
+            amount: row.amount,
+            payee,
+            categoryId: row.categoryId,
+            notes: row.name,
+            scheduleId: row.id,
+          })
+          .pipe(Effect.onError(() => release(row, claimed).pipe(Effect.ignore)))
+        return { txId, row: claimed }
       })
 
       const post = Effect.fn("Schedules.post")(function* (id: string, date?: Day) {
+        if (date !== undefined && !isDay(date)) return yield* new Invalid({ message: "Date invalide" })
         const row = yield* find(id)
         if (!row.active) return yield* new Invalid({ message: "Cette échéance est terminée" })
         const today = yield* settings.today
-        return yield* postRow(row, date ?? (row.nextDate <= today ? row.nextDate : today))
+        const posted = yield* postRow(row, date ?? (row.nextDate <= today ? row.nextDate : today), yield* payeeInputOf(row))
+        if (!posted) return yield* new Invalid({ message: "Cette échéance vient déjà d'être passée" })
+        return posted.txId
       })
 
       const occurrences = (from: Day, to: Day) =>
@@ -298,7 +330,7 @@ export class Schedules extends Context.Service<
           .use(async (_, d1) => {
             const { results } = await d1
               .prepare(
-                `SELECT s.*, COALESCE(s.name, pa.name, p.name) AS label
+                `SELECT s.*, COALESCE(s.name, pa.name, p.name) AS label, p.transfer_account_id
                  FROM schedules s
                  LEFT JOIN payees p ON p.id = s.payee_id
                  LEFT JOIN accounts pa ON pa.id = p.transfer_account_id
@@ -308,6 +340,7 @@ export class Schedules extends Context.Service<
               .all<{
                 id: string
                 label: string | null
+                transfer_account_id: string | null
                 account_id: string
                 category_id: string | null
                 amount: number
@@ -327,6 +360,7 @@ export class Schedules extends Context.Service<
                 const overdue = r.next_date < from ? [r.next_date] : []
                 return [...overdue, ...occurrencesBetween(t, start, to)].map((date) => ({
                   scheduleId: r.id,
+                  transferAccountId: r.transfer_account_id,
                   date: date < from ? from : date,
                   amount: r.amount,
                   name: r.label ?? "Échéance",
@@ -337,48 +371,72 @@ export class Schedules extends Context.Service<
             ),
           )
 
+      // Bounds the work of one request (Workers cap queries per invocation): a long absence is
+      // caught up over the next syncs.
+      const MAX_POSTS_PER_SYNC = 40
+
+      const syncOne = Effect.fn("Schedules.syncOne")(function* (original: Row, today: Day, budget: { posts: number }) {
+        let row = original
+        let posted = 0
+        let matched = 0
+        if (row.autoPost) {
+          const payee = yield* payeeInputOf(row)
+          while (row.active && row.nextDate <= today && budget.posts < MAX_POSTS_PER_SYNC) {
+            budget.posts++
+            const done = yield* postRow(row, row.nextDate, payee)
+            if (!done) break
+            posted++
+            row = done.row
+          }
+          return { posted, matched }
+        }
+        if (!row.payeeId) return { posted, matched }
+        for (let i = 0; i < 12 && row.active && row.nextDate <= addDays(today, 5); i++) {
+          const tolerance = Math.max(Math.round(Math.abs(row.amount) * 0.1), 100)
+          const match = yield* db.use((_, d1) =>
+            d1
+              .prepare(
+                `SELECT id FROM transactions
+                 WHERE payee_id = ? AND account_id = ? AND schedule_id IS NULL AND parent_id IS NULL
+                   AND ABS(amount - ?) <= ? AND date BETWEEN ? AND ?
+                 ORDER BY ABS(julianday(date) - julianday(?)) LIMIT 1`,
+              )
+              .bind(row.payeeId, row.accountId, row.amount, tolerance, addDays(row.nextDate, -6), addDays(row.nextDate, 6), row.nextDate)
+              .first<{ id: string }>(),
+          )
+          if (!match) break
+          const claimed = yield* claim(row)
+          if (!claimed) break
+          yield* db.use((_, d1) =>
+            d1.prepare("UPDATE transactions SET schedule_id = ? WHERE id = ? AND schedule_id IS NULL").bind(row.id, match.id).run(),
+          )
+          matched++
+          row = claimed
+        }
+        return { posted, matched }
+      })
+
       const sync = Effect.gen(function* () {
         const today = yield* settings.today
         const due = yield* db.use((orm) =>
-          orm.select().from(schedules).where(eq(schedules.active, true)).orderBy(asc(schedules.nextDate)),
+          orm
+            .select()
+            .from(schedules)
+            .where(and(eq(schedules.active, true), lte(schedules.nextDate, addDays(today, 5))))
+            .orderBy(asc(schedules.nextDate)),
         )
+        const budget = { posts: 0 }
         let posted = 0
         let matched = 0
-        for (const original of due) {
-          let row = original
-          if (row.autoPost) {
-            // Book every missed occurrence, bounded in case of a very old start date.
-            for (let i = 0; i < 36 && row.active && row.nextDate <= today; i++) {
-              yield* postRow(row, row.nextDate)
-              posted++
-              const refreshed = yield* db.use((orm) => orm.select().from(schedules).where(eq(schedules.id, row.id)).get())
-              if (!refreshed) break
-              row = refreshed
-            }
-            continue
-          }
-          if (row.nextDate > addDays(today, 5) || !row.payeeId) continue
-          for (let i = 0; i < 12 && row.nextDate <= addDays(today, 5); i++) {
-            const tolerance = Math.max(Math.round(Math.abs(row.amount) * 0.1), 100)
-            const match = yield* db.use((_, d1) =>
-              d1
-                .prepare(
-                  `SELECT id FROM transactions
-                   WHERE payee_id = ? AND account_id = ? AND schedule_id IS NULL AND parent_id IS NULL
-                     AND ABS(amount - ?) <= ? AND date BETWEEN ? AND ?
-                   ORDER BY ABS(julianday(date) - julianday(?)) LIMIT 1`,
-                )
-                .bind(row.payeeId, row.accountId, row.amount, tolerance, addDays(row.nextDate, -6), addDays(row.nextDate, 6), row.nextDate)
-                .first<{ id: string }>(),
-            )
-            if (!match) break
-            yield* db.use((_, d1) => d1.prepare("UPDATE transactions SET schedule_id = ? WHERE id = ?").bind(row.id, match.id).run())
-            yield* advance(row)
-            matched++
-            const refreshed = yield* db.use((orm) => orm.select().from(schedules).where(eq(schedules.id, row.id)).get())
-            if (!refreshed || !refreshed.active) break
-            row = refreshed
-          }
+        for (const row of due) {
+          // One broken schedule (a deleted account, a transfer to itself) must not block the others.
+          const result = yield* syncOne(row, today, budget).pipe(
+            Effect.catch((error) =>
+              Effect.logWarning("Échéance ignorée", { id: row.id, error }).pipe(Effect.as({ posted: 0, matched: 0 })),
+            ),
+          )
+          posted += result.posted
+          matched += result.matched
         }
         return { posted, matched }
       })
@@ -389,10 +447,19 @@ export class Schedules extends Context.Service<
         const history = yield* db.use(async (_, d1) => {
           const { results } = await d1
             .prepare(
-              `SELECT t.payee_id AS payeeId, p.name AS payeeName, t.date, t.amount, t.category_id AS categoryId,
+              // Only (payee, account, direction) groups seen at least 3 times can be recurring:
+              // the rest of the history never leaves SQLite.
+              `WITH g AS (
+                 SELECT payee_id, account_id, amount < 0 AS outflow FROM transactions
+                 WHERE date >= ?1 AND date <= ?2 AND parent_id IS NULL AND starting_balance = 0 AND payee_id IS NOT NULL
+                 GROUP BY 1, 2, 3 HAVING COUNT(*) >= 3
+               )
+               SELECT t.payee_id AS payeeId, p.name AS payeeName, t.date, t.amount, t.category_id AS categoryId,
                       t.account_id AS accountId
-               FROM transactions t JOIN payees p ON p.id = t.payee_id
-               WHERE t.date >= ? AND t.date <= ? AND t.parent_id IS NULL AND p.transfer_account_id IS NULL
+               FROM transactions t
+               JOIN g ON g.payee_id = t.payee_id AND g.account_id = t.account_id AND g.outflow = (t.amount < 0)
+               JOIN payees p ON p.id = t.payee_id
+               WHERE t.date >= ?1 AND t.date <= ?2 AND t.parent_id IS NULL AND p.transfer_account_id IS NULL
                  AND t.starting_balance = 0`,
             )
             .bind(since, today)

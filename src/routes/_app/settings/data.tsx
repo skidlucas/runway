@@ -7,6 +7,7 @@ import { PageHeader } from "~/components/shell"
 import { toast, toastError } from "~/components/toast"
 import { Button, Checkbox, cx, Dialog, Field, Input, Money, ProgressBar, Segmented, Select, Switch } from "~/components/ui"
 import { formatDayShort } from "~/domain/dates"
+import { count, plural } from "~/domain/text"
 import { parseActual, unzipActual } from "~/lib/actual/parse"
 import type { ImportBundle } from "~/lib/import-bundle"
 import { chunkFamilies, type ImportProgress, runBundleImport } from "~/lib/import-client"
@@ -32,12 +33,16 @@ import {
   seedDemo,
   wipeAllData,
 } from "~/server/fns/data"
-import type { ExportTransaction } from "~/server/services/import-export"
+import type { ExportCursor, ExportTransaction } from "~/server/services/import-export"
+import { amountInput } from "~/domain/money"
 
 export const Route = createFileRoute("/_app/settings/data")({ component: DataSettings })
 
 const LAST_EXPORT_KEY = "runway-last-export"
 const fmt = new Intl.NumberFormat("fr-FR")
+
+const importedMessage = (inserted: number, duplicates: number) =>
+  `${count(inserted, "opération")} ${plural(inserted, "importée")}${duplicates ? ` · ${count(duplicates, "doublon")} ${plural(duplicates, "ignoré")}` : ""}`
 
 type Pending =
   | { kind: "bundle"; fileName: string; bundle: ImportBundle }
@@ -190,8 +195,14 @@ function BundleImportDialog({ fileName, bundle, onClose }: { fileName: string; b
       }))
     ;(async () => {
       let total = 0
-      for (let i = 0; i < probes.length; i += 10_000) {
-        total += await countDuplicates({ data: { probes: probes.slice(i, i + 10_000) } })
+      // By date, so each call reads a narrow slice of history, and never cutting a day in two,
+      // so a duplicate is never counted by two calls.
+      probes.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0))
+      for (let start = 0; start < probes.length; ) {
+        let end = Math.min(start + 10_000, probes.length)
+        while (end < probes.length && probes[end]!.date === probes[end - 1]!.date) end++
+        total += await countDuplicates({ data: { probes: probes.slice(start, end) } })
+        start = end
       }
       if (!cancelled) setDuplicates(total)
     })().catch(() => !cancelled && setDuplicates(0))
@@ -203,6 +214,7 @@ function BundleImportDialog({ fileName, bundle, onClose }: { fileName: string; b
   const toImport = include.transactions ? Math.max(0, topLevel - (mode === "merge" ? (duplicates ?? 0) : 0)) : 0
 
   const run = async () => {
+    if (mode === "replace" && !window.confirm("Effacer toutes les données actuelles avant l'import ? C'est irréversible.")) return
     setRunning(true)
     try {
       if (mode === "replace") await wipeAllData({ data: { confirm: "SUPPRIMER" } })
@@ -224,7 +236,7 @@ function BundleImportDialog({ fileName, bundle, onClose }: { fileName: string; b
       )
       if (include.extras && bundle.extras) await importExtras({ data: { extras: bundle.extras, maps: result.maps } })
       await client.invalidateQueries()
-      toast(`${fmt.format(result.inserted)} opérations importées${result.duplicates ? ` · ${fmt.format(result.duplicates)} doublons ignorés` : ""}`)
+      toast(importedMessage(result.inserted, result.duplicates))
       onClose()
     } catch (error) {
       toastError(error)
@@ -246,7 +258,7 @@ function BundleImportDialog({ fileName, bundle, onClose }: { fileName: string; b
           {
             key: "extras" as const,
             label: "Patrimoine et vues enregistrées",
-            count: `${fmt.format(bundle.extras.assets.length)} bien${bundle.extras.assets.length > 1 ? "s" : ""} · ${fmt.format(bundle.extras.savedViews.length)} vue${bundle.extras.savedViews.length > 1 ? "s" : ""}`,
+            count: `${count(bundle.extras.assets.length, "bien")} · ${count(bundle.extras.savedViews.length, "vue")}`,
           },
         ]
       : []),
@@ -270,7 +282,7 @@ function BundleImportDialog({ fileName, bundle, onClose }: { fileName: string; b
               Annuler
             </Button>
             <Button variant={mode === "replace" ? "danger" : "primary"} onClick={run} loading={running} data-testid="confirm-import">
-              {include.transactions ? `Importer ${fmt.format(toImport)} opérations` : "Importer"}
+              {include.transactions ? `Importer ${count(toImport, "opération")}` : "Importer"}
             </Button>
           </div>
         </>
@@ -297,8 +309,8 @@ function BundleImportDialog({ fileName, bundle, onClose }: { fileName: string; b
       ) : null}
       {bundle.skipped.rules || bundle.skipped.schedules ? (
         <p className="mx-5 mb-3 text-[12px] text-faint">
-          Non repris : {bundle.skipped.rules} règle(s) et {bundle.skipped.schedules} échéance(s) qui utilisent des options
-          qu'Runway ne gère pas.
+          Non repris : {count(bundle.skipped.rules, "règle")} et {count(bundle.skipped.schedules, "échéance")} qui utilisent des
+          options que Runway ne gère pas.
         </p>
       ) : null}
       <div className="mx-5 mb-4 flex items-center justify-between gap-3">
@@ -374,7 +386,7 @@ function BankImportDialog({ pending, onClose }: { pending: Extract<Pending, { ki
         setProgress({ done, total: rows.length })
       }
       await client.invalidateQueries()
-      toast(`${fmt.format(inserted)} opérations importées${duplicates ? ` · ${fmt.format(duplicates)} doublons ignorés` : ""}`)
+      toast(importedMessage(inserted, duplicates))
       onClose()
     } catch (error) {
       toastError(error)
@@ -392,7 +404,7 @@ function BankImportDialog({ pending, onClose }: { pending: Extract<Pending, { ki
       open
       onOpenChange={(o) => !o && !running && onClose()}
       title={`Importer « ${pending.fileName} »`}
-      description={`Fichier ${pending.format.toUpperCase()} · ${fmt.format(parsed.transactions.length)} opérations lues${parsed.errors ? ` · ${parsed.errors} lignes illisibles` : ""}`}
+      description={`Fichier ${pending.format.toUpperCase()} · ${count(parsed.transactions.length, "opération")} ${plural(parsed.transactions.length, "lue")}${parsed.errors ? ` · ${count(parsed.errors, "ligne")} ${plural(parsed.errors, "illisible")}` : ""}`}
       width={640}
       footer={
         <>
@@ -405,7 +417,7 @@ function BankImportDialog({ pending, onClose }: { pending: Extract<Pending, { ki
               Annuler
             </Button>
             <Button variant="primary" onClick={run} loading={running} disabled={!accountId || parsed.transactions.length === 0} data-testid="confirm-import">
-              Importer {fmt.format(parsed.transactions.length)} opérations
+              Importer {count(parsed.transactions.length, "opération")}
             </Button>
           </div>
         </>
@@ -470,8 +482,12 @@ function BankImportDialog({ pending, onClose }: { pending: Extract<Pending, { ki
 const fetchAll = async () => {
   const meta = await exportMeta()
   const transactions: ExportTransaction[] = []
-  for (let offset = 0; offset < meta.transactionCount; offset += 20_000) {
-    transactions.push(...(await exportTransactions({ data: { offset, limit: 20_000 } })))
+  for (let cursor: ExportCursor | null = null; ; ) {
+    const page = await exportTransactions({ data: { cursor, limit: 20_000 } })
+    transactions.push(...page)
+    const last = page.at(-1)
+    if (page.length < 20_000 || !last) break
+    cursor = { date: last.date, createdAt: last.createdAt, id: last.id }
   }
   return { meta, transactions }
 }
@@ -510,7 +526,7 @@ function ExportSection() {
       ])
       const { zip, skippedRules } = buildActualExport(SQL, new Uint8Array(template), meta, transactions)
       downloadFile(zip as Uint8Array<ArrayBuffer>, `runway-actual-${stamp()}.zip`, "application/zip")
-      toast(skippedRules ? `Export prêt · ${skippedRules} règle(s) sur montant non exportée(s)` : "Export Actual prêt")
+      toast(skippedRules ? `Export prêt · ${count(skippedRules, "règle")} sur montant non ${plural(skippedRules, "exportée")}` : "Export Actual prêt")
       done()
     } catch (error) {
       toastError(error)
@@ -535,7 +551,7 @@ function ExportSection() {
             account.get(t.accountId) ?? "",
             t.payeeId ? (payee.get(t.payeeId) ?? "") : "",
             t.categoryId ? (category.get(t.categoryId) ?? "") : "",
-            (t.amount / 100).toFixed(2).replace(".", ","),
+            amountInput(t.amount),
             t.notes,
             t.cleared ? "oui" : "non",
           ]
@@ -611,7 +627,7 @@ function DangerZone() {
             try {
               const r = await seedDemo()
               await client.invalidateQueries()
-              toast(`Démo chargée : ${r.transactions} opérations`)
+              toast(`Démo chargée : ${count(r.transactions, "opération")}`)
             } catch (error) {
               toastError(error)
             }
@@ -619,7 +635,14 @@ function DangerZone() {
         >
           Charger des données de démonstration
         </Button>
-        <Button variant="danger" icon={<AlertTriangle size={13} />} onClick={() => setOpen(true)}>
+        <Button
+          variant="danger"
+          icon={<AlertTriangle size={13} />}
+          onClick={() => {
+            setConfirm("")
+            setOpen(true)
+          }}
+        >
           Effacer toutes les données
         </Button>
       </div>

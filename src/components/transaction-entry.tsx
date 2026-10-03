@@ -28,7 +28,7 @@ type Draft = {
 function useEntryState(open: boolean, defaults: EntryDefaults) {
   const today = useToday()
   const accounts = useQuery(q.accounts())
-  const payees = useQuery(q.payees())
+  const payees = useQuery({ ...q.payees(), enabled: open })
   const firstAccount = (accounts.data ?? []).find((a) => !a.closed && !a.offBudget) ?? accounts.data?.[0]
   const blank = React.useCallback(
     (): Draft => ({
@@ -100,7 +100,7 @@ export function TransactionEntry({
 
   const canSubmit = signed !== null && signed !== 0 && draft.accountId !== "" && draft.date !== ""
   const submit = () => {
-    if (!canSubmit || signed === null) return
+    if (!canSubmit || signed === null || create.isPending) return
     create.mutate({
       data: {
         accountId: draft.accountId,
@@ -154,7 +154,10 @@ export function TransactionEntry({
           submit()
         }}
         onKeyDown={(e) => {
-          if (e.key === "Enter" && (e.target as HTMLElement).tagName === "INPUT") {
+          const target = e.target as HTMLElement
+          // Pickers render in a portal but their key events still bubble here through React:
+          // Enter there picks an option, it must not submit the form.
+          if (e.key === "Enter" && target.tagName === "INPUT" && !e.nativeEvent.defaultPrevented && !target.closest("[cmdk-root]")) {
             e.preventDefault()
             submit()
           }

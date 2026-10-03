@@ -279,17 +279,22 @@ export class Budget extends Context.Service<
         yield* checkMonth(m)
         if (!Number.isInteger(amount) || amount <= 0) return yield* new Invalid({ message: "Montant invalide" })
         if (from.kind === "toBudget" && to.kind === "toBudget") return
-        const current = yield* db.use(async (_, d1) => {
-          const { results } = await d1
-            .prepare("SELECT category_id AS id, amount FROM budgets WHERE month = ?")
-            .bind(m)
-            .all<{ id: string; amount: number }>()
-          return new Map(results.map((r) => [r.id, r.amount]))
-        })
-        const updates: Array<readonly [string, number]> = []
-        if (from.kind === "category") updates.push([from.id, (current.get(from.id) ?? 0) - amount])
-        if (to.kind === "category") updates.push([to.id, (current.get(to.id) ?? 0) + amount])
-        yield* upsertAmounts(m, updates)
+        if (from.kind === "category" && to.kind === "category" && from.id === to.id) return
+        // Deltas applied by SQLite rather than amounts read then written: two moves at the same
+        // time both count.
+        const deltas: Array<readonly [string, number]> = []
+        if (from.kind === "category") deltas.push([from.id, -amount])
+        if (to.kind === "category") deltas.push([to.id, amount])
+        yield* db.batch(
+          deltas.map(([categoryId, delta]) =>
+            db.d1
+              .prepare(
+                `INSERT INTO budgets (month, category_id, amount) VALUES (?, ?, ?)
+                 ON CONFLICT(month, category_id) DO UPDATE SET amount = budgets.amount + excluded.amount`,
+              )
+              .bind(m, categoryId, delta),
+          ),
+        )
       })
 
       const setBuffered = Effect.fn("Budget.setBuffered")(function* (m: Month, amount: number) {

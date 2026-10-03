@@ -159,49 +159,54 @@ export class Categories extends Context.Service<
         yield* db.use((orm) => orm.update(categories).set(values).where(eq(categories.id, id)))
       })
 
-      // Moves everything that points at the given categories, then deletes them, in one D1 batch.
-      const removeCategories = (ids: ReadonlyArray<string>, reassignTo: string | null) =>
-        db.use(async (orm, d1) => {
-          if (ids.length === 0) return
-          const target = reassignTo ?? null
-          const statements = []
-          for (const id of ids) {
-            statements.push(
-              d1.prepare("UPDATE transactions SET category_id = ? WHERE category_id = ?").bind(target, id),
-              d1.prepare("UPDATE schedules SET category_id = ? WHERE category_id = ?").bind(target, id),
-            )
-            if (target) {
-              // Merge budgeted amounts into the target month by month.
-              statements.push(
-                d1
-                  .prepare(
-                    `INSERT INTO budgets (month, category_id, amount, carryover)
-                     SELECT month, ?, amount, carryover FROM budgets WHERE category_id = ?
-                     ON CONFLICT(month, category_id) DO UPDATE SET amount = budgets.amount + excluded.amount`,
-                  )
-                  .bind(target, id),
+      // Moves everything that points at the given categories, then deletes them, in one D1 batch
+      // with one statement per table whatever the number of categories.
+      const removeCategories = Effect.fn("Categories.removeCategories")(function* (
+        ids: ReadonlyArray<string>,
+        reassignTo: string | null,
+        extra: ReadonlyArray<D1PreparedStatement> = [],
+      ) {
+        if (ids.length === 0) return yield* db.batch(extra)
+        const target = reassignTo ?? null
+        const json = JSON.stringify(ids)
+        const deleted = new Set(ids)
+        const inIds = "IN (SELECT value FROM json_each(?))"
+        const statements: D1PreparedStatement[] = [
+          db.d1.prepare(`UPDATE transactions SET category_id = ? WHERE category_id ${inIds}`).bind(target, json),
+          db.d1.prepare(`UPDATE schedules SET category_id = ? WHERE category_id ${inIds}`).bind(target, json),
+        ]
+        if (target) {
+          // Merge budgeted amounts into the target month by month.
+          statements.push(
+            db.d1
+              .prepare(
+                `INSERT INTO budgets (month, category_id, amount, carryover)
+                 SELECT month, ?, SUM(amount), MAX(carryover) FROM budgets WHERE category_id ${inIds} GROUP BY month
+                 ON CONFLICT(month, category_id) DO UPDATE SET amount = budgets.amount + excluded.amount`,
               )
-            }
-            statements.push(d1.prepare("DELETE FROM budgets WHERE category_id = ?").bind(id))
-            statements.push(d1.prepare("DELETE FROM categories WHERE id = ?").bind(id))
-          }
-          await d1.batch(statements)
-          // Rules that set a deleted category are rewritten or dropped.
-          const allRules = await orm.select().from(rules)
-          for (const rule of allRules) {
-            const touches = rule.actions.some((a) => a.type === "set_category" && ids.includes(a.categoryId))
-            if (!touches) continue
-            const actions = rule.actions.flatMap((a) =>
-              a.type === "set_category" && ids.includes(a.categoryId)
-                ? target
-                  ? [{ ...a, categoryId: target }]
-                  : []
-                : [a],
-            )
-            if (actions.length === 0) await orm.delete(rules).where(eq(rules.id, rule.id))
-            else await orm.update(rules).set({ actions }).where(eq(rules.id, rule.id))
-          }
-        })
+              .bind(target, json),
+          )
+        }
+        // Rules that set a deleted category are rewritten or dropped.
+        const allRules = yield* db.use((orm) => orm.select().from(rules))
+        for (const rule of allRules) {
+          if (!rule.actions.some((a) => a.type === "set_category" && deleted.has(a.categoryId))) continue
+          const actions = rule.actions.flatMap((a) =>
+            a.type === "set_category" && deleted.has(a.categoryId) ? (target ? [{ ...a, categoryId: target }] : []) : [a],
+          )
+          statements.push(
+            actions.length === 0
+              ? db.d1.prepare("DELETE FROM rules WHERE id = ?").bind(rule.id)
+              : db.d1.prepare("UPDATE rules SET actions = ? WHERE id = ?").bind(JSON.stringify(actions), rule.id),
+          )
+        }
+        statements.push(
+          db.d1.prepare(`DELETE FROM budgets WHERE category_id ${inIds}`).bind(json),
+          db.d1.prepare(`DELETE FROM categories WHERE id ${inIds}`).bind(json),
+          ...extra,
+        )
+        yield* db.batch(statements)
+      })
 
       const remove = Effect.fn("Categories.remove")(function* (id: string, reassignTo: string | null) {
         yield* findCategory(id)
@@ -222,8 +227,8 @@ export class Categories extends Context.Service<
         yield* removeCategories(
           cats.map((c) => c.id),
           reassignTo,
+          [db.d1.prepare("DELETE FROM category_groups WHERE id = ?").bind(id)],
         )
-        yield* db.use((orm) => orm.delete(categoryGroups).where(eq(categoryGroups.id, id)))
       })
 
       const reorder = Effect.fn("Categories.reorder")(function* (

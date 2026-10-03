@@ -88,6 +88,8 @@ describe("computeView", () => {
     const view = computeView({ totals, months: 4, rolling: 3, today: "2026-10-10", budget: null })
     expect(view.bars.map((b) => b.average)).toEqual([null, null, 30_000, 30_000])
     expect(view.average).toBe(30_000)
+    // Only September counts for the rest of the month, not the empty months before it.
+    expect(view.projection).toBe(5000 + 20_000)
   })
 
   it("flags a projection above the budget", () => {

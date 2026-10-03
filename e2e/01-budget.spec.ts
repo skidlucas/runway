@@ -17,6 +17,8 @@ test("creates an account with its opening balance", async ({ page }) => {
   await dialog.getByLabel("Solde actuel").fill("1500")
   await dialog.getByRole("button", { name: "Créer" }).click()
   await waitForToast(page, "Compte créé")
+  await expect(page).toHaveURL(/\/accounts\/[^/?]+$/)
+  await open(page, "/accounts")
   await expect(page.getByRole("link", { name: /Compte joint 1 opération 1 500,00 €/ })).toBeVisible()
 })
 

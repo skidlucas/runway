@@ -1,14 +1,13 @@
 import { useQuery } from "@tanstack/react-query"
 import { Plus, Trash2 } from "lucide-react"
 import * as React from "react"
-import { formatMoney, parseAmount } from "~/domain/money"
+import { amountInput, formatMoney, parseAmount } from "~/domain/money"
 import { q, useAction } from "~/lib/queries"
 import { createRule, deleteTransactions, updateTransaction } from "~/server/fns/core"
 import type { TxRow } from "~/server/services/transactions"
 import { AccountSelect, CategoryPicker, PayeePicker, type PayeeValue } from "./pickers"
 import { Button, Checkbox, cx, Dialog, Field, IconButton, Input, Switch } from "./ui"
-
-const toText = (cents: number) => (cents / 100).toFixed(2).replace(".", ",")
+import { count, plural } from "~/domain/text"
 
 export const payeeValueOf = (tx: Pick<TxRow, "payeeId" | "payeeName" | "transferAccountId">): PayeeValue =>
   tx.transferAccountId
@@ -39,14 +38,14 @@ export function TransactionEditor({
   onClose: () => void
 }) {
   const [date, setDate] = React.useState(tx.date)
-  const [amount, setAmount] = React.useState(toText(tx.amount))
+  const [amount, setAmount] = React.useState(amountInput(tx.amount))
   const [payee, setPayee] = React.useState<PayeeValue>(payeeValueOf(tx))
   const [categoryId, setCategoryId] = React.useState<string | null>(tx.categoryId)
   const [accountId, setAccountId] = React.useState(tx.accountId)
   const [notes, setNotes] = React.useState(tx.notes ?? "")
   const [cleared, setCleared] = React.useState(tx.cleared)
   const [lines, setLines] = React.useState<SplitLine[]>(
-    tx.isParent && splits ? splits.map((s) => ({ amount: toText(s.amount), categoryId: s.categoryId, notes: s.notes ?? "" })) : [],
+    tx.isParent && splits ? splits.map((s) => ({ amount: amountInput(s.amount), categoryId: s.categoryId, notes: s.notes ?? "" })) : [],
   )
   const update = useAction(updateTransaction, { success: "Opération modifiée", onSuccess: onClose })
   const remove = useAction(deleteTransactions, { success: "Opération supprimée", onSuccess: onClose })
@@ -67,7 +66,9 @@ export function TransactionEditor({
   const save = () => {
     if (total === null || !splitsValid) return
     const payeeChanged = JSON.stringify(payeeInputOf(payee)) !== JSON.stringify(payeeInputOf(payeeValueOf(tx)))
-    const splitsChanged = tx.isParent || splitting
+    // A split parent opened without its lines must keep them: only send splits the editor knows.
+    const splitsKnown = !tx.isParent || splits !== undefined
+    const splitsChanged = splitsKnown && (tx.isParent || splitting)
     update.mutate({
       data: {
         id: tx.id,
@@ -75,7 +76,7 @@ export function TransactionEditor({
         amount: total,
         ...(payeeChanged ? { payee: payeeInputOf(payee) } : {}),
         ...(accountId !== tx.accountId ? { accountId } : {}),
-        ...(splitting ? {} : { categoryId }),
+        ...(splitting || !splitsKnown ? {} : { categoryId }),
         notes: notes.trim() || null,
         cleared,
         ...(splitsChanged
@@ -123,7 +124,7 @@ export function TransactionEditor({
           <AccountSelect value={accountId} onChange={setAccountId} />
         </Field>
         {!splitting ? (
-          <Field label="Catégorie">
+          <Field label="Catégorie" group>
             <div className="flex gap-2">
               <CategoryPicker value={categoryId} onChange={setCategoryId} className="flex-1" />
               {payee.kind !== "transfer" ? (
@@ -180,7 +181,7 @@ export function TransactionEditor({
               size="sm"
               variant="ghost"
               icon={<Plus size={13} />}
-              onClick={() => setLines((ls) => [...ls, { amount: toText(remaining), categoryId: null, notes: "" }])}
+              onClick={() => setLines((ls) => [...ls, { amount: amountInput(remaining), categoryId: null, notes: "" }])}
             >
               Ajouter une ligne
             </Button>
@@ -209,7 +210,7 @@ export function RuleFromTransactionDialog({
   const [categoryId, setCategoryId] = React.useState<string | null>(tx.categoryId)
   const [applyNow, setApplyNow] = React.useState(true)
   const create = useAction(createRule, {
-    success: (r) => (r.applied ? `Règle créée · ${r.applied} opération${r.applied > 1 ? "s" : ""} catégorisée${r.applied > 1 ? "s" : ""}` : "Règle créée"),
+    success: (r) => (r.applied ? `Règle créée · ${count(r.applied, "opération")} ${plural(r.applied, "catégorisée")}` : "Règle créée"),
     onSuccess: onClose,
   })
   const categoryName = categories.data?.flatMap((g) => g.categories).find((c) => c.id === categoryId)?.name

@@ -23,8 +23,9 @@ const replaceWith = async (page: Page, file: { name: string; mimeType: string; b
   await page.getByTestId("import-file").setInputFiles(file)
   const dialog = page.getByRole("dialog")
   await dialog.getByRole("radio", { name: "Tout remplacer" }).click()
+  page.once("dialog", (d) => d.accept())
   await dialog.getByTestId("confirm-import").click()
-  await waitForToast(page, /opérations importées/)
+  await waitForToast(page, /importées?/)
 }
 
 test("a JSON backup restores accounts, wealth and saved views", async ({ page }) => {
@@ -42,8 +43,9 @@ test("a JSON backup restores accounts, wealth and saved views", async ({ page })
   await expect(dialog).toContainText("Sauvegarde Runway détectée")
   await expect(dialog).toContainText("Patrimoine et vues enregistrées")
   await dialog.getByRole("radio", { name: "Tout remplacer" }).click()
+  page.once("dialog", (d) => d.accept())
   await dialog.getByTestId("confirm-import").click()
-  await waitForToast(page, /opérations importées/)
+  await waitForToast(page, /importées?/)
 
   expect(await accountBalances(page)).toEqual(balances)
   await open(page, "/wealth")

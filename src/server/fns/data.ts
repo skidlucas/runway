@@ -19,7 +19,7 @@ export const seedDemo = createServerFn({ method: "POST" })
 const RuleCondition = Schema.Struct({
   field: Schema.Literals(["payee", "imported_payee", "notes", "amount", "account"]),
   op: Schema.Literals(["is", "contains", "starts_with", "matches", "gt", "lt", "between"]),
-  value: Schema.Union([Schema.String, Schema.Number, Schema.Tuple([Schema.Number, Schema.Number])]),
+  value: Schema.Union([Schema.String, Schema.Finite, Schema.Tuple([Schema.Finite, Schema.Finite])]),
 })
 const RuleAction = Schema.Union([
   Schema.Struct({ type: Schema.Literal("set_category"), categoryId: Str }),
@@ -31,9 +31,9 @@ const Structure = Schema.Struct({
   source: Schema.Literals(["actual", "runway"]),
   name: Str,
   accounts: Schema.Array(Schema.Struct({ id: Str, name: Str, offBudget: Schema.Boolean, closed: Schema.Boolean, kind: Opt(Str) })),
-  groups: Schema.Array(Schema.Struct({ id: Str, name: Str, isIncome: Schema.Boolean, hidden: Schema.Boolean, sortOrder: Schema.Number })),
+  groups: Schema.Array(Schema.Struct({ id: Str, name: Str, isIncome: Schema.Boolean, hidden: Schema.Boolean, sortOrder: Schema.Finite })),
   categories: Schema.Array(
-    Schema.Struct({ id: Str, groupId: Str, name: Str, isIncome: Schema.Boolean, hidden: Schema.Boolean, sortOrder: Schema.Number }),
+    Schema.Struct({ id: Str, groupId: Str, name: Str, isIncome: Schema.Boolean, hidden: Schema.Boolean, sortOrder: Schema.Finite }),
   ),
   payees: Schema.Array(Schema.Struct({ id: Str, name: Str, transferAccountId: NStr })),
   budgets: Schema.Array(Schema.Struct({ month: Str, categoryId: Str, amount: Schema.Int, carryover: Schema.Boolean })),
@@ -116,11 +116,11 @@ const Extras = Schema.Struct({
       date: Str,
       amount: Schema.Int,
       source: Str,
-      unitPrice: Schema.NullOr(Schema.Number),
+      unitPrice: Schema.NullOr(Schema.Finite),
       automatic: Schema.Boolean,
     }),
   ),
-  savedViews: Schema.Array(Schema.Struct({ id: Str, name: Str, config: InsightQuery, sortOrder: Schema.Number })),
+  savedViews: Schema.Array(Schema.Struct({ id: Str, name: Str, config: InsightQuery, sortOrder: Schema.Finite })),
 })
 const Ids = Schema.Record(Str, Str)
 
@@ -197,5 +197,12 @@ export const exportMeta = createServerFn({ method: "GET" })
 
 export const exportTransactions = createServerFn({ method: "GET" })
   .middleware([authMiddleware])
-  .validator(v(Schema.Struct({ offset: Schema.Int, limit: Schema.Int })))
-  .handler(({ data }) => runApp(ImportExport.use((s) => s.exportTransactions(data.offset, data.limit))))
+  .validator(
+    v(
+      Schema.Struct({
+        cursor: Schema.NullOr(Schema.Struct({ date: Schema.String, createdAt: Schema.String, id: Schema.String })),
+        limit: Schema.Int,
+      }),
+    ),
+  )
+  .handler(({ data }) => runApp(ImportExport.use((s) => s.exportTransactions(data.cursor, data.limit))))

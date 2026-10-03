@@ -1,7 +1,8 @@
 import { env } from "cloudflare:workers"
 import { useSession } from "@tanstack/react-start/server"
 
-type SessionData = { authed?: boolean }
+// `key` ties the cookie to the current password: changing APP_PASSWORD signs every device out.
+type SessionData = { authed?: boolean; key?: string }
 
 export const appSession = () =>
   useSession<SessionData>({
@@ -11,6 +12,13 @@ export const appSession = () =>
     sessionHeader: false,
     cookie: { httpOnly: true, secure: true, sameSite: "lax", path: "/" },
   })
+
+const sha256 = async (text: string) => new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text)))
+
+export const passwordKey = async () =>
+  Array.from((await sha256(`runway-session|${env.APP_PASSWORD ?? ""}`)).slice(0, 12), (b) => b.toString(16).padStart(2, "0")).join("")
+
+export const isAuthed = async (data: SessionData) => data.authed === true && data.key === (await passwordKey())
 
 /** Constant-time comparison so the password cannot be guessed character by character. */
 export const passwordMatches = async (candidate: string) => {

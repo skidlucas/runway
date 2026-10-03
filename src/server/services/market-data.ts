@@ -1,4 +1,4 @@
-import { Context, Effect, Layer } from "effect"
+import { Context, Effect, Layer, Schema } from "effect"
 import { addMonths, type Day, lastDay, type Month } from "~/domain/dates"
 import { ExternalError } from "../errors"
 
@@ -43,7 +43,9 @@ const DVF_MONTHLY = "https://tabular-api.data.gouv.fr/api/resources/03fba98d-885
 const MIN_DVF_SALES = 5
 
 export const makeLiveMarketData = (fetchFn: typeof fetch): MarketData["Service"] => {
-  const getJson = <A>(service: string, url: string) =>
+  // Responses are decoded against the fields we read: an API that changes shape yields an
+  // ExternalError (the asset keeps its last value), never a crash.
+  const getJson = <S extends Schema.Top>(service: string, url: string, schema: S) =>
     Effect.tryPromise({
       try: async () => {
         const response = await fetchFn(url, {
@@ -51,27 +53,37 @@ export const makeLiveMarketData = (fetchFn: typeof fetch): MarketData["Service"]
           signal: AbortSignal.timeout(10_000),
         })
         if (!response.ok) throw new Error(`HTTP ${response.status}`)
-        return (await response.json()) as A
+        return (await response.json()) as unknown
       },
       catch: (cause) =>
         new ExternalError({ service, message: `${service} injoignable (${cause instanceof Error ? cause.message : String(cause)})`, cause }),
-    })
+    }).pipe(
+      Effect.flatMap((body) => Schema.decodeUnknownEffect(schema)(body)),
+      Effect.mapError((error) =>
+        error instanceof ExternalError ? error : new ExternalError({ service, message: `${service} : réponse inattendue`, cause: error }),
+      ),
+    ) as Effect.Effect<S["Type"], ExternalError>
 
   const cryptoPrices = (ids: ReadonlyArray<string>) =>
     ids.length === 0
       ? Effect.succeed(new Map<string, number>())
-      : getJson<Record<string, { eur?: number }>>(
+      : getJson(
           "CoinGecko",
           `https://api.coingecko.com/api/v3/simple/price?ids=${ids.map(encodeURIComponent).join(",")}&vs_currencies=eur`,
+          Schema.Record(Schema.String, Schema.Struct({ eur: Schema.optional(Schema.Number) })),
         ).pipe(
           Effect.map(
             (body) => new Map(Object.entries(body).flatMap(([id, p]) => (typeof p.eur === "number" ? [[id, p.eur] as const] : []))),
           ),
         )
 
-  type Chart = { chart: { result: Array<{ meta: { currency: string; regularMarketPrice: number } }> | null } }
+  const Chart = Schema.Struct({
+    chart: Schema.Struct({
+      result: Schema.NullOr(Schema.Array(Schema.Struct({ meta: Schema.Struct({ currency: Schema.String, regularMarketPrice: Schema.Number }) }))),
+    }),
+  })
   const rawQuote = (symbol: string) =>
-    getJson<Chart>("Yahoo Finance", `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?range=1d&interval=1d`).pipe(
+    getJson("Yahoo Finance", `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?range=1d&interval=1d`, Chart).pipe(
       Effect.flatMap((body) => {
         const meta = body.chart.result?.[0]?.meta
         return meta && typeof meta.regularMarketPrice === "number"
@@ -80,44 +92,47 @@ export const makeLiveMarketData = (fetchFn: typeof fetch): MarketData["Service"]
       }),
     )
 
-  const quotes = Effect.fn("MarketData.quotes")(function* (symbols: ReadonlyArray<string>) {
-    const metas = yield* Effect.forEach(
-      symbols,
-      (s) => rawQuote(s).pipe(Effect.map((m) => [s, m] as const), Effect.option),
+  // London quotes come in pence ("GBp").
+  const currencyOf = (raw: string) => (raw === "GBp" ? { currency: "GBP", factor: 0.01 } : { currency: raw.toUpperCase(), factor: 1 })
+
+  /** Euro value of one unit of each currency; missing when Yahoo has no rate. */
+  const euroRates = (currencies: ReadonlyArray<string>) =>
+    Effect.forEach(
+      [...new Set(currencies)].filter((c) => c !== "EUR"),
+      (c) => rawQuote(`${c}EUR=X`).pipe(Effect.map((fx) => [c, fx.regularMarketPrice] as const), Effect.option),
       { concurrency: 4 },
-    )
+    ).pipe(Effect.map((found) => new Map([["EUR", 1], ...found.flatMap((f) => (f._tag === "Some" ? [f.value] : []))])))
+
+  const quotes = Effect.fn("MarketData.quotes")(function* (symbols: ReadonlyArray<string>) {
+    const metas = (yield* Effect.forEach(symbols, (s) => rawQuote(s).pipe(Effect.map((m) => [s, m] as const), Effect.option), {
+      concurrency: 4,
+    })).flatMap((m) => (m._tag === "Some" ? [m.value] : []))
+    const rates = yield* euroRates(metas.map(([, meta]) => currencyOf(meta.currency).currency))
     const result = new Map<string, number>()
-    const rates = new Map<string, number>([["EUR", 1]])
-    for (const entry of metas) {
-      if (entry._tag === "None") continue
-      const [symbol, meta] = entry.value
-      // London quotes come in pence ("GBp").
-      const [currency, factor] = meta.currency === "GBp" ? ["GBP", 0.01] : [meta.currency.toUpperCase(), 1]
-      if (!rates.has(currency)) {
-        const fx = yield* rawQuote(`${currency}EUR=X`).pipe(Effect.option)
-        if (fx._tag === "Some") rates.set(currency, fx.value.regularMarketPrice)
-      }
+    for (const [symbol, meta] of metas) {
+      const { currency, factor } = currencyOf(meta.currency)
       const rate = rates.get(currency)
       if (rate !== undefined) result.set(symbol, meta.regularMarketPrice * factor * rate)
     }
     return result
   })
 
-  type DvfRow = {
-    annee_mois: string
-    nb_ventes_appartement: number | null
-    med_prix_m2_appartement: number | null
-    nb_ventes_maison: number | null
-    med_prix_m2_maison: number | null
-  }
+  const DvfPage = Schema.Struct({
+    data: Schema.Array(
+      Schema.Struct({
+        annee_mois: Schema.String,
+        nb_ventes_appartement: Schema.NullOr(Schema.Number),
+        med_prix_m2_appartement: Schema.NullOr(Schema.Number),
+        nb_ventes_maison: Schema.NullOr(Schema.Number),
+        med_prix_m2_maison: Schema.NullOr(Schema.Number),
+      }),
+    ),
+  })
 
   // Monthly medians are noisy (a few dozen sales): each point is the sales-weighted average of
   // the medians of the 12 months up to it.
   const dvfSeries = (inseeCode: string, propertyType: "apartment" | "house") =>
-    getJson<{ data: DvfRow[] }>(
-      "DVF",
-      `${DVF_MONTHLY}?code_geo__exact=${encodeURIComponent(inseeCode)}&annee_mois__sort=desc&page_size=24`,
-    ).pipe(
+    getJson("DVF", `${DVF_MONTHLY}?code_geo__exact=${encodeURIComponent(inseeCode)}&annee_mois__sort=desc&page_size=24`, DvfPage).pipe(
       Effect.map(({ data }) => {
         const byMonth = new Map<Month, { n: number; median: number }>()
         for (const row of data) {
@@ -158,55 +173,74 @@ export const makeLiveMarketData = (fetchFn: typeof fetch): MarketData["Service"]
     dvfSeries(inseeCode, propertyType).pipe(Effect.map((series) => series.map((p) => ({ date: lastDay(p.to), price: p.pricePerM2 }))))
 
   const cryptoHistory = (id: string) =>
-    getJson<{ prices: Array<[number, number]> }>(
+    getJson(
       "CoinGecko",
       `https://api.coingecko.com/api/v3/coins/${encodeURIComponent(id)}/market_chart?vs_currency=eur&days=365&interval=daily`,
+      Schema.Struct({ prices: Schema.Array(Schema.Tuple([Schema.Finite, Schema.Number])) }),
     ).pipe(Effect.map((body) => body.prices.map(([t, price]) => ({ date: new Date(t).toISOString().slice(0, 10), price }))))
 
-  type MonthlyChart = {
-    chart: {
-      result: Array<{ meta: { currency: string }; timestamp?: number[]; indicators: { quote: Array<{ close: Array<number | null> }> } }> | null
-    }
-  }
+  const MonthlyChart = Schema.Struct({
+    chart: Schema.Struct({
+      result: Schema.NullOr(
+        Schema.Array(
+          Schema.Struct({
+            meta: Schema.Struct({ currency: Schema.String }),
+            timestamp: Schema.optional(Schema.Array(Schema.Finite)),
+            indicators: Schema.Struct({ quote: Schema.Array(Schema.Struct({ close: Schema.Array(Schema.NullOr(Schema.Number)) })) }),
+          }),
+        ),
+      ),
+    }),
+  })
   const quoteHistory = Effect.fn("MarketData.quoteHistory")(function* (symbol: string) {
-    const body = yield* getJson<MonthlyChart>(
+    const body = yield* getJson(
       "Yahoo Finance",
       `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?range=1y&interval=1mo`,
+      MonthlyChart,
     )
     const result = body.chart.result?.[0]
     if (!result?.timestamp) return []
     // Past prices are converted at today's rate: close enough for a 12-month trend line.
-    const eurNow = (yield* quotes([symbol])).get(symbol)
-    const closeNow = result.indicators.quote[0]?.close.at(-1)
-    if (eurNow === undefined || !closeNow) return []
-    const toEur = eurNow / closeNow
-    return result.timestamp.flatMap((t, i) => {
+    const { currency, factor } = currencyOf(result.meta.currency)
+    const rate = (yield* euroRates([currency])).get(currency)
+    if (rate === undefined) return []
+    const timestamps = result.timestamp
+    return timestamps.flatMap((t, i) => {
       const close = result.indicators.quote[0]?.close[i]
       // Yahoo stamps monthly bars at the start of the month; the close is the month's last price.
-      return close == null ? [] : [{ date: lastDay(new Date(t * 1000).toISOString().slice(0, 7)), price: close * toEur }]
+      return close == null ? [] : [{ date: lastDay(new Date(t * 1000).toISOString().slice(0, 7)), price: close * factor * rate }]
     })
   })
 
   const searchCoins = (query: string) =>
-    getJson<{ coins: Array<{ id: string; name: string; symbol: string }> }>(
+    getJson(
       "CoinGecko",
       `https://api.coingecko.com/api/v3/search?query=${encodeURIComponent(query)}`,
+      Schema.Struct({ coins: Schema.Array(Schema.Struct({ id: Schema.String, name: Schema.String, symbol: Schema.String })) }),
     ).pipe(Effect.map((body) => body.coins.slice(0, 8).map(({ id, name, symbol }) => ({ id, name, symbol }))))
 
   const searchSymbols = (query: string) =>
-    getJson<{ quotes: Array<{ symbol: string; shortname?: string; longname?: string; exchDisp?: string; typeDisp?: string }> }>(
+    getJson(
       "Yahoo Finance",
       `https://query2.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(query)}&quotesCount=8&newsCount=0`,
+      Schema.Struct({
+        quotes: Schema.Array(
+          Schema.Struct({
+            symbol: Schema.optional(Schema.String),
+            shortname: Schema.optional(Schema.String),
+            longname: Schema.optional(Schema.String),
+            exchDisp: Schema.optional(Schema.String),
+            typeDisp: Schema.optional(Schema.String),
+          }),
+        ),
+      }),
     ).pipe(
       Effect.map((body) =>
-        body.quotes
-          .filter((q) => q.symbol)
-          .map((q) => ({
-            symbol: q.symbol,
-            name: q.longname ?? q.shortname ?? q.symbol,
-            exchange: q.exchDisp ?? "",
-            type: q.typeDisp ?? "",
-          })),
+        body.quotes.flatMap(({ symbol, ...q }) =>
+          symbol
+            ? [{ symbol, name: q.longname ?? q.shortname ?? symbol, exchange: q.exchDisp ?? "", type: q.typeDisp ?? "" }]
+            : [],
+        ),
       ),
     )
 
@@ -214,9 +248,10 @@ export const makeLiveMarketData = (fetchFn: typeof fetch): MarketData["Service"]
   const searchCommunes = (query: string) => {
     const q = query.trim()
     const filter = /^\d{5}$/.test(q) ? `codePostal=${q}` : `nom=${encodeURIComponent(q)}`
-    return getJson<Array<{ code: string; nom: string; codesPostaux?: string[] }>>(
+    return getJson(
       "geo.api.gouv.fr",
       `https://geo.api.gouv.fr/communes?${filter}&type=arrondissement-municipal,commune-actuelle&fields=code,nom,codesPostaux&limit=8`,
+      Schema.Array(Schema.Struct({ code: Schema.String, nom: Schema.String, codesPostaux: Schema.optional(Schema.Array(Schema.String)) })),
     ).pipe(Effect.map((rows) => rows.map((r) => ({ code: r.code, name: r.nom, postcode: r.codesPostaux?.[0] ?? null }))))
   }
 

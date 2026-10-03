@@ -4,21 +4,29 @@ import { CommandPalette } from "~/components/command-palette"
 import { AppUi, Fab, Sidebar, TabBar } from "~/components/shell"
 import { TransactionEntry } from "~/components/transaction-entry"
 import { q } from "~/lib/queries"
+import { clientTimeZone, localToday, shortcutBlocked } from "~/lib/hooks"
 import { getAuthState } from "~/server/fns/auth"
+import { syncSchedules } from "~/server/fns/planning"
+
+// Due schedules are booked by an explicit POST once a day per tab, not by the data reads:
+// a read (preload on hover, refetch on focus) must not write.
+let schedulesSyncedOn: string | null = null
 
 export const Route = createFileRoute("/_app")({
   beforeLoad: async () => {
     const { authed } = await getAuthState()
     if (!authed) throw redirect({ to: "/login" })
+    const today = localToday()
+    if (schedulesSyncedOn !== today) {
+      schedulesSyncedOn = today
+      await syncSchedules({ data: { timeZone: clientTimeZone() } }).catch(() => {
+        schedulesSyncedOn = null
+      })
+    }
   },
   loader: ({ context }) => context.queryClient.ensureQueryData(q.accounts()),
   component: AppLayout,
 })
-
-const isTyping = (target: EventTarget | null) => {
-  const el = target as HTMLElement | null
-  return !!el && (el.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(el.tagName))
-}
 
 function AppLayout() {
   const [paletteOpen, setPaletteOpen] = useState(false)
@@ -37,7 +45,7 @@ function AppLayout() {
         setPaletteOpen((o) => !o)
         return
       }
-      if (isTyping(e.target) || e.metaKey || e.ctrlKey || e.altKey) return
+      if (shortcutBlocked(e)) return
       if (e.key === "n" || e.key === "N") {
         e.preventDefault()
         openNewTransaction()

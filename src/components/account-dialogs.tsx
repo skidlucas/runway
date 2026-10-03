@@ -1,5 +1,5 @@
 import * as React from "react"
-import { formatMoney, parseAmount } from "~/domain/money"
+import { amountInput, formatMoney, parseAmount } from "~/domain/money"
 import { localToday } from "~/lib/hooks"
 import { useAction } from "~/lib/queries"
 import { createAccount, reconcileAccount, updateAccount } from "~/server/fns/core"
@@ -22,10 +22,8 @@ export function CreateAccountDialog({ onClose, onCreated }: { onClose: () => voi
   const [date, setDate] = React.useState(localToday())
   const create = useAction(createAccount, {
     success: "Compte créé",
-    onSuccess: (id) => {
-      onCreated?.(id)
-      onClose()
-    },
+    // onCreated usually navigates away; closing as well would navigate back over it.
+    onSuccess: (id) => (onCreated ? onCreated(id) : onClose()),
   })
   const cents = balance.trim() === "" ? 0 : parseAmount(balance)
   return (
@@ -137,7 +135,7 @@ export function EditAccountDialog({ account, onClose }: { account: AccountDto; o
 }
 
 export function ReconcileDialog({ account, onClose }: { account: AccountDto; onClose: () => void }) {
-  const [statement, setStatement] = React.useState((account.clearedBalance / 100).toFixed(2).replace(".", ","))
+  const [statement, setStatement] = React.useState(amountInput(account.clearedBalance))
   const reconcile = useAction(reconcileAccount, {
     success: (r) => (r.adjustment === 0 ? "Compte rapproché" : `Compte rapproché · ajustement de ${formatMoney(r.adjustment)}`),
     onSuccess: onClose,

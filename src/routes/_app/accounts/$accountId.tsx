@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query"
+import { useInfiniteQuery, useQuery } from "@tanstack/react-query"
 import { createFileRoute, useNavigate } from "@tanstack/react-router"
 import {
   CalendarClock,
@@ -33,10 +33,10 @@ import {
   payeeInputOf,
   payeeValueOf,
 } from "~/components/transaction-editor"
-import { Button, Checkbox, cx, EmptyState, IconButton, Input, Menu, Money, SkeletonRows } from "~/components/ui"
+import { Button, Checkbox, cx, Dialog, EmptyState, IconButton, Input, Menu, Money, SkeletonRows } from "~/components/ui"
 import { formatDayLong, formatDayShort, formatMonthLong } from "~/domain/dates"
-import { parseAmount } from "~/domain/money"
-import { useDebounced, useIsMobile, useToday } from "~/lib/hooks"
+import { amountInput, parseAmount } from "~/domain/money"
+import { shortcutBlocked, useDebounced, useIsMobile, useToday } from "~/lib/hooks"
 import { q, useAction } from "~/lib/queries"
 import {
   createTransaction,
@@ -47,7 +47,8 @@ import {
   setTransactionsCleared,
   updateTransaction,
 } from "~/server/fns/core"
-import type { TxRow } from "~/server/services/transactions"
+import type { TxPage, TxRow } from "~/server/services/transactions"
+import { count, plural } from "~/domain/text"
 
 type Search = { categoryId?: string; month?: string; uncategorized?: boolean; q?: string }
 
@@ -62,24 +63,24 @@ export const Route = createFileRoute("/_app/accounts/$accountId")({
   loader: ({ context, params, deps }) =>
     Promise.all([
       context.queryClient.ensureQueryData(q.categories()),
-      context.queryClient.ensureQueryData(
+      context.queryClient.ensureInfiniteQueryData(
         q.transactions({
           ...(params.accountId === "all" ? {} : { accountId: params.accountId }),
           ...(deps.categoryId ? { categoryId: deps.categoryId } : {}),
           ...(deps.month ? { month: deps.month } : {}),
           ...(deps.uncategorized ? { uncategorized: true } : {}),
           ...(deps.q?.trim() ? { search: deps.q.trim() } : {}),
-          limit: PAGE,
         }),
       ),
     ]),
-  component: AccountPage,
+  // Remounting per account drops the search text, the selection and the previous account's rows.
+  component: function AccountRoute() {
+    const { accountId } = Route.useParams()
+    return <AccountPage key={accountId} accountId={accountId} />
+  },
 })
 
-const PAGE = 200
-
-function AccountPage() {
-  const { accountId } = Route.useParams()
+function AccountPage({ accountId }: { accountId: string }) {
   const search = Route.useSearch()
   const navigate = useNavigate({ from: "/accounts/$accountId" })
   const all = accountId === "all"
@@ -88,7 +89,6 @@ function AccountPage() {
   const account = accounts.data?.find((a) => a.id === accountId)
   const [text, setText] = React.useState(search.q ?? "")
   const debounced = useDebounced(text, 250)
-  const [limit, setLimit] = React.useState(PAGE)
   const [selected, setSelected] = React.useState<Set<string>>(new Set())
   const [dialog, setDialog] = React.useState<null | "edit-account" | "reconcile">(null)
   const mobile = useIsMobile()
@@ -101,19 +101,29 @@ function AccountPage() {
     ...(search.month ? { month: search.month } : {}),
     ...(search.uncategorized ? { uncategorized: true } : {}),
     ...(debounced.trim() ? { search: debounced.trim() } : {}),
-    limit,
   }
-  const txs = useQuery(q.transactions(filter))
+  const txs = useInfiniteQuery(q.transactions(filter))
+  const pages = txs.data?.pages
+  const rows = React.useMemo(() => pages?.flatMap((p) => p.rows) ?? [], [pages])
+  const childrenByParent = React.useMemo(() => Object.assign({}, ...(pages ?? []).map((p) => p.children)) as TxPage["children"], [pages])
+  const total = pages?.[0]?.total ?? 0
 
   React.useEffect(() => {
     setSelected(new Set())
-    setLimit(PAGE)
-  }, [accountId, search.categoryId, search.month, search.uncategorized])
+  }, [search.categoryId, search.month, search.uncategorized, debounced])
+
+  // Deleted or filtered-out rows leave the selection.
+  React.useEffect(() => {
+    const visible = new Set(rows.map((r) => r.id))
+    setSelected((prev) => {
+      const kept = new Set([...prev].filter((id) => visible.has(id)))
+      return kept.size === prev.size ? prev : kept
+    })
+  }, [rows])
 
   React.useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      const el = e.target as HTMLElement
-      if (e.key === "/" && !["INPUT", "TEXTAREA", "SELECT"].includes(el.tagName)) {
+      if (e.key === "/" && !shortcutBlocked(e)) {
         e.preventDefault()
         searchRef.current?.focus()
       }
@@ -130,7 +140,6 @@ function AccountPage() {
 
   const categoryName = categories.data?.flatMap((g) => g.categories).find((c) => c.id === search.categoryId)?.name
   const title = all ? "Toutes les opérations" : (account?.name ?? "Compte")
-  const rows = txs.data?.rows ?? []
   const hasFilters = search.categoryId || search.month || search.uncategorized
   const suggestions = useCategorySuggestions(rows)
 
@@ -180,7 +189,7 @@ function AccountPage() {
                       danger: true,
                       icon: <Trash2 size={13} />,
                       onSelect: () => {
-                        if (window.confirm(`Supprimer « ${account.name} » et ses ${account.transactionCount} opérations ?`)) {
+                        if (window.confirm(`Supprimer « ${account.name} »${account.transactionCount === 1 ? " et son opération" : account.transactionCount > 1 ? ` et ses ${count(account.transactionCount, "opération")}` : ""} ?`)) {
                           removeAccount.mutate({ data: { id: account.id } })
                         }
                       },
@@ -220,11 +229,7 @@ function AccountPage() {
           <FilterChip label="À catégoriser" onClear={() => void navigate({ search: { ...search, uncategorized: undefined } })} />
         ) : null}
         <SuggestButton s={suggestions} />
-        {txs.data ? (
-          <span className="ml-auto text-[12px] text-faint max-md:hidden">
-            {txs.data.total} opération{txs.data.total > 1 ? "s" : ""}
-          </span>
-        ) : null}
+        {txs.data ? <span className="ml-auto text-[12px] text-faint max-md:hidden">{count(total, "opération")}</span> : null}
       </div>
       {selected.size > 0 ? (
         <BulkBar ids={[...selected]} rows={rows} onDone={() => setSelected(new Set())} />
@@ -244,23 +249,23 @@ function AccountPage() {
           }
         />
       ) : mobile ? (
-        <MobileList rows={rows} />
+        <MobileList rows={rows} childrenByParent={childrenByParent} />
       ) : (
         <TransactionTable
           rows={rows}
-          childrenByParent={txs.data.children}
+          childrenByParent={childrenByParent}
           showAccount={all}
-          showBalance={txs.data.rows[0]?.balance !== null}
+          showBalance={rows[0]?.balance !== null}
           selected={selected}
           setSelected={setSelected}
           accountId={all ? undefined : accountId}
         />
       )}
       </SuggestionsProvider>
-      {txs.data && txs.data.total > rows.length ? (
+      {txs.hasNextPage ? (
         <div className="flex justify-center py-4">
-          <Button variant="ghost" onClick={() => setLimit((l) => l + PAGE)} loading={txs.isFetching}>
-            Afficher plus ({txs.data.total - rows.length} restantes)
+          <Button variant="ghost" onClick={() => void txs.fetchNextPage()} loading={txs.isFetchingNextPage}>
+            Afficher plus ({count(total - rows.length, "restante")})
           </Button>
         </div>
       ) : null}
@@ -282,11 +287,11 @@ const FilterChip = ({ label, onClear }: { label: string; onClear: () => void }) 
 function BulkBar({ ids, rows, onDone }: { ids: string[]; rows: TxRow[]; onDone: () => void }) {
   const setCategory = useAction(setTransactionsCategory, { success: "Catégorie appliquée", onSuccess: onDone })
   const setCleared = useAction(setTransactionsCleared, { onSuccess: onDone })
-  const remove = useAction(deleteTransactions, { success: `${ids.length} opération(s) supprimée(s)`, onSuccess: onDone })
+  const remove = useAction(deleteTransactions, { success: `${count(ids.length, "opération")} ${plural(ids.length, "supprimée")}`, onSuccess: onDone })
   const allCleared = rows.filter((r) => ids.includes(r.id)).every((r) => r.cleared)
   return (
     <div className="sticky top-12 z-20 flex items-center gap-2 border-b border-line bg-accent-soft px-5 py-2">
-      <span className="font-medium">{ids.length} sélectionnée(s)</span>
+      <span className="font-medium">{count(ids.length, "sélectionnée")}</span>
       <CategoryPicker
         value={null}
         onChange={(categoryId) => setCategory.mutate({ data: { ids, categoryId } })}
@@ -300,7 +305,7 @@ function BulkBar({ ids, rows, onDone }: { ids: string[]; rows: TxRow[]; onDone: 
         size="sm"
         variant="danger"
         icon={<Trash2 size={13} />}
-        onClick={() => window.confirm(`Supprimer ${ids.length} opération(s) ?`) && remove.mutate({ data: { ids } })}
+        onClick={() => window.confirm(`Supprimer ${count(ids.length, "opération")} ?`) && remove.mutate({ data: { ids } })}
       >
         Supprimer
       </Button>
@@ -340,6 +345,27 @@ function TransactionTable({
   )
   const [expanded, setExpanded] = React.useState<Set<string>>(new Set())
   const allSelected = rows.length > 0 && rows.every((r) => selected.has(r.id))
+  const today = useToday()
+  const onSelect = React.useCallback(
+    (id: string, checked: boolean) =>
+      setSelected((s) => {
+        const next = new Set(s)
+        if (checked) next.add(id)
+        else next.delete(id)
+        return next
+      }),
+    [setSelected],
+  )
+  const onToggleExpand = React.useCallback(
+    (id: string) =>
+      setExpanded((s) => {
+        const next = new Set(s)
+        if (next.has(id)) next.delete(id)
+        else next.add(id)
+        return next
+      }),
+    [],
+  )
   return (
     <div role="table" aria-label="Opérations">
       <div role="row" className={cx(columns, "h-[34px] border-b border-line px-5 text-[12px] text-faint")}>
@@ -365,25 +391,12 @@ function TransactionTable({
             showAccount={showAccount}
             showBalance={showBalance && !showAccount}
             selected={selected.has(tx.id)}
-            onSelect={(c) =>
-              setSelected((s) => {
-                const next = new Set(s)
-                if (c) next.add(tx.id)
-                else next.delete(tx.id)
-                return next
-              })
-            }
+            onSelect={onSelect}
             splits={childrenByParent[tx.id]}
             expanded={expanded.has(tx.id)}
-            onToggleExpand={() =>
-              setExpanded((s) => {
-                const next = new Set(s)
-                if (next.has(tx.id)) next.delete(tx.id)
-                else next.add(tx.id)
-                return next
-              })
-            }
+            onToggleExpand={onToggleExpand}
             accountId={accountId}
+            today={today}
           />
           {tx.isParent && expanded.has(tx.id)
             ? (childrenByParent[tx.id] ?? []).map((child) => (
@@ -406,7 +419,9 @@ function TransactionTable({
   )
 }
 
-function TransactionRow({
+// Memoized: a refetch keeps unchanged rows by reference (structural sharing), so only edited
+// rows re-render instead of the whole page with its pickers.
+const TransactionRow = React.memo(function TransactionRow({
   tx,
   columns,
   showAccount,
@@ -417,24 +432,25 @@ function TransactionRow({
   expanded,
   onToggleExpand,
   accountId,
+  today,
 }: {
   tx: TxRow
   columns: string
   showAccount: boolean
   showBalance: boolean
   selected: boolean
-  onSelect: (checked: boolean) => void
+  onSelect: (id: string, checked: boolean) => void
   splits: TxRow[] | undefined
   expanded: boolean
-  onToggleExpand: () => void
+  onToggleExpand: (id: string) => void
   accountId: string | undefined
+  today: string
 }) {
   const [dialog, setDialog] = React.useState<null | "edit" | "rule" | "schedule">(null)
   const update = useAction(updateTransaction)
   const cleared = useAction(setTransactionsCleared)
   const remove = useAction(deleteTransactions, { success: "Opération supprimée" })
   const duplicate = useAction(createTransaction, { success: "Opération dupliquée" })
-  const today = useToday()
   const future = tx.date > today
 
   return (
@@ -448,7 +464,7 @@ function TransactionRow({
         future && "text-muted",
       )}
     >
-      <Checkbox checked={selected} onCheckedChange={onSelect} label="Sélectionner" />
+      <Checkbox checked={selected} onCheckedChange={(c) => onSelect(tx.id, c)} label="Sélectionner" />
       <InlineDate tx={tx} />
       <span className="flex min-w-0 items-center gap-1.5">
         <PayeePicker
@@ -463,7 +479,7 @@ function TransactionRow({
         {tx.notes ? <span className="truncate text-[12px] text-faint">{tx.notes}</span> : null}
       </span>
       {tx.isParent ? (
-        <button type="button" onClick={onToggleExpand} className="flex items-center gap-1 text-muted hover:text-fg">
+        <button type="button" onClick={() => onToggleExpand(tx.id)} className="flex items-center gap-1 text-muted hover:text-fg">
           {expanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
           Ventilée ({splits?.length ?? 0})
         </button>
@@ -491,7 +507,7 @@ function TransactionRow({
       </button>
       <Menu
         trigger={
-          <IconButton label="Actions" size="sm" className="opacity-0 group-hover:opacity-100 data-[state=open]:opacity-100">
+          <IconButton label="Actions" size="sm" className="opacity-0 focus-visible:opacity-100 group-focus-within:opacity-100 group-hover:opacity-100 data-[state=open]:opacity-100">
             <MoreHorizontal size={14} />
           </IconButton>
         }
@@ -541,7 +557,7 @@ function TransactionRow({
       ) : null}
     </div>
   )
-}
+})
 
 function InlineDate({ tx }: { tx: TxRow }) {
   const [editing, setEditing] = React.useState(false)
@@ -620,7 +636,7 @@ function InlineAmount({ tx }: { tx: TxRow }) {
       type="button"
       disabled={tx.isParent}
       onClick={() => {
-        setText((tx.amount / 100).toFixed(2).replace(".", ","))
+        setText(amountInput(tx.amount))
         setEditing(true)
       }}
       className="text-right"
@@ -632,7 +648,7 @@ function InlineAmount({ tx }: { tx: TxRow }) {
 
 // --- Mobile list -----------------------------------------------------------------
 
-function MobileList({ rows }: { rows: TxRow[] }) {
+function MobileList({ rows, childrenByParent }: { rows: TxRow[]; childrenByParent: Record<string, TxRow[]> }) {
   const [editing, setEditing] = React.useState<TxRow | null>(null)
   const [categorizing, setCategorizing] = React.useState<TxRow | null>(null)
   const remove = useAction(deleteTransactions, { success: "Opération supprimée" })
@@ -648,21 +664,24 @@ function MobileList({ rows }: { rows: TxRow[] }) {
             { label: "Supprimer", tone: "danger", run: () => remove.mutate({ data: { ids: [tx.id] } }) },
           ]}
         >
-          <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+          <button type="button" onClick={() => setEditing(tx)} className="flex min-w-0 flex-1 flex-col gap-0.5 text-left">
             <span className="truncate font-medium">{tx.payeeName ?? tx.notes ?? "—"}</span>
             <span className={cx("truncate text-[12px] text-faint", !tx.categoryId && !tx.transferAccountId && !tx.isParent && "text-warning")}>
               {formatDayShort(tx.date)} · {tx.isParent ? "Ventilée" : tx.transferAccountId && !tx.categoryId ? "Virement" : (tx.categoryName ?? "À catégoriser")}
             </span>
-          </div>
+          </button>
           <SuggestionChip tx={tx} compact />
           <Money value={tx.amount} sign="always" colored className="text-[14px]" />
         </SwipeRow>
       ))}
-      {editing ? <TransactionEditor tx={editing} splits={undefined} onClose={() => setEditing(null)} /> : null}
+      {editing ? <TransactionEditor tx={editing} splits={childrenByParent[editing.id]} onClose={() => setEditing(null)} /> : null}
       {categorizing ? (
-        <div className="fixed inset-0 z-50 flex items-end bg-overlay" onClick={() => setCategorizing(null)}>
-          <div className="w-full rounded-t-[12px] bg-elevated p-4" onClick={(e) => e.stopPropagation()}>
-            <p className="mb-2 font-medium">Catégoriser « {categorizing.payeeName} »</p>
+        <Dialog
+          open
+          onOpenChange={(o) => !o && setCategorizing(null)}
+          title={categorizing.payeeName ? `Catégoriser « ${categorizing.payeeName} »` : "Catégoriser l'opération"}
+        >
+          <div className="px-5 py-4">
             <CategoryPicker
               value={categorizing.categoryId}
               autoOpen
@@ -672,7 +691,7 @@ function MobileList({ rows }: { rows: TxRow[] }) {
               }}
             />
           </div>
-        </div>
+        </Dialog>
       ) : null}
     </div>
   )
@@ -708,9 +727,8 @@ function SwipeRow({
           </button>
         ))}
       </div>
+      {/* Not a button itself: it holds the row's own buttons. Keyboard users open the row through the payee button. */}
       <div
-        role="button"
-        tabIndex={0}
         className="relative flex items-center gap-3 bg-bg px-5 py-[11px] transition-transform duration-150"
         style={{ transform: `translateX(${offset}px)` }}
         onTouchStart={(e) => {
@@ -728,8 +746,10 @@ function SwipeRow({
           setOffset((o) => (o < -width / 2 ? -width : 0))
           start.current = null
         }}
-        onClick={() => (offset !== 0 ? setOffset(0) : onOpen())}
-        onKeyDown={(e) => e.key === "Enter" && onOpen()}
+        onClick={(e) => {
+          if (offset !== 0) setOffset(0)
+          else if (!(e.target as HTMLElement).closest("button")) onOpen()
+        }}
       >
         {children}
       </div>

@@ -9,12 +9,13 @@ import { toastError } from "~/components/toast"
 import { formatMonthLong, formatMonthName, formatMonthShort } from "~/domain/dates"
 import type { Finding, FindingTone } from "~/domain/insights"
 import { formatCompact, formatMoney } from "~/domain/money"
-import { normalizeText } from "~/domain/rules"
+import { commandFilter } from "~/components/pickers"
 import { parseInsightSearch, queryToSearch, searchToQuery } from "~/lib/insight-search"
 import { q, useAction } from "~/lib/queries"
 import type { InsightViewConfig } from "~/server/db/schema"
 import { getAiAnalysis, interpretQuestion, saveView } from "~/server/fns/insights"
 import type { AiAnalysis, InsightViewDto } from "~/server/services/insights"
+import { capitalize, count } from "~/domain/text"
 
 export const Route = createFileRoute("/_app/insights")({
   validateSearch: parseInsightSearch,
@@ -37,8 +38,6 @@ const TONE_COLOR: Record<FindingTone, string> = {
 
 const MONTH_OPTIONS = [3, 6, 12, 24] as const
 const ROLLING_OPTIONS = [0, 3, 6, 12] as const
-
-const capitalize = (s: string) => s.charAt(0).toUpperCase() + s.slice(1)
 
 function useQueryNavigation() {
   const navigate = useNavigate()
@@ -175,16 +174,7 @@ function TargetPicker() {
         </button>
       }
     >
-      <Command
-        loop
-        filter={(value, search, keywords) =>
-          normalizeText(search)
-            .split(" ")
-            .every((part) => normalizeText([value, ...(keywords ?? [])].join(" ")).includes(part))
-            ? 1
-            : 0
-        }
-      >
+      <Command loop filter={commandFilter}>
         <Command.Input
           autoFocus
           placeholder="Catégorie, groupe ou bénéficiaire"
@@ -263,6 +253,7 @@ function SaveViewDialog({
   const save = useAction((input: { name: string; config: InsightViewConfig }) => saveView({ data: input }), {
     success: "Vue enregistrée",
     onSuccess: () => onOpenChange(false),
+    invalidates: ["savedViews"],
   })
   return (
     <Dialog
@@ -284,7 +275,7 @@ function SaveViewDialog({
         className="p-5"
         onSubmit={(e) => {
           e.preventDefault()
-          if (name.trim()) save.mutate({ name, config: query })
+          if (name.trim() && !save.isPending) save.mutate({ name, config: query })
         }}
       >
         <Field label="Nom">
@@ -307,7 +298,7 @@ function AskBox() {
       className="relative flex items-center max-md:w-full"
       onSubmit={async (e) => {
         e.preventDefault()
-        if (!question.trim()) return
+        if (!question.trim() || pending) return
         setPending(true)
         setMessage(null)
         try {
@@ -603,7 +594,7 @@ function MobileInsights({ v, findings }: { v: InsightViewDto; findings: Finding[
   const vsAverage = v.average && v.query.rolling > 0 ? v.projection / v.average - 1 : null
   return (
     <div className="flex flex-col pb-8">
-      <div className="px-5 pb-3.5 text-[13px] text-muted">{capitalize(formatMonthName(v.month))} · mis à jour à l'instant</div>
+      <div className="px-5 pb-3.5 text-[13px] text-muted">{capitalize(formatMonthName(v.month))}</div>
       <div className="mx-5 flex flex-col gap-1.5 rounded-[12px] bg-[var(--highlight-card)] p-4 text-[var(--highlight-card-text)]">
         <span className="text-[12px] text-[#8a8f98]">{v.label} · ce mois</span>
         <Money value={v.current} className="text-[28px]" />
@@ -633,7 +624,7 @@ function MobileInsights({ v, findings }: { v: InsightViewDto; findings: Finding[
           <span className="flex min-w-0 flex-col">
             <span className="truncate font-medium">{r.name}</span>
             <span className="text-[12px] text-faint">
-              {r.count} opération{r.count > 1 ? "s" : ""}
+              {count(r.count, "opération")}
             </span>
           </span>
           <span className="num">{formatCompact(r.amount)}</span>

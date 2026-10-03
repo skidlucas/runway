@@ -1,5 +1,5 @@
 import { eq } from "drizzle-orm"
-import { Context, Effect, Layer } from "effect"
+import { Context, Effect, Layer, Result } from "effect"
 import { addMonths, type Day, diffDays, isDay, lastDay, type Month, monthOf, monthRange } from "~/domain/dates"
 import {
   type AllocationSlice,
@@ -105,6 +105,23 @@ const refreshDue = (source: ValuationSource, lastAutomatic: Day | null, today: D
   isAutomatic(source) &&
   (lastAutomatic === null || (source.kind === "real_estate" ? diffDays(lastAutomatic, today) >= DVF_REFRESH_DAYS : lastAutomatic < today))
 
+/** Why an asset's valuation source cannot be used, or null. Also guards restored backups. */
+export const sourceProblem = (type: string, s: ValuationSource): string | null => {
+  const positive = (n: number) => Number.isFinite(n) && n > 0
+  if (type === "loan" && s.kind !== "loan") return "Un emprunt se décrit par son capital, son taux et sa durée."
+  if (s.kind === "loan") {
+    if (type !== "loan") return "Le tableau d'amortissement est réservé aux emprunts."
+    if (!positive(s.principal) || !positive(s.months) || !(Number.isFinite(s.annualRatePct) && s.annualRatePct >= 0) || !isDay(s.startDate)) {
+      return "Renseigne le capital, le taux, la durée et la date de début de l'emprunt."
+    }
+  }
+  if ((s.kind === "crypto" || s.kind === "stock") && !positive(s.quantity)) return "La quantité doit être positive."
+  if (s.kind === "crypto" && s.coinId.trim() === "") return "Choisis une crypto-monnaie."
+  if (s.kind === "stock" && s.symbol.trim() === "") return "Choisis un titre coté."
+  if (s.kind === "real_estate" && (!/^\w{5}$/.test(s.inseeCode) || !positive(s.surface))) return "Choisis une commune et indique la surface."
+  return null
+}
+
 export class Wealth extends Context.Service<
   Wealth,
   {
@@ -185,7 +202,11 @@ export class Wealth extends Context.Service<
         )
 
         const byAsset = new Map<string, ValuationRow[]>()
-        for (const v of valuations) byAsset.set(v.assetId, [...(byAsset.get(v.assetId) ?? []), v])
+        for (const v of valuations) {
+          const own = byAsset.get(v.assetId)
+          if (own) own.push(v)
+          else byAsset.set(v.assetId, [v])
+        }
 
         const items: WealthItem[] = rows.map((a) => {
           const own = byAsset.get(a.id) ?? []
@@ -312,20 +333,8 @@ export class Wealth extends Context.Service<
           if (v && (!Number.isInteger(v.amount) || v.amount < 0)) return fail("Les montants doivent être positifs.")
           if (v?.date && !isDay(v.date)) return fail("Date invalide.")
         }
-        const s = input.source
-        if (input.type === "loan" && s.kind !== "loan") return fail("Un emprunt se décrit par son capital, son taux et sa durée.")
-        if (s.kind === "loan") {
-          if (input.type !== "loan") return fail("Le tableau d'amortissement est réservé aux emprunts.")
-          if (!(s.principal > 0) || !(s.months > 0) || !(s.annualRatePct >= 0) || !isDay(s.startDate)) {
-            return fail("Renseigne le capital, le taux, la durée et la date de début de l'emprunt.")
-          }
-        }
-        if ((s.kind === "crypto" || s.kind === "stock") && !(s.quantity > 0)) return fail("La quantité doit être positive.")
-        if (s.kind === "crypto" && s.coinId.trim() === "") return fail("Choisis une crypto-monnaie.")
-        if (s.kind === "stock" && s.symbol.trim() === "") return fail("Choisis un titre coté.")
-        if (s.kind === "real_estate" && (!/^\w{5}$/.test(s.inseeCode) || !(s.surface > 0))) {
-          return fail("Choisis une commune et indique la surface.")
-        }
+        const problem = sourceProblem(input.type, input.source)
+        if (problem) return fail(problem)
         return Effect.succeed({ ...input, name, subtitle: input.subtitle?.trim() || null, notes: input.notes?.trim() || null })
       }
 
@@ -399,37 +408,39 @@ export class Wealth extends Context.Service<
         const errorMessage = (e: ExternalError) => e.message
 
         const crypto = due.flatMap((a) => (a.source.kind === "crypto" ? [{ asset: a, source: a.source }] : []))
-        if (crypto.length > 0) {
-          const prices = yield* market.cryptoPrices([...new Set(crypto.map((c) => c.source.coinId))]).pipe(Effect.result)
-          for (const { asset, source } of crypto) {
-            const price = prices._tag === "Success" ? prices.success.get(source.coinId) : undefined
-            if (price === undefined) fail(asset, prices._tag === "Failure" ? errorMessage(prices.failure) : "Cours indisponible.")
-            else estimates.push({ assetId: asset.id, amount: Math.round(price * source.quantity * 100), source: "coingecko", unitPrice: price })
-          }
-        }
-
         const stocks = due.flatMap((a) => (a.source.kind === "stock" ? [{ asset: a, source: a.source }] : []))
-        if (stocks.length > 0) {
-          const prices = yield* market.quotes([...new Set(stocks.map((s) => s.source.symbol))]).pipe(Effect.result)
-          for (const { asset, source } of stocks) {
-            const price = prices._tag === "Success" ? prices.success.get(source.symbol) : undefined
-            if (price === undefined) fail(asset, prices._tag === "Failure" ? errorMessage(prices.failure) : `Cours introuvable pour ${source.symbol}.`)
-            else estimates.push({ assetId: asset.id, amount: Math.round(price * source.quantity * 100), source: "yahoo", unitPrice: price })
-          }
-        }
-
         const homes = due.flatMap((a) => (a.source.kind === "real_estate" ? [{ asset: a, source: a.source }] : []))
         const dvfKeys = [...new Set(homes.map((h) => `${h.source.inseeCode}|${h.source.propertyType}`))]
-        const dvf = new Map(
-          yield* Effect.forEach(
-            dvfKeys,
-            (key) => {
-              const [insee, type] = key.split("|") as [string, "apartment" | "house"]
-              return market.dvfPricePerM2(insee, type).pipe(Effect.result, Effect.map((r) => [key, r] as const))
-            },
-            { concurrency: 4 },
-          ),
+        const none = Effect.succeed(Result.succeed(new Map<string, number>()))
+        // The three sources are independent: their timeouts add up when called one after another.
+        const [cryptoPrices, stockPrices, dvfEntries] = yield* Effect.all(
+          [
+            crypto.length ? market.cryptoPrices([...new Set(crypto.map((c) => c.source.coinId))]).pipe(Effect.result) : none,
+            stocks.length ? market.quotes([...new Set(stocks.map((s) => s.source.symbol))]).pipe(Effect.result) : none,
+            Effect.forEach(
+              dvfKeys,
+              (key) => {
+                const [insee, type] = key.split("|") as [string, "apartment" | "house"]
+                return market.dvfPricePerM2(insee, type).pipe(Effect.result, Effect.map((r) => [key, r] as const))
+              },
+              { concurrency: 4 },
+            ),
+          ],
+          { concurrency: "unbounded" },
         )
+
+        for (const { asset, source } of crypto) {
+          const price = cryptoPrices._tag === "Success" ? cryptoPrices.success.get(source.coinId) : undefined
+          if (price === undefined) fail(asset, cryptoPrices._tag === "Failure" ? errorMessage(cryptoPrices.failure) : "Cours indisponible.")
+          else estimates.push({ assetId: asset.id, amount: Math.round(price * source.quantity * 100), source: "coingecko", unitPrice: price })
+        }
+        for (const { asset, source } of stocks) {
+          const price = stockPrices._tag === "Success" ? stockPrices.success.get(source.symbol) : undefined
+          if (price === undefined) {
+            fail(asset, stockPrices._tag === "Failure" ? errorMessage(stockPrices.failure) : `Cours introuvable pour ${source.symbol}.`)
+          } else estimates.push({ assetId: asset.id, amount: Math.round(price * source.quantity * 100), source: "yahoo", unitPrice: price })
+        }
+        const dvf = new Map(dvfEntries)
         for (const { asset, source } of homes) {
           const result = dvf.get(`${source.inseeCode}|${source.propertyType}`)!
           if (result._tag === "Failure") fail(asset, errorMessage(result.failure))
@@ -470,8 +481,9 @@ export class Wealth extends Context.Service<
         const input = yield* validate(raw)
         const id = newId()
         yield* db.use((orm) => orm.insert(assets).values({ id, ...columns(input) }))
-        // Best effort: the asset exists even when the source is unreachable right now.
-        if (isAutomatic(input.source)) yield* refresh({ ids: [id] }).pipe(Effect.ignore)
+        // Best effort: the asset exists even when the source is unreachable right now (refresh
+        // reports source failures in its result; only a database error fails it).
+        if (isAutomatic(input.source)) yield* refresh({ ids: [id] })
         return id
       })
 
@@ -481,7 +493,7 @@ export class Wealth extends Context.Service<
         if (!before) return yield* new NotFound({ entity: "Bien", id })
         yield* db.use((orm) => orm.update(assets).set(columns(input)).where(eq(assets.id, id)))
         if (isAutomatic(input.source) && JSON.stringify(before.source) !== JSON.stringify(input.source)) {
-          yield* refresh({ ids: [id] }).pipe(Effect.ignore)
+          yield* refresh({ ids: [id] })
         }
       })
 

@@ -52,6 +52,9 @@ export const formatPercent = (ratio: number, options: { sign?: boolean; decimals
 
 export const toCents = (euros: number): number => Math.round(euros * 100)
 
+/** Cents as typed in an amount field: "1234,50", no grouping, no currency. */
+export const amountInput = (cents: number): string => (cents / 100).toFixed(2).replace(".", ",")
+
 // --- Parsing ---------------------------------------------------------------
 
 /**

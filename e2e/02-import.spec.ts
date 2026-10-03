@@ -19,6 +19,7 @@ test("replaces everything with an Actual export and reproduces its balances", as
   await expect(dialog).toContainText("Fichier Actual détecté")
   await expect(dialog).toContainText("Fixture Perso")
   await dialog.getByRole("radio", { name: "Tout remplacer" }).click()
+  page.once("dialog", (d) => d.accept())
   await dialog.getByTestId("confirm-import").click()
   await waitForToast(page, "109 opérations importées")
 
@@ -37,9 +38,9 @@ test("a second import in merge mode finds only duplicates", async ({ page }) => 
   await page.getByTestId("import-file").setInputFiles(fixture)
   const dialog = page.getByRole("dialog")
   await expect(dialog).toContainText(/109 opérations existent déjà/)
-  await expect(dialog.getByTestId("confirm-import")).toHaveText("Importer 0 opérations")
+  await expect(dialog.getByTestId("confirm-import")).toHaveText("Importer 0 opération")
   await dialog.getByTestId("confirm-import").click()
-  await waitForToast(page, "0 opérations importées")
+  await waitForToast(page, "0 opération importée")
 })
 
 test("imported rules and schedules show up", async ({ page }) => {

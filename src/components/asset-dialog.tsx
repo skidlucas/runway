@@ -49,7 +49,7 @@ type Draft = {
   rate: string
   years: string
   startDate: string
-  // Manual estimate typed at creation
+  // Manual estimate, recorded as a valuation dated today
   estimate: string
   notes: string
 }
@@ -158,20 +158,18 @@ export function AssetDialog({
   const auto = AUTO_SOURCE[d.type]
   const parsed = toInput(d)
 
-  const addEstimate = useAction(addAssetValuation)
   const save = useAction(
     async () => {
       if ("error" in parsed) throw new Error(parsed.error)
-      if (item) {
-        await updateAsset({ data: { id: item.id, input: parsed.input } })
-        return item.id
-      }
-      const id = await createAsset({ data: parsed.input })
-      if (parsed.estimate !== null) await addEstimate.mutateAsync({ data: { assetId: id, date: localToday(), amount: parsed.estimate } })
+      const id = item
+        ? await updateAsset({ data: { id: item.id, input: parsed.input } }).then(() => item.id)
+        : await createAsset({ data: parsed.input })
+      if (parsed.estimate !== null) await addAssetValuation({ data: { assetId: id, date: localToday(), amount: parsed.estimate } })
       return id
     },
     {
       success: item ? "Bien mis à jour" : "Bien ajouté",
+      invalidates: ["wealth"],
       onSuccess: (id) => {
         onSaved?.(id)
         onClose()

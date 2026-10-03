@@ -4,6 +4,8 @@ import { ChevronRight, Plus } from "lucide-react"
 import { CreateAccountDialog } from "~/components/account-dialogs"
 import { PageHeader } from "~/components/shell"
 import { Button, cx, EmptyState, Money, SkeletonRows } from "~/components/ui"
+import { formatDayLong } from "~/domain/dates"
+import { count } from "~/domain/text"
 import { q } from "~/lib/queries"
 import type { AccountDto } from "~/server/services/accounts"
 
@@ -74,8 +76,8 @@ function AccountsPage() {
                     <span className="flex min-w-0 flex-1 flex-col">
                       <span className={cx("truncate font-medium", a.closed && "text-faint")}>{a.name}</span>
                       <span className="text-[12px] text-faint">
-                        {a.transactionCount} opération{a.transactionCount > 1 ? "s" : ""}
-                        {a.lastReconciledAt ? ` · rapproché le ${a.lastReconciledAt.split("-").reverse().join("/")}` : ""}
+                        {count(a.transactionCount, "opération")}
+                        {a.lastReconciledAt ? ` · rapproché le ${formatDayLong(a.lastReconciledAt)}` : ""}
                       </span>
                     </span>
                     <Money value={a.balance} className={cx("text-[13px]", a.balance < 0 && "text-negative")} />

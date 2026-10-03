@@ -8,7 +8,8 @@ import { useDebounced } from "~/lib/hooks"
 import { q } from "~/lib/queries"
 import { cx, Popover } from "./ui"
 
-const commandFilter = (value: string, search: string, keywords?: string[]) => {
+/** cmdk filter: every word of the search must appear, accents and case ignored. */
+export const commandFilter = (value: string, search: string, keywords?: string[]) => {
   const haystack = normalizeText([value, ...(keywords ?? [])].join(" "))
   return normalizeText(search)
     .split(" ")
@@ -36,9 +37,12 @@ export function CategoryPicker({
   triggerClassName,
   autoOpen,
   variant = "field",
+  exclude,
 }: {
   value: string | null
   onChange: (value: string | null) => void
+  /** Categories that cannot be picked, e.g. the ones being deleted. */
+  exclude?: ReadonlyArray<string>
   /** Available amount per category, shown next to each option. */
   available?: ReadonlyMap<string, number>
   allowNone?: boolean
@@ -93,15 +97,16 @@ export function CategoryPicker({
                 <span className="flex-1 text-muted">Aucune catégorie</span>
               </Command.Item>
             ) : null}
-            {(categories.data ?? []).map((g) => (
-              <Command.Group
-                key={g.id}
-                heading={g.name}
-                className="[&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:pb-1 [&_[cmdk-group-heading]]:pt-2 [&_[cmdk-group-heading]]:text-[11px] [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group-heading]]:text-faint"
-              >
-                {g.categories
-                  .filter((c) => !c.hidden || c.id === value)
-                  .map((c) => {
+            {(categories.data ?? []).map((g) => {
+              const options = g.categories.filter((c) => (!c.hidden || c.id === value) && !exclude?.includes(c.id))
+              if (options.length === 0) return null
+              return (
+                <Command.Group
+                  key={g.id}
+                  heading={g.name}
+                  className="[&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:pb-1 [&_[cmdk-group-heading]]:pt-2 [&_[cmdk-group-heading]]:text-[11px] [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group-heading]]:text-faint"
+                >
+                  {options.map((c) => {
                     const amount = available?.get(c.id)
                     return (
                       <Command.Item
@@ -124,8 +129,9 @@ export function CategoryPicker({
                       </Command.Item>
                     )
                   })}
-              </Command.Group>
-            ))}
+                </Command.Group>
+              )
+            })}
           </Command.List>
         </Command>
       </Popover>
@@ -160,23 +166,18 @@ export function PayeePicker({
   placeholder?: string
   variant?: "field" | "inline"
 }) {
-  const payees = useQuery(q.payees())
-  const accounts = useQuery(q.accounts())
   const [open, setOpen] = React.useState(false)
-  const [search, setSearch] = React.useState("")
-  const regular = (payees.data ?? []).filter((p) => !p.transferAccountId)
-  const transferAccounts = (accounts.data ?? []).filter((a) => !a.closed && a.id !== currentAccountId)
-  const exact = regular.some((p) => normalizeText(p.name) === normalizeText(search))
   const label = payeeLabel(value)
+  const pick = (next: PayeeValue) => {
+    onChange(next)
+    setOpen(false)
+  }
 
   return (
     <div className={className}>
       <Popover
         open={open}
-        onOpenChange={(o) => {
-          setOpen(o)
-          if (o) setSearch("")
-        }}
+        onOpenChange={setOpen}
         className="w-[320px]"
         trigger={
           <button
@@ -192,71 +193,88 @@ export function PayeePicker({
           </button>
         }
       >
-        <Command filter={commandFilter} loop>
-          <Command.Input
-            autoFocus
-            value={search}
-            onValueChange={setSearch}
-            placeholder="Nom du bénéficiaire"
-            className="h-9 w-full border-b border-line bg-transparent px-3 outline-none placeholder:text-faint"
-          />
-          <Command.List className={listClass}>
-            {search.trim() && !exact ? (
-              <Command.Item
-                value={`__create ${search}`}
-                onSelect={() => {
-                  onChange({ kind: "name", name: search.trim() })
-                  setOpen(false)
-                }}
-                className={itemClass}
-              >
-                <Plus size={13} className="text-muted" />
-                <span>
-                  Créer « <span className="text-fg">{search.trim()}</span> »
-                </span>
-              </Command.Item>
-            ) : null}
-            {regular.map((p) => (
-              <Command.Item
-                key={p.id}
-                value={p.id}
-                keywords={[p.name]}
-                onSelect={() => {
-                  onChange({ kind: "id", id: p.id, name: p.name })
-                  setOpen(false)
-                }}
-                className={itemClass}
-              >
-                <span className="flex-1 truncate">{p.name}</span>
-                {value.kind === "id" && value.id === p.id ? <Check size={13} className="text-accent-fg" /> : null}
-              </Command.Item>
-            ))}
-            {transferAccounts.length > 0 ? (
-              <Command.Group
-                heading="Virement vers / depuis"
-                className="[&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:pb-1 [&_[cmdk-group-heading]]:pt-2 [&_[cmdk-group-heading]]:text-[11px] [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group-heading]]:text-faint"
-              >
-                {transferAccounts.map((a) => (
-                  <Command.Item
-                    key={a.id}
-                    value={`transfer ${a.id}`}
-                    keywords={["virement", a.name]}
-                    onSelect={() => {
-                      onChange({ kind: "transfer", accountId: a.id, name: a.name })
-                      setOpen(false)
-                    }}
-                    className={itemClass}
-                  >
-                    <ArrowLeftRight size={13} className="text-muted" />
-                    <span className="flex-1 truncate">{a.name}</span>
-                  </Command.Item>
-                ))}
-              </Command.Group>
-            ) : null}
-          </Command.List>
-        </Command>
+        <PayeeOptions value={value} onPick={pick} currentAccountId={currentAccountId} />
       </Popover>
     </div>
+  )
+}
+
+const MAX_PAYEE_OPTIONS = 50
+
+// Mounted only while the popover is open, so registers with hundreds of pickers do not
+// each walk the payee list on every render. Filtering is manual: cmdk scores every item
+// on each keystroke, which lags with thousands of imported payees.
+function PayeeOptions({
+  value,
+  onPick,
+  currentAccountId,
+}: {
+  value: PayeeValue
+  onPick: (value: PayeeValue) => void
+  currentAccountId: string | undefined
+}) {
+  const payees = useQuery(q.payees())
+  const accounts = useQuery(q.accounts())
+  const [search, setSearch] = React.useState("")
+  const indexed = React.useMemo(
+    () => (payees.data ?? []).filter((p) => !p.transferAccountId).map((p) => ({ payee: p, key: normalizeText(p.name) })),
+    [payees.data],
+  )
+  const needle = normalizeText(search)
+  const parts = needle.split(" ").filter(Boolean)
+  const matches = parts.length === 0 ? indexed : indexed.filter((p) => parts.every((part) => p.key.includes(part)))
+  const exact = needle !== "" && indexed.some((p) => p.key === needle)
+  const transferAccounts = (accounts.data ?? []).filter(
+    (a) => !a.closed && a.id !== currentAccountId && parts.every((part) => normalizeText(`virement ${a.name}`).includes(part)),
+  )
+
+  return (
+    <Command shouldFilter={false} loop>
+      <Command.Input
+        autoFocus
+        value={search}
+        onValueChange={setSearch}
+        placeholder="Nom du bénéficiaire"
+        className="h-9 w-full border-b border-line bg-transparent px-3 outline-none placeholder:text-faint"
+      />
+      <Command.List className={listClass}>
+        {search.trim() && !exact ? (
+          <Command.Item value={`__create ${search}`} onSelect={() => onPick({ kind: "name", name: search.trim() })} className={itemClass}>
+            <Plus size={13} className="text-muted" />
+            <span>
+              Créer « <span className="text-fg">{search.trim()}</span> »
+            </span>
+          </Command.Item>
+        ) : null}
+        {matches.slice(0, MAX_PAYEE_OPTIONS).map(({ payee: p }) => (
+          <Command.Item key={p.id} value={p.id} onSelect={() => onPick({ kind: "id", id: p.id, name: p.name })} className={itemClass}>
+            <span className="flex-1 truncate">{p.name}</span>
+            {value.kind === "id" && value.id === p.id ? <Check size={13} className="text-accent-fg" /> : null}
+          </Command.Item>
+        ))}
+        {matches.length > MAX_PAYEE_OPTIONS ? (
+          <p className="px-2 py-1.5 text-[12px] text-faint">Affine la recherche pour voir les {matches.length - MAX_PAYEE_OPTIONS} autres</p>
+        ) : null}
+        {transferAccounts.length > 0 ? (
+          <Command.Group
+            heading="Virement vers / depuis"
+            className="[&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:pb-1 [&_[cmdk-group-heading]]:pt-2 [&_[cmdk-group-heading]]:text-[11px] [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group-heading]]:text-faint"
+          >
+            {transferAccounts.map((a) => (
+              <Command.Item
+                key={a.id}
+                value={`transfer ${a.id}`}
+                onSelect={() => onPick({ kind: "transfer", accountId: a.id, name: a.name })}
+                className={itemClass}
+              >
+                <ArrowLeftRight size={13} className="text-muted" />
+                <span className="flex-1 truncate">{a.name}</span>
+              </Command.Item>
+            ))}
+          </Command.Group>
+        ) : null}
+      </Command.List>
+    </Command>
   )
 }
 

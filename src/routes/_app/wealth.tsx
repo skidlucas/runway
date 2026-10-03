@@ -20,6 +20,7 @@ import { localToday, useIsMobile } from "~/lib/hooks"
 import { q, useAction } from "~/lib/queries"
 import { addAssetValuation, deleteAsset, refreshValuations, updateAsset } from "~/server/fns/wealth"
 import type { WealthItem, WealthOverview } from "~/server/services/wealth"
+import { count, plural } from "~/domain/text"
 
 export const Route = createFileRoute("/_app/wealth")({
   loader: ({ context }) => context.queryClient.ensureQueryData(q.wealth()),
@@ -57,7 +58,7 @@ function WealthPage() {
   const items = React.useMemo(() => sortItems(data?.items ?? []), [data])
   const selected = items.find((i) => i.id === selectedId) ?? items.find((i) => i.kind === "asset") ?? items[0] ?? null
 
-  const refresh = useAction(refreshValuations)
+  const refresh = useAction(refreshValuations, { invalidates: ["wealth"] })
   // Automatic estimates are fetched lazily, once per visit, when some are out of date.
   const refreshed = React.useRef(false)
   React.useEffect(() => {
@@ -74,7 +75,7 @@ function WealthPage() {
         onSuccess: (r) =>
           toast(
             r.failures.length === 0
-              ? `${r.updated} estimation${r.updated > 1 ? "s" : ""} mise${r.updated > 1 ? "s" : ""} à jour`
+              ? `${count(r.updated, "estimation")} ${plural(r.updated, "mise")} à jour`
               : `${r.updated} à jour · échec pour ${r.failures.map((f) => f.name).join(", ")} : ${r.failures[0]!.message}`,
             { duration: r.failures.length ? 7000 : 3500 },
           ),
@@ -125,7 +126,7 @@ function WealthPage() {
             )}
           </div>
           <aside className="bg-panel max-[1100px]:border-t max-[1100px]:border-line">
-            {selected ? <Detail item={selected} months={data.months} today={data.today} onEdit={() => setDialog({ item: selected })} /> : null}
+            {selected ? <Detail key={selected.id} item={selected} months={data.months} today={data.today} onEdit={() => setDialog({ item: selected })} /> : null}
           </aside>
         </div>
       )}
@@ -287,8 +288,8 @@ function sourceDescription(item: WealthItem): string | null {
 }
 
 function Detail({ item, months, today, onEdit }: { item: WealthItem; months: Month[]; today: string; onEdit: () => void }) {
-  const remove = useAction(deleteAsset, { success: "Bien supprimé" })
-  const setRetained = useAction(updateAsset, { success: "Valeur retenue modifiée" })
+  const remove = useAction(deleteAsset, { success: "Bien supprimé", invalidates: ["wealth"] })
+  const setRetained = useAction(updateAsset, { success: "Valeur retenue modifiée", invalidates: ["wealth"] })
   const isAsset = item.kind === "asset"
   const gain = item.purchase && !item.isLiability && item.retainedUsed !== "purchase" ? item.value - item.purchase.amount : null
   const description = sourceDescription(item)
@@ -444,7 +445,7 @@ function HistoryBars({ values, months }: { values: number[]; months: Month[] }) 
 function AddEstimate({ assetId, today }: { assetId: string; today: string }) {
   const [amount, setAmount] = React.useState("")
   const [date, setDate] = React.useState(today)
-  const add = useAction(addAssetValuation, { success: "Estimation ajoutée", onSuccess: () => setAmount("") })
+  const add = useAction(addAssetValuation, { success: "Estimation ajoutée", onSuccess: () => setAmount(""), invalidates: ["wealth"] })
   const cents = parseAmount(amount)
   return (
     <form
@@ -542,7 +543,7 @@ function MobileWealth({
           ) : null}
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto">
-          {open ? <Detail item={open} months={data.months} today={data.today} onEdit={() => onEdit(open)} /> : null}
+          {open ? <Detail key={open.id} item={open} months={data.months} today={data.today} onEdit={() => onEdit(open)} /> : null}
         </div>
       </Sheet>
     </div>

@@ -11,19 +11,19 @@ const DatedAmount = Schema.NullOr(Schema.Struct({ amount: Schema.Int, date: Sche
 
 export const AssetSource = Schema.Union([
   Schema.Struct({ kind: Schema.Literal("manual") }),
-  Schema.Struct({ kind: Schema.Literal("crypto"), coinId: Schema.String, quantity: Schema.Number, label: Schema.optional(Schema.String) }),
-  Schema.Struct({ kind: Schema.Literal("stock"), symbol: Schema.String, quantity: Schema.Number, label: Schema.optional(Schema.String) }),
+  Schema.Struct({ kind: Schema.Literal("crypto"), coinId: Schema.String, quantity: Schema.Finite, label: Schema.optional(Schema.String) }),
+  Schema.Struct({ kind: Schema.Literal("stock"), symbol: Schema.String, quantity: Schema.Finite, label: Schema.optional(Schema.String) }),
   Schema.Struct({
     kind: Schema.Literal("real_estate"),
     inseeCode: Schema.String,
-    surface: Schema.Number,
+    surface: Schema.Finite,
     propertyType: Schema.Literals(["apartment", "house"]),
     label: Schema.optional(Schema.String),
   }),
   Schema.Struct({
     kind: Schema.Literal("loan"),
     principal: Schema.Int,
-    annualRatePct: Schema.Number,
+    annualRatePct: Schema.Finite,
     months: Schema.Int,
     startDate: Schema.String,
   }),
