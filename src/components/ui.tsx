@@ -455,7 +455,7 @@ export const Switch = ({
     onCheckedChange={(c) => onCheckedChange(c)}
     aria-label={label}
     disabled={disabled}
-    className="relative h-[18px] w-[30px] shrink-0 rounded-full bg-bar transition-colors duration-[120ms] data-[checked]:bg-accent data-[disabled]:opacity-50"
+    className="relative inline-flex h-[18px] w-[30px] shrink-0 items-center rounded-full bg-bar transition-colors duration-[120ms] data-[checked]:bg-accent data-[disabled]:opacity-50"
   >
     <BSwitch.Thumb className="block h-[14px] w-[14px] translate-x-[2px] rounded-full bg-white transition-transform duration-[120ms] data-[checked]:translate-x-[14px]" />
   </BSwitch.Root>
