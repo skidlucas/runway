@@ -1,7 +1,7 @@
 import { unzipSync } from "fflate"
 import type { Database, SqlJsStatic } from "sql.js"
 import { addDays } from "~/domain/dates"
-import { nextOnOrAfter, periodDays, type Recurrence } from "~/domain/recurrence"
+import { nextOnOrAfter, occurrence, periodDays, type Recurrence } from "~/domain/recurrence"
 import type { RuleAction, RuleCondition } from "~/domain/rules"
 import { type BundleRule, type BundleSchedule, type BundleTransaction, type ImportBundle, orderStamps } from "../import-bundle"
 
@@ -189,6 +189,19 @@ const readDatabase = (db: Database, name: string): ImportBundle => {
   for (const t of transactions) {
     if (t.transferId && !kept.has(t.transferId)) t.transferId = null
   }
+  // Actual lets one line of a split be a transfer; runway rewrites a split's lines on every edit
+  // and would orphan the other side. Both sides stay as plain operations, and the other side
+  // loses its transfer payee so that editing it does not create a second mirror.
+  const byId = new Map(transactions.map((t) => [t.id, t]))
+  for (const line of transactions) {
+    if (!line.parentId || !line.transferId) continue
+    const other = byId.get(line.transferId)
+    if (other) {
+      other.transferId = null
+      other.payeeId = null
+    }
+    line.transferId = null
+  }
   const parents = new Set(transactions.filter((t) => t.isParent).map((t) => t.id))
   const finalTx = transactions.filter((t) => !t.parentId || parents.has(t.parentId))
 
@@ -299,10 +312,13 @@ const readRules = (
           conditions.push({ field: "amount", op: "between", value: [Math.abs(v.num1), Math.abs(v.num2)] })
         } else if (typeof v === "number" && (c.op === "is" || c.op === "isapprox")) {
           conditions.push({ field: "amount", op: "is", value: Math.abs(v) })
-        } else if (typeof v === "number" && (c.op === "gt" || c.op === "gte")) {
-          conditions.push({ field: "amount", op: "gt", value: Math.abs(v) })
-        } else if (typeof v === "number" && (c.op === "lt" || c.op === "lte")) {
-          conditions.push({ field: "amount", op: "lt", value: Math.abs(v) })
+        } else if (typeof v === "number" && (c.op === "gt" || c.op === "gte" || c.op === "lt" || c.op === "lte")) {
+          // runway compares the absolute amount: below a negative threshold means spending more
+          // than it. Amounts are whole cents, so an inclusive bound moves by one cent.
+          const above = (c.op === "gt" || c.op === "gte") === v >= 0
+          const inclusive = c.op === "gte" || c.op === "lte"
+          const limit = Math.abs(v) + (inclusive ? (above ? -1 : 1) : 0)
+          conditions.push({ field: "amount", op: above ? "gt" : "lt", value: limit })
         } else {
           ok = false
           break
@@ -377,7 +393,7 @@ const readSchedules = (
       typeof rawAmount === "number" ? rawAmount : rawAmount ? Math.round((rawAmount.num1 + rawAmount.num2) / 2) : null
     const date = dateCond?.value as
       | string
-      | { start: string; frequency: string; interval?: number; endMode?: string; endDate?: string }
+      | { start: string; frequency: string; interval?: number; endMode?: string; endDate?: string; endOccurrences?: number }
       | undefined
     if (typeof account !== "string" || !accountIds.has(account) || amount === null || !date) {
       skipped++
@@ -390,8 +406,14 @@ const readSchedules = (
       continue
     }
     const startDate = recurring ? date.start : date
-    const endDate = recurring && date.endMode === "on_date" && date.endDate ? date.endDate : null
     const recurrence: Recurrence = { unit, interval: recurring ? Math.max(1, Number(date.interval ?? 1)) : 1 }
+    const endDate = !recurring
+      ? null
+      : date.endMode === "on_date" && date.endDate
+        ? date.endDate
+        : date.endMode === "after_n_occurrences" && Number(date.endOccurrences) >= 1
+          ? occurrence({ startDate, endDate: null, recurrence }, Number(date.endOccurrences) - 1)
+          : null
     const stored = toDay(row.next_date) ?? startDate
     const posted = lastLinked.get(String(row.id))
     // A transaction entered a few days early still covers the occurrence. The margin stays short:

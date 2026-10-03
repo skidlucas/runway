@@ -179,3 +179,48 @@ describe("Actual import", () => {
     void Effect
   })
 })
+
+describe("Actual parsing of edge cases", () => {
+  const template = () => readFileSync(join(process.cwd(), "public/actual-template.sqlite"))
+
+  it("turns a transfer inside a split into plain operations, reads signed amount thresholds and ends after N payments", async () => {
+    const SQL = await initSqlJs()
+    const db = new SQL.Database(template())
+    db.run("INSERT INTO accounts (id, name, offbudget, closed, tombstone, sort_order) VALUES ('A','Courant',0,0,0,1),('B','Livret',0,0,0,2)")
+    db.run("INSERT INTO payees (id, name, transfer_acct, tombstone) VALUES ('PA','','A',0),('PB','','B',0)")
+    db.run("INSERT INTO category_groups (id, name, is_income, sort_order, tombstone) VALUES ('G','Dépenses',0,1,0)")
+    db.run("INSERT INTO categories (id, name, is_income, cat_group, sort_order, tombstone) VALUES ('C1','Frais',0,'G',1,0)")
+    db.run(`INSERT INTO transactions (id,isParent,isChild,parent_id,acct,category,amount,description,date,sort_order,tombstone,transferred_id)
+            VALUES ('P',1,0,NULL,'A',NULL,-10000,NULL,20260915,3,0,NULL),
+                   ('K1',0,1,'P','A',NULL,-6000,'PB',20260915,2,0,'M'),
+                   ('K2',0,1,'P','A','C1',-4000,NULL,20260915,1,0,NULL),
+                   ('M',0,0,NULL,'B',NULL,6000,'PA',20260915,1,0,'K1')`)
+    const amountRule = (id: string, op: string, value: number) =>
+      db.run("INSERT INTO rules (id, stage, conditions, actions, conditions_op, tombstone) VALUES (?,NULL,?,?,'and',0)", [
+        id,
+        JSON.stringify([{ field: "amount", op, value, type: "number" }]),
+        JSON.stringify([{ op: "set", field: "category", value: "C1", type: "id" }]),
+      ])
+    amountRule("R1", "lt", -50000)
+    amountRule("R2", "gte", 1000)
+    db.run("INSERT INTO rules (id, stage, conditions, actions, conditions_op, tombstone) VALUES ('SR',NULL,?,?,'and',0)", [
+      JSON.stringify([
+        { field: "account", op: "is", value: "A" },
+        { field: "amount", op: "isapprox", value: -30000 },
+        { field: "date", op: "isapprox", value: { start: "2026-01-15", frequency: "monthly", interval: 1, endMode: "after_n_occurrences", endOccurrences: 12, endDate: "2026-01-15" } },
+      ]),
+      JSON.stringify([{ op: "link-schedule", value: "S1" }]),
+    ])
+    db.run("INSERT INTO schedules (id, rule, active, completed, posts_transaction, tombstone, name) VALUES ('S1','SR',1,0,0,0,'Crédit auto')")
+
+    const parsed = parseActual(SQL, { db: db.export(), metadata: { budgetName: "edge" } })
+    const tx = new Map(parsed.transactions.map((t) => [t.id, t]))
+    expect(tx.get("K1")?.transferId).toBeNull()
+    expect(tx.get("M")).toMatchObject({ transferId: null, payeeId: null, amount: 6000 })
+    expect(parsed.rules.map((r) => r.conditions[0])).toEqual([
+      { field: "amount", op: "gt", value: 50000 },
+      { field: "amount", op: "gt", value: 999 },
+    ])
+    expect(parsed.schedules[0]?.endDate).toBe("2026-12-15")
+  })
+})
