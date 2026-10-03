@@ -5,6 +5,8 @@
   "compatibility_flags": ["nodejs_compat"],
   "main": "@tanstack/react-start/server-entry",
   "observability": { "enabled": true },
+  // Runs the Worker next to D1: pages chain several queries, each paying the distance to the database.
+  "placement": { "mode": "smart" },
   "d1_databases": [
     {
       "binding": "DB",
