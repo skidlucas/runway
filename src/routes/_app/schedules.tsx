@@ -6,7 +6,7 @@ import { ScheduleDialog, type ScheduleInitial } from "~/components/schedule-dial
 import { PageHeader } from "~/components/shell"
 import { Button, Chip, cx, EmptyState, Money, SectionTitle, SkeletonRows } from "~/components/ui"
 import { formatDayShort } from "~/domain/dates"
-import { describeRecurrence } from "~/domain/recurrence"
+import { describeRecurrence, periodDays } from "~/domain/recurrence"
 import { q, useAction } from "~/lib/queries"
 import { postSchedule, skipSchedule } from "~/server/fns/planning"
 import type { ScheduleDto } from "~/server/services/schedules"
@@ -23,19 +23,10 @@ function SchedulesPage() {
   const [creating, setCreating] = React.useState<ScheduleInitial | null>(null)
   const active = (schedules.data ?? []).filter((s) => s.active)
   const ended = (schedules.data ?? []).filter((s) => !s.active)
+  // A one-off has an infinite period, so it adds nothing to the monthly total.
   const monthlyTotal = active
     .filter((s) => s.amount < 0)
-    .reduce((sum, s) => {
-      const perMonth =
-        s.recurrence.unit === "month"
-          ? s.amount / s.recurrence.interval
-          : s.recurrence.unit === "year"
-            ? s.amount / (12 * s.recurrence.interval)
-            : s.recurrence.unit === "week"
-              ? (s.amount * 52) / 12 / s.recurrence.interval
-              : (s.amount * 365) / 12 / s.recurrence.interval
-      return sum + perMonth
-    }, 0)
+    .reduce((sum, s) => sum + (s.amount * (365.25 / 12)) / periodDays(s.recurrence), 0)
 
   return (
     <>

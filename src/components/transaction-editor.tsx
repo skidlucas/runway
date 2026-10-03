@@ -1,11 +1,12 @@
-import { useQuery } from "@tanstack/react-query"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Plus, Trash2 } from "lucide-react"
 import * as React from "react"
 import { amountInput, formatMoney, parseAmount } from "~/domain/money"
 import { q, useAction } from "~/lib/queries"
-import { createRule, deleteTransactions, updateTransaction } from "~/server/fns/core"
+import { createRule, deleteTransactions, restoreTransactions, updateTransaction } from "~/server/fns/core"
 import type { TxRow } from "~/server/services/transactions"
 import { AccountSelect, CategoryPicker, PayeePicker, type PayeeValue } from "./pickers"
+import { toast, toastError } from "./toast"
 import { Button, Checkbox, cx, Dialog, Field, IconButton, Input, Switch } from "./ui"
 import { count, plural } from "~/domain/text"
 
@@ -24,6 +25,31 @@ export const payeeInputOf = (value: PayeeValue) =>
       : value.kind === "transfer"
         ? ({ kind: "transfer", accountId: value.accountId } as const)
         : ({ kind: "name", name: value.name } as const)
+
+/**
+ * Deletes transactions and offers to undo it from the toast. The toast is raised from the
+ * mutation options, not from `mutate` callbacks: the row that started the deletion unmounts as
+ * soon as the list refreshes.
+ */
+export function useDeleteTransactions(onSuccess?: () => void) {
+  const client = useQueryClient()
+  return useMutation({
+    mutationFn: (ids: ReadonlyArray<string>) => deleteTransactions({ data: { ids: [...ids] } }),
+    onSuccess: async ({ undoId }, ids) => {
+      await client.invalidateQueries()
+      const undo = () =>
+        restoreTransactions({ data: { undoId } })
+          .then(() => client.invalidateQueries())
+          .then(() => toast("Suppression annulée"), toastError)
+      toast(`${count(ids.length, "opération")} ${plural(ids.length, "supprimée")}`, {
+        action: { label: "Annuler", run: () => void undo() },
+        duration: 8000,
+      })
+      onSuccess?.()
+    },
+    onError: (error) => toastError(error),
+  })
+}
 
 type SplitLine = { amount: string; categoryId: string | null; notes: string }
 
@@ -48,7 +74,7 @@ export function TransactionEditor({
     tx.isParent && splits ? splits.map((s) => ({ amount: amountInput(s.amount), categoryId: s.categoryId, notes: s.notes ?? "" })) : [],
   )
   const update = useAction(updateTransaction, { success: "Opération modifiée", onSuccess: onClose })
-  const remove = useAction(deleteTransactions, { success: "Opération supprimée", onSuccess: onClose })
+  const remove = useDeleteTransactions(onClose)
 
   const total = parseAmount(amount)
   const splitting = lines.length > 0
@@ -98,7 +124,7 @@ export function TransactionEditor({
       width={560}
       footer={
         <>
-          <Button variant="danger" icon={<Trash2 size={13} />} onClick={() => remove.mutate({ data: { ids: [tx.id] } })} loading={remove.isPending}>
+          <Button variant="danger" icon={<Trash2 size={13} />} onClick={() => remove.mutate([tx.id])} loading={remove.isPending}>
             Supprimer
           </Button>
           <div className="flex gap-2">

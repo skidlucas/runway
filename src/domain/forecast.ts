@@ -30,9 +30,24 @@ export type ForecastInput = {
   /** Balance before the first day of the month. */
   readonly openingBalance: number
   readonly upcoming: ReadonlyArray<UpcomingItem>
+  /**
+   * Whether what the budget still allows to spend comes out of these accounts. Off for a
+   * savings account: its scheduled expenses then count in full on their date.
+   */
+  readonly withBudget?: boolean
+  /**
+   * Part of the remaining budget spent from these accounts, from 0 to 1 (1 by default). The
+   * budget is shared by every budget account: a checking account carries most of it, savings none.
+   */
+  readonly budgetShare?: number
 }
 
-export type UpcomingTag = { kind: "category"; label: string } | { kind: "unbudgeted" } | { kind: "income" } | { kind: "booked" }
+export type UpcomingTag =
+  | { kind: "category"; label: string }
+  | { kind: "unbudgeted" }
+  | { kind: "scheduled" }
+  | { kind: "income" }
+  | { kind: "booked" }
 
 export type ForecastDay = { date: Day; balance: number; kind: "past" | "today" | "future"; hasSchedule: boolean }
 
@@ -48,6 +63,10 @@ export type Forecast = {
   perDay: number
   /** Upcoming expenses no budget category accounts for. */
   unbudgetedUpcoming: number
+  /** Upcoming scheduled expenses counted in full because the budget is left out. */
+  scheduledUpcoming: number
+  withBudget: boolean
+  budgetShare: number
   upcomingIncome: number
   /** Future-dated transactions already entered, not yet in today's balance. */
   bookedUpcoming: number
@@ -63,7 +82,8 @@ export type Forecast = {
  *
  * Projected end balance = today's balance − what the budget still allows to spend
  * − scheduled expenses no category budgets for + scheduled income
- * − transactions already entered with a future date.
+ * − transactions already entered with a future date. Without the budget, every scheduled
+ * expense counts instead.
  */
 export const computeForecast = (input: ForecastInput): Forecast => {
   const { today, month } = input
@@ -71,10 +91,13 @@ export const computeForecast = (input: ForecastInput): Forecast => {
   const inMonth = today.slice(0, 7) === month
   const isPast = end < today
   const effectiveToday: Day = inMonth ? today : isPast ? end : `${month}-01`
+  const withBudget = input.withBudget ?? true
+  const budgetShare = Math.min(1, Math.max(0, input.budgetShare ?? 1))
 
   const expense = input.categories.filter((c) => !c.isIncome)
   const budgetById = new Map(expense.map((c) => [c.id, c]))
-  const remainingToSpend = isPast ? 0 : expense.reduce((acc, c) => acc + Math.max(0, c.budgeted - c.spent), 0)
+  const remainingToSpend =
+    isPast || !withBudget ? 0 : Math.round(expense.reduce((acc, c) => acc + Math.max(0, c.budgeted - c.spent), 0) * budgetShare)
   const budgeted = expense.reduce((acc, c) => acc + c.budgeted, 0)
   const spent = expense.reduce((acc, c) => acc + c.spent, 0)
 
@@ -91,6 +114,7 @@ export const computeForecast = (input: ForecastInput): Forecast => {
       let tag: UpcomingTag
       if (u.source === "transaction") tag = { kind: "booked" }
       else if (u.amount > 0) tag = { kind: "income" }
+      else if (!withBudget) tag = { kind: "scheduled" }
       else {
         const category = u.categoryId ? budgetById.get(u.categoryId) : undefined
         tag = category && category.budgeted > 0 ? { kind: "category", label: category.name } : { kind: "unbudgeted" }
@@ -99,9 +123,11 @@ export const computeForecast = (input: ForecastInput): Forecast => {
     })
 
   const unbudgetedUpcoming = upcoming.filter((u) => u.tag.kind === "unbudgeted").reduce((a, u) => a - u.amount, 0)
+  const scheduledUpcoming = upcoming.filter((u) => u.tag.kind === "scheduled").reduce((a, u) => a - u.amount, 0)
   const upcomingIncome = upcoming.filter((u) => u.tag.kind === "income").reduce((a, u) => a + u.amount, 0)
   const bookedUpcoming = upcoming.filter((u) => u.tag.kind === "booked").reduce((a, u) => a - u.amount, 0)
-  const projectedEndBalance = balanceToday - remainingToSpend - unbudgetedUpcoming + upcomingIncome - bookedUpcoming
+  const projectedEndBalance =
+    balanceToday - remainingToSpend - unbudgetedUpcoming - scheduledUpcoming + upcomingIncome - bookedUpcoming
 
   // Day-by-day series: real balances until today, then the remaining budget spread
   // evenly over the days after today, plus the dated items on their day.
@@ -164,6 +190,9 @@ export const computeForecast = (input: ForecastInput): Forecast => {
     daysLeft,
     perDay,
     unbudgetedUpcoming,
+    scheduledUpcoming,
+    withBudget,
+    budgetShare,
     upcomingIncome,
     bookedUpcoming,
     projectedEndBalance,

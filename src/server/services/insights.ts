@@ -4,6 +4,7 @@ import { addMonths, type Day, diffDays, lastDay, type Month, monthRange, parseDa
 import {
   type CategoryInsightInput,
   computeFindings,
+  EARLY_MONTH_DAYS,
   computeView,
   type Finding,
   type InsightView,
@@ -345,7 +346,7 @@ export class Insights extends Context.Service<
         const dayOfMonth = parseDay(d.today).d
         // Too early in the month for the current figures to mean anything: the model is
         // pointed at last month's review and the 6-month trends instead.
-        const earlyInMonth = dayOfMonth <= 7
+        const earlyInMonth = dayOfMonth <= EARLY_MONTH_DAYS
         const facts = {
           today: d.today,
           dayOfMonth,

@@ -67,7 +67,7 @@ export type ImportBundle = {
   buffered: Array<{ month: string; amount: number }>
   rules: BundleRule[]
   schedules: BundleSchedule[]
-  /** Runway backups only: wealth and saved insight views, restored after the structure. */
+  /** Runway backups only: wealth, saved insight views and dashboards, restored after the structure. */
   extras?: BundleExtras
   /** Things that exist in the source but cannot be represented, for the preview. */
   skipped: { rules: number; schedules: number; transactions: number }
@@ -76,7 +76,7 @@ export type ImportBundle = {
 /** Structure part of a bundle: everything except transactions, sent in one request. */
 export type BundleStructure = Omit<ImportBundle, "transactions" | "skipped" | "extras">
 
-export type BundleExtras = Pick<ExportMeta, "assets" | "valuations" | "savedViews">
+export type BundleExtras = Pick<ExportMeta, "assets" | "valuations" | "savedViews" | "dashboards">
 
 export type IdMaps = {
   accounts: Record<string, string>

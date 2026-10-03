@@ -257,6 +257,12 @@ const streakFinding = (c: CategoryInsightInput): (Finding & { weight: number }) 
 }
 
 /**
+ * Before this day of the month, the current month has too few days of data for pace-based
+ * findings (projections, comparisons with last month) or a current-month AI analysis.
+ */
+export const EARLY_MONTH_DAYS = 7
+
+/**
  * Local, deterministic findings for the current month (no AI involved). Ordered by
  * importance: risks first, then good news, then informational ones.
  */
@@ -279,10 +285,11 @@ export const computeFindings = (input: {
       .slice(0, limit)
       .map(strip)
 
-  const projections = top(categories.map((c) => projectionFinding(c, today)))
+  const early = parseDay(today).d <= EARLY_MONTH_DAYS
+  const projections = early ? [] : top(categories.map((c) => projectionFinding(c, today)))
   const flagged = new Set(projections.map((f) => f.categoryId))
   const streaks = top(categories.filter((c) => !flagged.has(c.id)).map(streakFinding))
-  const below = top(categories.map((c) => belowLastMonthFinding(c, today)))
+  const below = early ? [] : top(categories.map((c) => belowLastMonthFinding(c, today)))
 
   const recurring: Finding[] = newRecurring.slice(0, limit).map((r) => ({
     kind: "new_recurring",

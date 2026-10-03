@@ -109,4 +109,39 @@ describe("Transactions", () => {
       .all<{ n: number }>()
     expect(results[0]!.n).toBe(0)
   })
+
+  it("undoes a deletion with the split lines and the transfer mirror", async () => {
+    const snapshot = () =>
+      h.d1
+        .prepare("SELECT * FROM transactions WHERE date = '2026-09-20' ORDER BY id")
+        .all()
+        .then((r) => r.results)
+    await h.run(
+      Transactions.use((t) =>
+        t.create({
+          accountId: account,
+          date: "2026-09-20",
+          amount: -3_000,
+          payee: { kind: "name", name: "Grand magasin" },
+          splits: [
+            { amount: -2_000, categoryId: categories[0]! },
+            { amount: -1_000, categoryId: categories[1]! },
+          ],
+        }),
+      ),
+    )
+    const transfer = await h.run(
+      Transactions.use((t) => t.create({ accountId: account, date: "2026-09-20", amount: -7_000, payee: { kind: "transfer", accountId: savings } })),
+    )
+    const before = await snapshot()
+    expect(before).toHaveLength(5)
+    const parent = (before as Array<{ id: string; is_parent: number }>).find((r) => r.is_parent === 1)!
+
+    const { undoId } = await h.run(Transactions.use((t) => t.remove([parent.id, transfer])))
+    expect(await snapshot()).toHaveLength(0)
+
+    expect(await h.run(Transactions.use((t) => t.restore(undoId)))).toEqual({ restored: 5 })
+    expect(await snapshot()).toEqual(before)
+    await expect(h.run(Transactions.use((t) => t.restore(undoId)))).rejects.toThrow("ne peut plus être annulée")
+  })
 })

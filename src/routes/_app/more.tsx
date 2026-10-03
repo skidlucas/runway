@@ -1,11 +1,12 @@
 import { createFileRoute, Link } from "@tanstack/react-router"
-import { CalendarClock, ChevronRight, Database, Gem, ListChecks, Settings, Tags, Users } from "lucide-react"
+import { CalendarClock, ChevronRight, Database, Gem, LayoutDashboard, ListChecks, Settings, Tags, Users } from "lucide-react"
 import { PageHeader } from "~/components/shell"
 import { ThemeControl } from "~/components/theme"
 
 export const Route = createFileRoute("/_app/more")({ component: MorePage })
 
 const LINKS = [
+  { to: "/dashboard", label: "Tableau de bord", icon: LayoutDashboard },
   { to: "/wealth", label: "Patrimoine", icon: Gem },
   { to: "/schedules", label: "Échéances", icon: CalendarClock },
   { to: "/settings/categories", label: "Catégories", icon: Tags },

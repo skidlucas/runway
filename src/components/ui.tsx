@@ -241,6 +241,66 @@ export const Checkbox = ({
   </RCheckbox.Root>
 )
 
+/**
+ * A row of tabs under the page header. Scrolls sideways when it runs out of room; a tab can
+ * carry its own small action (remove…), shown on hover.
+ */
+export function Tabs<T extends string>({
+  value,
+  onChange,
+  items,
+  label,
+  className,
+  end,
+}: {
+  value: T | null
+  onChange: (value: T) => void
+  items: ReadonlyArray<{ value: T; label: React.ReactNode; action?: { label: string; icon: React.ReactNode; run: () => void } }>
+  label: string
+  className?: string
+  /** After the last tab, e.g. a menu holding the less used ones. */
+  end?: React.ReactNode
+}) {
+  return (
+    <div role="tablist" aria-label={label} className={cx("flex items-end gap-1 overflow-x-auto border-b border-line px-5", className)}>
+      {items.map((item) => {
+        const active = item.value === value
+        return (
+          <div
+            key={item.value}
+            className={cx(
+              "group -mb-px flex shrink-0 items-center border-b-2 transition-colors duration-[120ms]",
+              active ? "border-accent text-fg" : "border-transparent text-muted hover:text-fg",
+            )}
+          >
+            <button
+              type="button"
+              role="tab"
+              aria-selected={active}
+              onClick={() => onChange(item.value)}
+              className={cx("h-9 whitespace-nowrap px-2.5 outline-none focus-visible:text-fg", active && "font-medium", item.action && "pr-1")}
+            >
+              {item.label}
+            </button>
+            {item.action ? (
+              <button
+                type="button"
+                aria-label={item.action.label}
+                title={item.action.label}
+                onClick={item.action.run}
+                className="mr-1 rounded p-0.5 text-faint opacity-0 hover:text-fg focus-visible:opacity-100 group-hover:opacity-100"
+              >
+                {item.action.icon}
+              </button>
+            ) : null}
+          </div>
+        )
+      })}
+      {end ? <div className="flex h-9 shrink-0 items-center">{end}</div> : null}
+    </div>
+  )
+}
+
 export function Segmented<T extends string>({
   value,
   onChange,

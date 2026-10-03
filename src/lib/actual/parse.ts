@@ -1,7 +1,7 @@
 import { unzipSync } from "fflate"
 import type { Database, SqlJsStatic } from "sql.js"
 import { addDays } from "~/domain/dates"
-import { nextOnOrAfter, type Recurrence } from "~/domain/recurrence"
+import { nextOnOrAfter, periodDays, type Recurrence } from "~/domain/recurrence"
 import type { RuleAction, RuleCondition } from "~/domain/rules"
 import type { BundleRule, BundleSchedule, BundleTransaction, ImportBundle } from "../import-bundle"
 
@@ -329,8 +329,6 @@ const readRules = (
   return { rules, skipped }
 }
 
-const periodDays = (r: Recurrence) => r.interval * (r.unit === "day" ? 1 : r.unit === "week" ? 7 : r.unit === "month" ? 30 : 365)
-
 const FREQUENCY: Record<string, Recurrence["unit"]> = { daily: "day", weekly: "week", monthly: "month", yearly: "year" }
 
 const readSchedules = (
@@ -379,14 +377,14 @@ const readSchedules = (
       continue
     }
     const recurring = typeof date === "object"
-    const unit = recurring ? FREQUENCY[date.frequency] : "month"
+    const unit = recurring ? FREQUENCY[date.frequency] : "once"
     if (!unit) {
       skipped++
       continue
     }
     const startDate = recurring ? date.start : date
-    const endDate = recurring ? (date.endMode === "on_date" && date.endDate ? date.endDate : null) : startDate
-    const recurrence = { unit, interval: recurring ? Math.max(1, Number(date.interval ?? 1)) : 1 }
+    const endDate = recurring && date.endMode === "on_date" && date.endDate ? date.endDate : null
+    const recurrence: Recurrence = { unit, interval: recurring ? Math.max(1, Number(date.interval ?? 1)) : 1 }
     const stored = toDay(row.next_date) ?? startDate
     const posted = lastLinked.get(String(row.id))
     // A transaction entered a few days early still covers the occurrence.
@@ -403,7 +401,6 @@ const readSchedules = (
       recurrence,
       startDate,
       nextDate: following ?? stored,
-      // A one-off schedule ends on its single date.
       endDate,
       autoPost: row.posts_transaction === 1,
       active: row.completed !== 1 && following !== null,

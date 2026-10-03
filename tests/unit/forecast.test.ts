@@ -58,6 +58,23 @@ describe("forecast", () => {
     expect(f.projectedEndBalance).toBe(321456 - 13255 - 1850 + 50000 - 2000)
   })
 
+  it("counts every scheduled expense in full when the budget is left out", () => {
+    const f = computeForecast({
+      ...base,
+      withBudget: false,
+      upcoming: [
+        { date: "2026-10-10", name: "Assurance", amount: -1850, categoryId: null, source: "schedule", scheduleId: "s1" },
+        { date: "2026-10-28", name: "Navigo", amount: -8640, categoryId: "transport", source: "schedule", scheduleId: "s2" },
+        { date: "2026-10-30", name: "Prime", amount: 50000, categoryId: null, source: "schedule", scheduleId: "s4" },
+      ],
+    })
+    expect(f.withBudget).toBe(false)
+    expect(f.remainingToSpend).toBe(0)
+    expect(f.upcoming.map((u) => u.tag.kind)).toEqual(["scheduled", "scheduled", "income"])
+    expect(f.scheduledUpcoming).toBe(1850 + 8640)
+    expect(f.projectedEndBalance).toBe(321456 - 1850 - 8640 + 50000)
+  })
+
   it("has nothing left to spend in a past month", () => {
     const f = computeForecast({ ...base, month: "2026-09", dailyBalances: new Map([["2026-09-30", 5000]]) })
     expect(f.remainingToSpend).toBe(0)

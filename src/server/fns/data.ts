@@ -1,10 +1,12 @@
 import { createServerFn } from "@tanstack/react-start"
 import { Schema } from "effect"
+import { RECURRENCE_UNITS } from "~/domain/recurrence"
 import { authMiddleware } from "../auth"
 import { runApp } from "../runtime"
 import { Demo } from "../services/demo"
 import { ImportExport } from "../services/import-export"
 import { InsightQuery } from "./insights"
+import { DashboardWidget } from "./reports"
 import { AssetSource } from "./wealth"
 
 const v = Schema.toStandardSchemaV1
@@ -49,7 +51,7 @@ const Structure = Schema.Struct({
       accountId: Str,
       categoryId: NStr,
       amount: Schema.Int,
-      recurrence: Schema.Struct({ unit: Schema.Literals(["day", "week", "month", "year"]), interval: Schema.Int }),
+      recurrence: Schema.Struct({ unit: Schema.Literals(RECURRENCE_UNITS), interval: Schema.Int }),
       startDate: Str,
       nextDate: Str,
       endDate: NStr,
@@ -117,10 +119,12 @@ const Extras = Schema.Struct({
       amount: Schema.Int,
       source: Str,
       unitPrice: Schema.NullOr(Schema.Finite),
+      asOf: Opt(NStr),
       automatic: Schema.Boolean,
     }),
   ),
   savedViews: Schema.Array(Schema.Struct({ id: Str, name: Str, config: InsightQuery, sortOrder: Schema.Finite })),
+  dashboards: Opt(Schema.Array(Schema.Struct({ id: Str, name: Str, widgets: Schema.Array(DashboardWidget), sortOrder: Schema.Finite }))),
 })
 const Ids = Schema.Record(Str, Str)
 
@@ -135,8 +139,9 @@ export const importExtras = createServerFn({ method: "POST" })
         s.importExtras(
           {
             assets: [...data.extras.assets],
-            valuations: [...data.extras.valuations],
+            valuations: data.extras.valuations.map((v) => ({ ...v, asOf: v.asOf ?? null })),
             savedViews: [...data.extras.savedViews],
+            dashboards: (data.extras.dashboards ?? []).map((d) => ({ ...d, widgets: [...d.widgets] })),
           },
           data.maps,
         ),

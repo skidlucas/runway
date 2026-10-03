@@ -28,6 +28,8 @@ export type EstimateDto = {
   label: string
   automatic: boolean
   unitPrice: number | null
+  /** Last month of data behind the estimate, when the source lags (DVF). */
+  asOf: Month | null
 }
 
 export type WealthItem = {
@@ -86,7 +88,15 @@ export type RefreshResult = { updated: number; failures: Array<{ assetId: string
 export type ValuationDto = { id: string; date: Day; amount: number; source: string; automatic: boolean; unitPrice: number | null }
 
 type AssetRow = typeof assets.$inferSelect
-type ValuationRow = { assetId: string; date: Day; amount: number; source: string; automatic: number; unitPrice: number | null }
+type ValuationRow = {
+  assetId: string
+  date: Day
+  amount: number
+  source: string
+  automatic: number
+  unitPrice: number | null
+  asOf: Month | null
+}
 
 const HISTORY_MONTHS = 12
 const STALE_MANUAL_DAYS = 183
@@ -153,7 +163,7 @@ export class Wealth extends Context.Service<
         db.use(async (_, d1) => {
           const { results } = await d1
             .prepare(
-              `SELECT v.asset_id AS assetId, v.date, v.amount, v.source, v.automatic, v.unit_price AS unitPrice
+              `SELECT v.asset_id AS assetId, v.date, v.amount, v.source, v.automatic, v.unit_price AS unitPrice, v.as_of AS asOf
                FROM asset_valuations v
                WHERE v.date >= ?1
                   OR v.date = (SELECT MAX(v2.date) FROM asset_valuations v2 WHERE v2.asset_id = v.asset_id AND v2.date < ?1)
@@ -226,7 +236,7 @@ export class Wealth extends Context.Service<
           const latest = source.kind === "loan" ? null : own.at(-1)
           const estimate: EstimateDto | null =
             source.kind === "loan"
-              ? { amount: loanBalance(source, today), date: today, label: "Tableau d'amortissement", automatic: true, unitPrice: null }
+              ? { amount: loanBalance(source, today), date: today, label: "Tableau d'amortissement", automatic: true, unitPrice: null, asOf: null }
               : latest
                 ? {
                     amount: latest.amount,
@@ -234,6 +244,7 @@ export class Wealth extends Context.Service<
                     label: SOURCE_LABELS[latest.source] ?? latest.source,
                     automatic: latest.automatic === 1,
                     unitPrice: latest.unitPrice,
+                    asOf: latest.asOf,
                   }
                 : null
           return {
@@ -279,7 +290,7 @@ export class Wealth extends Context.Service<
             isLiability: false,
             purchase: null,
             declared: null,
-            estimate: { amount: account.balance, date: today, label: "Compte suivi", automatic: true, unitPrice: null },
+            estimate: { amount: account.balance, date: today, label: "Compte suivi", automatic: true, unitPrice: null, asOf: null },
             retained: "estimated",
             retainedUsed: "estimated",
             value: account.balance,
@@ -403,7 +414,7 @@ export class Wealth extends Context.Service<
           wanted ? wanted.has(a.id) && isAutomatic(a.source) : refreshDue(a.source, lastAuto.get(a.id) ?? null, today),
         )
         const failures: RefreshResult["failures"] = []
-        const estimates: Array<{ assetId: string; amount: number; source: string; unitPrice: number }> = []
+        const estimates: Array<{ assetId: string; amount: number; source: string; unitPrice: number; asOf?: Month }> = []
         const fail = (a: AssetRow, message: string) => failures.push({ assetId: a.id, name: a.name, message })
         const errorMessage = (e: ExternalError) => e.message
 
@@ -445,8 +456,8 @@ export class Wealth extends Context.Service<
           const result = dvf.get(`${source.inseeCode}|${source.propertyType}`)!
           if (result._tag === "Failure") fail(asset, errorMessage(result.failure))
           else {
-            const price = result.success.pricePerM2
-            estimates.push({ assetId: asset.id, amount: Math.round(price * source.surface * 100), source: "dvf", unitPrice: price })
+            const { pricePerM2: price, to } = result.success
+            estimates.push({ assetId: asset.id, amount: Math.round(price * source.surface * 100), source: "dvf", unitPrice: price, asOf: to })
           }
         }
 
@@ -461,9 +472,9 @@ export class Wealth extends Context.Service<
             db.d1.prepare("DELETE FROM asset_valuations WHERE asset_id = ? AND date = ? AND automatic = 1").bind(e.assetId, today),
             db.d1
               .prepare(
-                "INSERT INTO asset_valuations (id, asset_id, date, amount, source, unit_price, automatic) VALUES (?, ?, ?, ?, ?, ?, 1)",
+                "INSERT INTO asset_valuations (id, asset_id, date, amount, source, unit_price, as_of, automatic) VALUES (?, ?, ?, ?, ?, ?, ?, 1)",
               )
-              .bind(newId(), e.assetId, today, e.amount, e.source, e.unitPrice),
+              .bind(newId(), e.assetId, today, e.amount, e.source, e.unitPrice, e.asOf ?? null),
           ]),
         )
         yield* db.batch(

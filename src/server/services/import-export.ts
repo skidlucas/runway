@@ -1,6 +1,7 @@
 import { sql } from "drizzle-orm"
 import { Context, Effect, Layer } from "effect"
 import { isDay, isMonth } from "~/domain/dates"
+import { RECURRENCE_UNITS } from "~/domain/recurrence"
 import { normalizeText, type RuleAction, type RuleSubject } from "~/domain/rules"
 import type { BundleExtras, BundleStructure, IdMaps } from "~/lib/import-bundle"
 import { bulkInsertStatements, chunkRows, Db, type DbError, newId } from "../db/client"
@@ -56,6 +57,8 @@ export type ExportMeta = {
   assets: Array<typeof schema.assets.$inferSelect>
   valuations: Array<typeof schema.assetValuations.$inferSelect>
   savedViews: Array<typeof schema.savedViews.$inferSelect>
+  /** Missing from backups made before dashboards existed. */
+  dashboards?: Array<typeof schema.dashboards.$inferSelect>
   transactionCount: number
 }
 
@@ -296,7 +299,7 @@ export class ImportExport extends Context.Service<
           const known = new Set(existing.schedules.map((s) => s.id))
           const newSchedules = structure.schedules.flatMap((s) => {
             const accountId = accountMap[s.accountId]
-            const rhythmOk = ["day", "week", "month", "year"].includes(s.recurrence.unit) && Number.isInteger(s.recurrence.interval) && s.recurrence.interval >= 1
+            const rhythmOk = (RECURRENCE_UNITS as ReadonlyArray<string>).includes(s.recurrence.unit) && Number.isInteger(s.recurrence.interval) && s.recurrence.interval >= 1
             if (!accountId || known.has(s.id) || !rhythmOk || !isDay(s.startDate) || !isDay(s.nextDate)) return []
             known.add(s.id)
             return [
@@ -486,6 +489,7 @@ export class ImportExport extends Context.Service<
         )
         const takenNames = new Set(existingViews.map((v) => normalizeText(v.name)))
         let order = existingViews.reduce((max, v) => Math.max(max, v.sortOrder), 0)
+        const viewIds = new Map<string, string>()
         const views = extras.savedViews.flatMap((view) => {
           const target = view.config.target
           const targetId =
@@ -495,7 +499,22 @@ export class ImportExport extends Context.Service<
           if ((target.kind !== "all" && !targetId) || takenNames.has(normalizeText(view.name))) return []
           takenNames.add(normalizeText(view.name))
           const config = { ...view.config, target: target.kind === "all" ? target : { kind: target.kind, id: targetId } }
-          return [[newId(), view.name, JSON.stringify(config), ++order]]
+          const id = newId()
+          viewIds.set(view.id, id)
+          return [[id, view.name, JSON.stringify(config), ++order]]
+        })
+        const existingDashboards = yield* db.use((orm) => orm.select({ name: schema.dashboards.name }).from(schema.dashboards))
+        const dashboardNames = new Set(existingDashboards.map((d) => normalizeText(d.name)))
+        const boards = (extras.dashboards ?? []).flatMap((board) => {
+          if (dashboardNames.has(normalizeText(board.name))) return []
+          dashboardNames.add(normalizeText(board.name))
+          // A widget showing a saved view that was not imported would point nowhere.
+          const widgets = board.widgets.flatMap((w) => {
+            if (w.kind !== "insight_view") return [w]
+            const viewId = w.viewId ? viewIds.get(w.viewId) : undefined
+            return viewId ? [{ ...w, viewId }] : []
+          })
+          return [[newId(), board.name, JSON.stringify(widgets), board.sortOrder]]
         })
         yield* db.batch([
           ...bulkInsertStatements(
@@ -523,13 +542,14 @@ export class ImportExport extends Context.Service<
           ...bulkInsertStatements(
             db.d1,
             "asset_valuations",
-            ["id", "asset_id", "date", "amount", "source", "unit_price", "automatic"],
+            ["id", "asset_id", "date", "amount", "source", "unit_price", "as_of", "automatic"],
             extras.valuations
               .filter((v) => assetIds.has(v.assetId))
-              .map((v) => [v.id, v.assetId, v.date, v.amount, v.source, v.unitPrice, v.automatic ? 1 : 0]),
+              .map((v) => [v.id, v.assetId, v.date, v.amount, v.source, v.unitPrice, v.asOf ?? null, v.automatic ? 1 : 0]),
             "ignore",
           ),
           ...bulkInsertStatements(db.d1, "saved_views", ["id", "name", "config", "sort_order"], views),
+          ...bulkInsertStatements(db.d1, "dashboards", ["id", "name", "widgets", "sort_order"], boards),
         ])
         return { assets: extras.assets.length, views: views.length }
       })
@@ -581,6 +601,8 @@ export class ImportExport extends Context.Service<
           "DELETE FROM asset_valuations",
           "DELETE FROM assets",
           "DELETE FROM saved_views",
+          "DELETE FROM dashboards",
+          "DELETE FROM transaction_trash",
           "DELETE FROM ai_cache",
           "DELETE FROM transactions",
           "DELETE FROM schedules",
@@ -611,6 +633,7 @@ export class ImportExport extends Context.Service<
           assets: await orm.select().from(schema.assets),
           valuations: await orm.select().from(schema.assetValuations),
           savedViews: await orm.select().from(schema.savedViews),
+          dashboards: await orm.select().from(schema.dashboards),
           transactionCount: count?.n ?? 0,
         }
       })

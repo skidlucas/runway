@@ -13,6 +13,7 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as AppRouteImport } from './routes/_app'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as AppBudgetRouteImport } from './routes/_app/budget'
+import { Route as AppDashboardRouteImport } from './routes/_app/dashboard'
 import { Route as AppForecastRouteImport } from './routes/_app/forecast'
 import { Route as AppInsightsRouteImport } from './routes/_app/insights'
 import { Route as AppMoreRouteImport } from './routes/_app/more'
@@ -44,6 +45,11 @@ const LoginRoute = LoginRouteImport.update({
 const AppBudgetRoute = AppBudgetRouteImport.update({
   id: '/budget',
   path: '/budget',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppDashboardRoute = AppDashboardRouteImport.update({
+  id: '/dashboard',
+  path: '/dashboard',
   getParentRoute: () => AppRoute,
 } as any)
 const AppForecastRoute = AppForecastRouteImport.update({
@@ -116,6 +122,7 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/login': typeof LoginRoute
   '/budget': typeof AppBudgetRoute
+  '/dashboard': typeof AppDashboardRoute
   '/forecast': typeof AppForecastRoute
   '/insights': typeof AppInsightsRoute
   '/more': typeof AppMoreRoute
@@ -134,6 +141,7 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/login': typeof LoginRoute
   '/budget': typeof AppBudgetRoute
+  '/dashboard': typeof AppDashboardRoute
   '/forecast': typeof AppForecastRoute
   '/insights': typeof AppInsightsRoute
   '/more': typeof AppMoreRoute
@@ -153,6 +161,7 @@ export interface FileRoutesById {
   '/_app': typeof AppRouteWithChildren
   '/login': typeof LoginRoute
   '/_app/budget': typeof AppBudgetRoute
+  '/_app/dashboard': typeof AppDashboardRoute
   '/_app/forecast': typeof AppForecastRoute
   '/_app/insights': typeof AppInsightsRoute
   '/_app/more': typeof AppMoreRoute
@@ -173,6 +182,7 @@ export interface FileRouteTypes {
     | '/'
     | '/login'
     | '/budget'
+    | '/dashboard'
     | '/forecast'
     | '/insights'
     | '/more'
@@ -191,6 +201,7 @@ export interface FileRouteTypes {
     | '/'
     | '/login'
     | '/budget'
+    | '/dashboard'
     | '/forecast'
     | '/insights'
     | '/more'
@@ -209,6 +220,7 @@ export interface FileRouteTypes {
     | '/_app'
     | '/login'
     | '/_app/budget'
+    | '/_app/dashboard'
     | '/_app/forecast'
     | '/_app/insights'
     | '/_app/more'
@@ -258,6 +270,13 @@ declare module '@tanstack/react-router' {
       path: '/budget'
       fullPath: '/budget'
       preLoaderRoute: typeof AppBudgetRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/dashboard': {
+      id: '/_app/dashboard'
+      path: '/dashboard'
+      fullPath: '/dashboard'
+      preLoaderRoute: typeof AppDashboardRouteImport
       parentRoute: typeof AppRoute
     }
     '/_app/forecast': {
@@ -376,6 +395,7 @@ const AppSettingsRouteWithChildren = AppSettingsRoute._addFileChildren(
 
 interface AppRouteChildren {
   AppBudgetRoute: typeof AppBudgetRoute
+  AppDashboardRoute: typeof AppDashboardRoute
   AppForecastRoute: typeof AppForecastRoute
   AppInsightsRoute: typeof AppInsightsRoute
   AppMoreRoute: typeof AppMoreRoute
@@ -388,6 +408,7 @@ interface AppRouteChildren {
 
 const AppRouteChildren: AppRouteChildren = {
   AppBudgetRoute: AppBudgetRoute,
+  AppDashboardRoute: AppDashboardRoute,
   AppForecastRoute: AppForecastRoute,
   AppInsightsRoute: AppInsightsRoute,
   AppMoreRoute: AppMoreRoute,

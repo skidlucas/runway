@@ -21,7 +21,7 @@ export type AiProviders = {
 
 export class AiConfig extends Context.Service<AiConfig, AiProviders>()("runway/server/services/AiConfig") {}
 
-const DEFAULT_MODELS = { openai: "gpt-5.4-mini", anthropic: "claude-haiku-4-5" } as const
+const DEFAULT_MODELS = { openai: "gpt-6-luna", anthropic: "claude-haiku-4-5" } as const
 
 /** Builds providers from Worker variables and secrets. Missing keys disable the matching feature. */
 export const aiProvidersFromEnv = (env: Record<string, unknown>): AiProviders => {

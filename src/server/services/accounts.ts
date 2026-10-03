@@ -19,7 +19,10 @@ export type AccountDto = {
   inForecast: boolean
   sortOrder: number
   lastReconciledAt: string | null
+  /** Every transaction, future-dated ones included. */
   balance: number
+  /** Transactions dated today or earlier: what the account holds now. */
+  balanceToday: number
   clearedBalance: number
   transactionCount: number
 }
@@ -60,26 +63,31 @@ export class Accounts extends Context.Service<
       const payeesService = yield* Payees
       const settings = yield* Settings
 
-      const list = db.use(async (_, d1) => {
-        const { results } = await d1
-          .prepare(
-            `SELECT a.id, a.name, a.kind, a.off_budget AS offBudget, a.closed, a.in_forecast AS inForecast,
-                    a.sort_order AS sortOrder, a.last_reconciled_at AS lastReconciledAt,
-                    COALESCE(SUM(t.amount), 0) AS balance,
-                    COALESCE(SUM(CASE WHEN t.cleared = 1 THEN t.amount END), 0) AS clearedBalance,
-                    COUNT(t.id) AS transactionCount
-             FROM accounts a
-             LEFT JOIN transactions t ON t.account_id = a.id AND t.parent_id IS NULL
-             GROUP BY a.id
-             ORDER BY a.closed, a.off_budget, a.sort_order, a.name COLLATE NOCASE`,
-          )
-          .all<Omit<AccountDto, "offBudget" | "closed" | "inForecast"> & { offBudget: number; closed: number; inForecast: number }>()
-        return results.map((r) => ({
-          ...r,
-          offBudget: r.offBudget === 1,
-          closed: r.closed === 1,
-          inForecast: r.inForecast === 1,
-        }))
+      const list = Effect.gen(function* () {
+        const today = yield* settings.today
+        return yield* db.use(async (_, d1) => {
+          const { results } = await d1
+            .prepare(
+              `SELECT a.id, a.name, a.kind, a.off_budget AS offBudget, a.closed, a.in_forecast AS inForecast,
+                      a.sort_order AS sortOrder, a.last_reconciled_at AS lastReconciledAt,
+                      COALESCE(SUM(t.amount), 0) AS balance,
+                      COALESCE(SUM(CASE WHEN t.date <= ? THEN t.amount END), 0) AS balanceToday,
+                      COALESCE(SUM(CASE WHEN t.cleared = 1 THEN t.amount END), 0) AS clearedBalance,
+                      COUNT(t.id) AS transactionCount
+               FROM accounts a
+               LEFT JOIN transactions t ON t.account_id = a.id AND t.parent_id IS NULL
+               GROUP BY a.id
+               ORDER BY a.closed, a.off_budget, a.sort_order, a.name COLLATE NOCASE`,
+            )
+            .bind(today)
+            .all<Omit<AccountDto, "offBudget" | "closed" | "inForecast"> & { offBudget: number; closed: number; inForecast: number }>()
+          return results.map((r) => ({
+            ...r,
+            offBudget: r.offBudget === 1,
+            closed: r.closed === 1,
+            inForecast: r.inForecast === 1,
+          }))
+        })
       })
 
       const find = (id: string) =>

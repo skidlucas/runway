@@ -1,5 +1,6 @@
 import { createServerFn } from "@tanstack/react-start"
 import { Effect, Schema } from "effect"
+import { RECURRENCE_UNITS } from "~/domain/recurrence"
 import { authMiddleware } from "../auth"
 import { runApp } from "../runtime"
 import { ForecastService } from "../services/forecast"
@@ -21,7 +22,7 @@ const ScheduleInput = Schema.Struct({
   accountId: Schema.String,
   categoryId: Schema.NullOr(Schema.String),
   amount: Schema.Int,
-  recurrence: Schema.Struct({ unit: Schema.Literals(["day", "week", "month", "year"]), interval: Schema.Int }),
+  recurrence: Schema.Struct({ unit: Schema.Literals(RECURRENCE_UNITS), interval: Schema.Int }),
   startDate: Schema.String,
   endDate: Schema.optional(Schema.NullOr(Schema.String)),
   autoPost: Schema.Boolean,
@@ -29,8 +30,21 @@ const ScheduleInput = Schema.Struct({
 
 export const getForecast = createServerFn({ method: "GET" })
   .middleware([authMiddleware])
-  .validator(v(Schema.Struct({ month: Schema.optional(Schema.String) })))
-  .handler(({ data }) => runApp(ForecastService.use((s) => s.month(data.month))))
+  .validator(
+    v(
+      Schema.Struct({
+        month: Schema.optional(Schema.String),
+        accountId: Schema.optional(Schema.String),
+        withBudget: Schema.optional(Schema.Boolean),
+      }),
+    ),
+  )
+  .handler(({ data }) => runApp(ForecastService.use((s) => s.month(data))))
+
+export const getUpcoming = createServerFn({ method: "GET" })
+  .middleware([authMiddleware])
+  .validator(v(Schema.Struct({ accountId: Schema.optional(Schema.String), days: Schema.Int })))
+  .handler(({ data }) => runApp(ForecastService.use((s) => s.upcoming(data))))
 
 export const getSchedules = createServerFn({ method: "GET" })
   .middleware([authMiddleware])

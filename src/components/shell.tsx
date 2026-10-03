@@ -6,19 +6,17 @@ import {
   Gem,
   Home,
   Landmark,
+  LayoutDashboard,
   type LucideIcon,
   MoreHorizontal,
   Plus,
   Settings,
   TrendingUp,
   Wallet,
-  X,
 } from "lucide-react"
 import * as React from "react"
 import { formatMoney } from "~/domain/money"
-import { queryToSearch } from "~/lib/insight-search"
-import { q, useAction } from "~/lib/queries"
-import { deleteView } from "~/server/fns/insights"
+import { q } from "~/lib/queries"
 import { Logo } from "./logo"
 import { cx, Kbd } from "./ui"
 
@@ -36,6 +34,7 @@ const NAV: NavItem[] = [
   { to: "/budget", label: "Budget", icon: Wallet, match: "/budget" },
   { to: "/forecast", label: "Prévision", icon: TrendingUp, match: "/forecast" },
   { to: "/insights", label: "Insights", icon: ChartColumn, match: "/insights" },
+  { to: "/dashboard", label: "Tableau de bord", icon: LayoutDashboard, match: "/dashboard" },
   { to: "/wealth", label: "Patrimoine", icon: Gem, match: "/wealth" },
   { to: "/schedules", label: "Échéances", icon: CalendarClock, match: "/schedules" },
 ]
@@ -75,8 +74,6 @@ export function Sidebar() {
         ))}
       </nav>
 
-      {path.startsWith("/insights") ? <SavedViews /> : null}
-
       <AccountSection title="Comptes" accounts={budgeted} path={path} />
       {tracked.length > 0 ? <AccountSection title="Hors budget" accounts={tracked} path={path} /> : null}
 
@@ -104,47 +101,6 @@ function SidebarLink({ item, active }: { item: NavItem; active: boolean }) {
       <Icon size={16} strokeWidth={1.5} className={cx("hidden max-[1100px]:block", active ? "text-fg" : "text-muted")} />
       <span className="max-[1100px]:sr-only">{item.label}</span>
     </Link>
-  )
-}
-
-function SavedViews() {
-  const views = useQuery(q.savedViews())
-  const search = useRouterState({ select: (s) => s.location.searchStr })
-  const remove = useAction((id: string) => deleteView({ data: { id } }), { success: "Vue supprimée", invalidates: ["savedViews"] })
-  if (!views.data?.length) return null
-  return (
-    <div className="flex flex-col gap-px max-[1100px]:hidden">
-      <div className="px-2 py-1 text-[11px] font-medium text-faint">Vues enregistrées</div>
-      {views.data.map((view) => {
-        const target = queryToSearch(view.config)
-        const href = new URLSearchParams(
-          Object.entries(target).map(([k, v]) => [k, String(v)] as [string, string]),
-        ).toString()
-        const active = search.replace(/^\?/, "") === href
-        return (
-          <div key={view.id} className="group relative">
-            <Link
-              to="/insights"
-              search={target}
-              className={cx(
-                "flex items-center rounded-[6px] px-2 py-1.5 pr-7 transition-colors duration-[120ms]",
-                active ? "bg-active text-fg" : "text-fg-3 hover:bg-hover hover:text-fg",
-              )}
-            >
-              <span className="truncate">{view.name}</span>
-            </Link>
-            <button
-              type="button"
-              aria-label={`Supprimer la vue ${view.name}`}
-              onClick={() => remove.mutate(view.id)}
-              className="absolute right-1.5 top-1/2 hidden -translate-y-1/2 rounded p-0.5 text-faint hover:text-fg group-hover:block"
-            >
-              <X size={12} />
-            </button>
-          </div>
-        )
-      })}
-    </div>
   )
 }
 
@@ -200,7 +156,7 @@ const TABS: NavItem[] = [
   { to: "/more", label: "Plus", icon: MoreHorizontal, match: "/more" },
 ]
 
-const MORE_PATHS = ["/more", "/wealth", "/settings", "/schedules"]
+const MORE_PATHS = ["/more", "/dashboard", "/wealth", "/settings", "/schedules"]
 
 export function TabBar() {
   const path = useActivePath()

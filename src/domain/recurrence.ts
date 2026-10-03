@@ -1,9 +1,12 @@
 import { addDays, type Day, daysInMonth, makeDay, parseDay } from "./dates"
 
 export type Recurrence = {
-  readonly unit: "day" | "week" | "month" | "year"
+  /** "once": a single occurrence on the start date (interval is ignored). */
+  readonly unit: "once" | "day" | "week" | "month" | "year"
   readonly interval: number
 }
+
+export const RECURRENCE_UNITS = ["once", "day", "week", "month", "year"] as const
 
 export type ScheduleTiming = {
   readonly startDate: Day
@@ -20,6 +23,8 @@ export const occurrence = (timing: ScheduleTiming, n: number): Day => {
   const { startDate, recurrence } = timing
   const step = recurrence.interval * n
   switch (recurrence.unit) {
+    case "once":
+      return startDate
     case "day":
       return addDays(startDate, step)
     case "week":
@@ -37,17 +42,19 @@ export const occurrence = (timing: ScheduleTiming, n: number): Day => {
   }
 }
 
-const approxDays = (r: Recurrence) =>
-  r.interval * (r.unit === "day" ? 1 : r.unit === "week" ? 7 : r.unit === "month" ? 30.44 : 365.25)
+/** Average length of one period in days (Infinity for a one-off). */
+export const periodDays = (r: Recurrence) =>
+  r.unit === "once" ? Infinity : r.interval * (r.unit === "day" ? 1 : r.unit === "week" ? 7 : r.unit === "month" ? 30.44 : 365.25)
 
 /** First occurrence on or after `from`, or null when the schedule ended. */
 export const nextOnOrAfter = (timing: ScheduleTiming, from: Day): Day | null => {
-  if (from <= timing.startDate) return timing.startDate
+  if (from <= timing.startDate) return timing.endDate !== null && timing.startDate > timing.endDate ? null : timing.startDate
+  if (timing.recurrence.unit === "once") return null
   const { y: fy, m: fm, d: fd } = parseDay(from)
   const { y: sy, m: sm, d: sd } = parseDay(timing.startDate)
   const elapsed = (Date.UTC(fy, fm - 1, fd) - Date.UTC(sy, sm - 1, sd)) / 86_400_000
   // Start a little before the estimate, then walk forward: clamping makes the exact index fuzzy.
-  let n = Math.max(0, Math.floor(elapsed / approxDays(timing.recurrence)) - 1)
+  let n = Math.max(0, Math.floor(elapsed / periodDays(timing.recurrence)) - 1)
   for (let guard = 0; guard < 10_000; guard++, n++) {
     const day = occurrence(timing, n)
     if (timing.endDate !== null && day > timing.endDate) return null
@@ -70,6 +77,8 @@ export const occurrencesBetween = (timing: ScheduleTiming, from: Day, to: Day, l
 export const describeRecurrence = (r: Recurrence): string => {
   const n = r.interval
   switch (r.unit) {
+    case "once":
+      return "Une seule fois"
     case "day":
       return n === 1 ? "Tous les jours" : `Tous les ${n} jours`
     case "week":

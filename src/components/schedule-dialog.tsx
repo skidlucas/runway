@@ -22,6 +22,7 @@ export type ScheduleInitial = {
 }
 
 const FREQUENCIES: ReadonlyArray<{ value: string; label: string; recurrence: Recurrence }> = [
+  { value: "once-1", label: "Une seule fois", recurrence: { unit: "once", interval: 1 } },
   { value: "week-1", label: "Toutes les semaines", recurrence: { unit: "week", interval: 1 } },
   { value: "week-2", label: "Toutes les 2 semaines", recurrence: { unit: "week", interval: 2 } },
   { value: "month-1", label: "Tous les mois", recurrence: { unit: "month", interval: 1 } },
@@ -85,6 +86,7 @@ export function ScheduleDialog({
   const cents = parseAmount(amount)
   const recurrence = frequencies.find((f) => f.value === frequency)?.recurrence ?? { unit: "month", interval: 1 }
   const valid = cents !== null && cents !== 0 && accountId !== "" && startDate !== ""
+  const once = recurrence.unit === "once"
 
   const submit = () => {
     if (!valid || cents === null) return
@@ -98,7 +100,7 @@ export function ScheduleDialog({
       // The form shows the next date; the rhythm keeps its original anchor unless that date is moved
       // (a schedule on the 31st that went through February must stay on the 31st).
       startDate: schedule && startDate === schedule.nextDate ? schedule.startDate : startDate,
-      endDate: endDate || null,
+      endDate: once ? null : endDate || null,
       autoPost,
     }
     if (schedule) update.mutate({ data: { id: schedule.id, input } })
@@ -157,12 +159,14 @@ export function ScheduleDialog({
         <Field label="Catégorie" hint="Sans catégorie budgétée, l'échéance est comptée « hors budget » dans la prévision">
           <CategoryPicker value={categoryId} onChange={setCategoryId} />
         </Field>
-        <Field label={schedule ? "Prochaine date" : "Première date"}>
+        <Field label={once ? "Date" : schedule ? "Prochaine date" : "Première date"}>
           <Input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
         </Field>
-        <Field label="Fin (optionnel)">
-          <Input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
-        </Field>
+        {once ? null : (
+          <Field label="Fin (optionnel)">
+            <Input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
+          </Field>
+        )}
         <label className="flex items-center justify-between gap-3 self-end pb-1.5">
           <span>
             Saisie automatique

@@ -1,5 +1,6 @@
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query"
-import { createFileRoute, useNavigate } from "@tanstack/react-router"
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router"
+import { useWindowVirtualizer, type VirtualItem } from "@tanstack/react-virtual"
 import {
   CalendarClock,
   ChevronDown,
@@ -26,29 +27,31 @@ import {
   useCategorySuggestions,
 } from "~/components/category-suggestions"
 import { ScheduleDialog } from "~/components/schedule-dialog"
+import { UpcomingList } from "~/components/upcoming-list"
 import { PageHeader, useAppUi } from "~/components/shell"
 import {
   RuleFromTransactionDialog,
   TransactionEditor,
   payeeInputOf,
   payeeValueOf,
+  useDeleteTransactions,
 } from "~/components/transaction-editor"
-import { Button, Checkbox, cx, Dialog, EmptyState, IconButton, Input, Menu, Money, SkeletonRows } from "~/components/ui"
+import { Button, Checkbox, cx, Dialog, EmptyState, IconButton, Input, Kpi, Menu, Money, SkeletonRows } from "~/components/ui"
 import { formatDayLong, formatDayShort, formatMonthLong } from "~/domain/dates"
-import { amountInput, parseAmount } from "~/domain/money"
+import { amountInput, formatMoney, parseAmount } from "~/domain/money"
 import { shortcutBlocked, useDebounced, useIsMobile, useToday } from "~/lib/hooks"
 import { q, useAction } from "~/lib/queries"
 import {
   createTransaction,
   deleteAccount,
-  deleteTransactions,
   setAccountClosed,
   setTransactionsCategory,
   setTransactionsCleared,
   updateTransaction,
 } from "~/server/fns/core"
+import type { AccountDto } from "~/server/services/accounts"
 import type { TxPage, TxRow } from "~/server/services/transactions"
-import { count, plural } from "~/domain/text"
+import { count } from "~/domain/text"
 
 type Search = { categoryId?: string; month?: string; uncategorized?: boolean; q?: string }
 
@@ -107,6 +110,10 @@ function AccountPage({ accountId }: { accountId: string }) {
   const rows = React.useMemo(() => pages?.flatMap((p) => p.rows) ?? [], [pages])
   const childrenByParent = React.useMemo(() => Object.assign({}, ...(pages ?? []).map((p) => p.children)) as TxPage["children"], [pages])
   const total = pages?.[0]?.total ?? 0
+  const { hasNextPage, isFetchingNextPage, fetchNextPage } = txs
+  const loadMore = React.useCallback(() => {
+    if (hasNextPage && !isFetchingNextPage) void fetchNextPage()
+  }, [hasNextPage, isFetchingNextPage, fetchNextPage])
 
   React.useEffect(() => {
     setSelected(new Set())
@@ -150,12 +157,6 @@ function AccountPage({ accountId }: { accountId: string }) {
         crumb={title}
         right={
           <>
-            {account ? (
-              <span className="mr-2 flex items-baseline gap-2 max-md:hidden">
-                <span className="text-muted">Solde</span>
-                <Money value={account.balance} className="text-[14px]" />
-              </span>
-            ) : null}
             <Button
               size="sm"
               variant="primary"
@@ -201,11 +202,7 @@ function AccountPage({ accountId }: { accountId: string }) {
           </>
         }
       />
-      {mobile && account ? (
-        <div className="flex flex-col gap-1.5 border-b border-line px-5 pb-4">
-          <Money value={account.balance} className="text-[32px] font-medium tracking-[-0.02em]" />
-        </div>
-      ) : null}
+      {account ? mobile ? <MobileAccountSummary account={account} /> : <AccountSummary account={account} /> : null}
       <div className="flex flex-wrap items-center gap-2 border-b border-line px-5 py-2 max-md:border-none max-md:pt-3">
         <div className="relative w-[280px] max-md:w-full">
           <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-faint" />
@@ -249,7 +246,7 @@ function AccountPage({ accountId }: { accountId: string }) {
           }
         />
       ) : mobile ? (
-        <MobileList rows={rows} childrenByParent={childrenByParent} />
+        <MobileList rows={rows} childrenByParent={childrenByParent} onReachEnd={loadMore} />
       ) : (
         <TransactionTable
           rows={rows}
@@ -259,12 +256,13 @@ function AccountPage({ accountId }: { accountId: string }) {
           selected={selected}
           setSelected={setSelected}
           accountId={all ? undefined : accountId}
+          onReachEnd={loadMore}
         />
       )}
       </SuggestionsProvider>
       {txs.hasNextPage ? (
         <div className="flex justify-center py-4">
-          <Button variant="ghost" onClick={() => void txs.fetchNextPage()} loading={txs.isFetchingNextPage}>
+          <Button variant="ghost" onClick={loadMore} loading={isFetchingNextPage}>
             Afficher plus ({count(total - rows.length, "restante")})
           </Button>
         </div>
@@ -284,11 +282,75 @@ const FilterChip = ({ label, onClear }: { label: string; onClear: () => void }) 
   </span>
 )
 
+// --- Balances and the days ahead ----------------------------------------------------
+
+const DAYS_AHEAD = 7
+
+function AccountSummary({ account }: { account: AccountDto }) {
+  const forecast = useQuery(q.forecast({ accountId: account.id }))
+  const upcoming = useQuery(q.upcoming({ accountId: account.id, days: DAYS_AHEAD }))
+  const booked = account.balance - account.balanceToday
+  const f = forecast.data?.accountId === account.id ? forecast.data : undefined
+  return (
+    <div className="grid grid-cols-[minmax(0,3fr)_minmax(0,2fr)] border-b border-line">
+      <div className="grid grid-cols-3 gap-4 border-r border-line px-5 py-4">
+        <Kpi label="Aujourd'hui" value={formatMoney(account.balanceToday)} valueClassName={cx("text-[20px]", account.balanceToday < 0 && "text-negative")} />
+        <Kpi
+          label="Avec les opérations à venir"
+          value={formatMoney(account.balance)}
+          valueClassName={cx("text-[20px]", booked === 0 && "text-muted", account.balance < 0 && "text-negative")}
+          hint={booked === 0 ? "Pas d'écart avec aujourd'hui" : `${formatMoney(booked, { sign: "always" })} déjà saisis`}
+        />
+        <Kpi
+          label={f ? `Prévu au ${formatDayShort(f.days.at(-1)?.date ?? f.today)}` : "Fin de mois"}
+          value={f ? formatMoney(f.projectedEndBalance) : "…"}
+          valueClassName={cx("text-[20px]", f && f.projectedEndBalance < 0 ? "text-negative" : "text-accent-fg")}
+          hint={
+            account.offBudget ? (
+              "Échéances comprises"
+            ) : (
+              <Link to="/forecast" search={{ account: account.id }} className="hover:text-fg">
+                {f && !f.withBudget ? "Échéances comprises" : "Budget restant compris"} · détail
+              </Link>
+            )
+          }
+        />
+      </div>
+      <div className="flex min-w-0 flex-col px-5 py-3">
+        <span className="pb-1 text-[12px] text-faint">{DAYS_AHEAD} prochains jours</span>
+        <UpcomingList items={upcoming.data?.items} today={upcoming.data?.today} limit={4} />
+      </div>
+    </div>
+  )
+}
+
+function MobileAccountSummary({ account }: { account: AccountDto }) {
+  const forecast = useQuery(q.forecast({ accountId: account.id }))
+  const upcoming = useQuery(q.upcoming({ accountId: account.id, days: DAYS_AHEAD }))
+  const f = forecast.data?.accountId === account.id ? forecast.data : undefined
+  return (
+    <div className="flex flex-col gap-1 border-b border-line px-5 pb-4">
+      <Money value={account.balanceToday} className="text-[32px] font-medium tracking-[-0.02em]" />
+      <span className="text-[12px] text-muted">
+        {account.balance !== account.balanceToday ? `${formatMoney(account.balance)} avec les opérations à venir` : "Aujourd'hui"}
+        {f ? ` · ${formatMoney(f.projectedEndBalance)} prévus en fin de mois` : ""}
+      </span>
+      {upcoming.data && upcoming.data.items.length > 0 ? (
+        <div className="pt-3">
+          <span className="text-[12px] text-faint">{DAYS_AHEAD} prochains jours</span>
+          <UpcomingList items={upcoming.data.items} today={upcoming.data.today} limit={3} />
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
 function BulkBar({ ids, rows, onDone }: { ids: string[]; rows: TxRow[]; onDone: () => void }) {
   const setCategory = useAction(setTransactionsCategory, { success: "Catégorie appliquée", onSuccess: onDone })
   const setCleared = useAction(setTransactionsCleared, { onSuccess: onDone })
-  const remove = useAction(deleteTransactions, { success: `${count(ids.length, "opération")} ${plural(ids.length, "supprimée")}`, onSuccess: onDone })
-  const allCleared = rows.filter((r) => ids.includes(r.id)).every((r) => r.cleared)
+  const remove = useDeleteTransactions(onDone)
+  const chosen = new Set(ids)
+  const allCleared = rows.filter((r) => chosen.has(r.id)).every((r) => r.cleared)
   return (
     <div className="sticky top-12 z-20 flex items-center gap-2 border-b border-line bg-accent-soft px-5 py-2">
       <span className="font-medium">{count(ids.length, "sélectionnée")}</span>
@@ -305,7 +367,7 @@ function BulkBar({ ids, rows, onDone }: { ids: string[]; rows: TxRow[]; onDone: 
         size="sm"
         variant="danger"
         icon={<Trash2 size={13} />}
-        onClick={() => window.confirm(`Supprimer ${count(ids.length, "opération")} ?`) && remove.mutate({ data: { ids } })}
+        onClick={() => window.confirm(`Supprimer ${count(ids.length, "opération")} ?`) && remove.mutate(ids)}
       >
         Supprimer
       </Button>
@@ -316,7 +378,53 @@ function BulkBar({ ids, rows, onDone }: { ids: string[]; rows: TxRow[]; onDone: 
   )
 }
 
+// --- Window-scrolled virtual lists ------------------------------------------------
+
+const PREFETCH_ROWS = 40
+
+/**
+ * Renders only the rows near the viewport: the page scrolls as a whole (sticky header and
+ * sidebar), so the list follows the window and its offset from the top of the page.
+ */
+function useWindowList(options: {
+  count: number
+  estimateSize: (index: number) => number
+  getItemKey: (index: number) => string
+  onReachEnd?: () => void
+}) {
+  const ref = React.useRef<HTMLDivElement>(null)
+  const [scrollMargin, setScrollMargin] = React.useState(0)
+  const measure = React.useCallback(() => {
+    const el = ref.current
+    if (el) setScrollMargin(Math.round(el.getBoundingClientRect().top + window.scrollY))
+  }, [])
+  // Whatever sits above the list (bulk bar, balances loading) moves it down.
+  React.useLayoutEffect(measure)
+  React.useEffect(() => {
+    const observer = new ResizeObserver(measure)
+    observer.observe(document.body)
+    return () => observer.disconnect()
+  }, [measure])
+  const virtualizer = useWindowVirtualizer({
+    count: options.count,
+    estimateSize: options.estimateSize,
+    getItemKey: options.getItemKey,
+    overscan: 10,
+    scrollMargin,
+    initialRect: { width: 0, height: 900 },
+  })
+  const items = virtualizer.getVirtualItems()
+  const last = items.at(-1)?.index ?? -1
+  const { count, onReachEnd } = options
+  React.useEffect(() => {
+    if (count > 0 && last >= count - PREFETCH_ROWS) onReachEnd?.()
+  }, [last, count, onReachEnd])
+  return { ref, virtualizer, items, offset: (item: VirtualItem) => item.start - scrollMargin }
+}
+
 // --- Desktop table -----------------------------------------------------------------
+
+type Line = { kind: "tx"; tx: TxRow } | { kind: "split"; tx: TxRow }
 
 function TransactionTable({
   rows,
@@ -326,6 +434,7 @@ function TransactionTable({
   selected,
   setSelected,
   accountId,
+  onReachEnd,
 }: {
   rows: TxRow[]
   childrenByParent: Record<string, TxRow[]>
@@ -334,6 +443,7 @@ function TransactionTable({
   selected: Set<string>
   setSelected: React.Dispatch<React.SetStateAction<Set<string>>>
   accountId: string | undefined
+  onReachEnd: () => void
 }) {
   const columns = cx(
     "grid items-center gap-3",
@@ -366,6 +476,21 @@ function TransactionTable({
       }),
     [],
   )
+  const lines = React.useMemo(
+    () =>
+      rows.flatMap((tx): Line[] =>
+        tx.isParent && expanded.has(tx.id)
+          ? [{ kind: "tx", tx }, ...(childrenByParent[tx.id] ?? []).map((child): Line => ({ kind: "split", tx: child }))]
+          : [{ kind: "tx", tx }],
+      ),
+    [rows, expanded, childrenByParent],
+  )
+  const list = useWindowList({
+    count: lines.length,
+    estimateSize: (i) => (lines[i]?.kind === "split" ? 32 : 36),
+    getItemKey: (i) => lines[i]?.tx.id ?? String(i),
+    onReachEnd,
+  })
   return (
     <div role="table" aria-label="Opérations">
       <div role="row" className={cx(columns, "h-[34px] border-b border-line px-5 text-[12px] text-faint")}>
@@ -383,41 +508,53 @@ function TransactionTable({
         <span />
         <span />
       </div>
-      {rows.map((tx) => (
-        <React.Fragment key={tx.id}>
-          <TransactionRow
-            tx={tx}
-            columns={columns}
-            showAccount={showAccount}
-            showBalance={showBalance && !showAccount}
-            selected={selected.has(tx.id)}
-            onSelect={onSelect}
-            splits={childrenByParent[tx.id]}
-            expanded={expanded.has(tx.id)}
-            onToggleExpand={onToggleExpand}
-            accountId={accountId}
-            today={today}
-          />
-          {tx.isParent && expanded.has(tx.id)
-            ? (childrenByParent[tx.id] ?? []).map((child) => (
-                <div key={child.id} role="row" className={cx(columns, "h-8 border-b border-line-subtle px-5 text-[12px] text-muted")}>
-                  <span />
-                  <span />
-                  <span className="truncate pl-4">{child.notes ?? ""}</span>
-                  <InlineCategory tx={child} />
-                  {showAccount ? <span /> : null}
-                  <Money value={child.amount} className="text-right" colored />
-                  {showBalance && !showAccount ? <span /> : null}
-                  <span />
-                  <span />
-                </div>
-              ))
-            : null}
-        </React.Fragment>
-      ))}
+      <div ref={list.ref} role="rowgroup" className="relative" style={{ height: list.virtualizer.getTotalSize() }}>
+        {list.items.map((item) => {
+          const line = lines[item.index]
+          if (!line) return null
+          const top = list.offset(item)
+          return line.kind === "split" ? (
+            <SplitRow key={item.key} tx={line.tx} columns={columns} showAccount={showAccount} showBalance={showBalance && !showAccount} top={top} />
+          ) : (
+            <TransactionRow
+              key={item.key}
+              tx={line.tx}
+              columns={columns}
+              showAccount={showAccount}
+              showBalance={showBalance && !showAccount}
+              selected={selected.has(line.tx.id)}
+              onSelect={onSelect}
+              splits={childrenByParent[line.tx.id]}
+              expanded={expanded.has(line.tx.id)}
+              onToggleExpand={onToggleExpand}
+              accountId={accountId}
+              today={today}
+              top={top}
+            />
+          )
+        })}
+      </div>
     </div>
   )
 }
+
+const SplitRow = ({ tx, columns, showAccount, showBalance, top }: { tx: TxRow; columns: string; showAccount: boolean; showBalance: boolean; top: number }) => (
+  <div
+    role="row"
+    className={cx(columns, "absolute inset-x-0 top-0 h-8 border-b border-line-subtle px-5 text-[12px] text-muted")}
+    style={{ transform: `translateY(${top}px)` }}
+  >
+    <span />
+    <span />
+    <span className="truncate pl-4">{tx.notes ?? ""}</span>
+    <InlineCategory tx={tx} />
+    {showAccount ? <span /> : null}
+    <Money value={tx.amount} className="text-right" colored />
+    {showBalance ? <span /> : null}
+    <span />
+    <span />
+  </div>
+)
 
 // Memoized: a refetch keeps unchanged rows by reference (structural sharing), so only edited
 // rows re-render instead of the whole page with its pickers.
@@ -433,6 +570,7 @@ const TransactionRow = React.memo(function TransactionRow({
   onToggleExpand,
   accountId,
   today,
+  top,
 }: {
   tx: TxRow
   columns: string
@@ -445,11 +583,12 @@ const TransactionRow = React.memo(function TransactionRow({
   onToggleExpand: (id: string) => void
   accountId: string | undefined
   today: string
+  top: number
 }) {
   const [dialog, setDialog] = React.useState<null | "edit" | "rule" | "schedule">(null)
   const update = useAction(updateTransaction)
   const cleared = useAction(setTransactionsCleared)
-  const remove = useAction(deleteTransactions, { success: "Opération supprimée" })
+  const remove = useDeleteTransactions()
   const duplicate = useAction(createTransaction, { success: "Opération dupliquée" })
   const future = tx.date > today
 
@@ -459,10 +598,11 @@ const TransactionRow = React.memo(function TransactionRow({
       data-testid="tx-row"
       className={cx(
         columns,
-        "group h-9 border-b border-line-subtle px-5 hover:bg-hover",
+        "group absolute inset-x-0 top-0 h-9 border-b border-line-subtle px-5 hover:bg-hover",
         selected && "bg-accent-soft hover:bg-accent-soft",
         future && "text-muted",
       )}
+      style={{ transform: `translateY(${top}px)` }}
     >
       <Checkbox checked={selected} onCheckedChange={(c) => onSelect(tx.id, c)} label="Sélectionner" />
       <InlineDate tx={tx} />
@@ -536,7 +676,7 @@ const TransactionRow = React.memo(function TransactionRow({
             label: "Supprimer",
             icon: <Trash2 size={13} />,
             danger: true,
-            onSelect: () => remove.mutate({ data: { ids: [tx.id] } }),
+            onSelect: () => remove.mutate([tx.id]),
           },
         ]}
       />
@@ -648,32 +788,59 @@ function InlineAmount({ tx }: { tx: TxRow }) {
 
 // --- Mobile list -----------------------------------------------------------------
 
-function MobileList({ rows, childrenByParent }: { rows: TxRow[]; childrenByParent: Record<string, TxRow[]> }) {
+function MobileList({
+  rows,
+  childrenByParent,
+  onReachEnd,
+}: {
+  rows: TxRow[]
+  childrenByParent: Record<string, TxRow[]>
+  onReachEnd: () => void
+}) {
   const [editing, setEditing] = React.useState<TxRow | null>(null)
   const [categorizing, setCategorizing] = React.useState<TxRow | null>(null)
-  const remove = useAction(deleteTransactions, { success: "Opération supprimée" })
+  const remove = useDeleteTransactions()
   const update = useAction(updateTransaction)
+  const list = useWindowList({
+    count: rows.length,
+    estimateSize: () => 64,
+    getItemKey: (i) => rows[i]?.id ?? String(i),
+    onReachEnd,
+  })
   return (
     <div>
-      {rows.map((tx) => (
-        <SwipeRow
-          key={tx.id}
-          onOpen={() => setEditing(tx)}
-          actions={[
-            { label: "Catégoriser", tone: "accent", run: () => setCategorizing(tx) },
-            { label: "Supprimer", tone: "danger", run: () => remove.mutate({ data: { ids: [tx.id] } }) },
-          ]}
-        >
-          <button type="button" onClick={() => setEditing(tx)} className="flex min-w-0 flex-1 flex-col gap-0.5 text-left">
-            <span className="truncate font-medium">{tx.payeeName ?? tx.notes ?? "—"}</span>
-            <span className={cx("truncate text-[12px] text-faint", !tx.categoryId && !tx.transferAccountId && !tx.isParent && "text-warning")}>
-              {formatDayShort(tx.date)} · {tx.isParent ? "Ventilée" : tx.transferAccountId && !tx.categoryId ? "Virement" : (tx.categoryName ?? "À catégoriser")}
-            </span>
-          </button>
-          <SuggestionChip tx={tx} compact />
-          <Money value={tx.amount} sign="always" colored className="text-[14px]" />
-        </SwipeRow>
-      ))}
+      <div ref={list.ref} className="relative" style={{ height: list.virtualizer.getTotalSize() }}>
+        {list.items.map((item) => {
+          const tx = rows[item.index]
+          if (!tx) return null
+          return (
+            <div
+              key={item.key}
+              data-index={item.index}
+              ref={list.virtualizer.measureElement}
+              className="absolute inset-x-0 top-0"
+              style={{ transform: `translateY(${list.offset(item)}px)` }}
+            >
+              <SwipeRow
+                onOpen={() => setEditing(tx)}
+                actions={[
+                  { label: "Catégoriser", tone: "accent", run: () => setCategorizing(tx) },
+                  { label: "Supprimer", tone: "danger", run: () => remove.mutate([tx.id]) },
+                ]}
+              >
+                <button type="button" onClick={() => setEditing(tx)} className="flex min-w-0 flex-1 flex-col gap-0.5 text-left">
+                  <span className="truncate font-medium">{tx.payeeName ?? tx.notes ?? "—"}</span>
+                  <span className={cx("truncate text-[12px] text-faint", !tx.categoryId && !tx.transferAccountId && !tx.isParent && "text-warning")}>
+                    {formatDayShort(tx.date)} · {tx.isParent ? "Ventilée" : tx.transferAccountId && !tx.categoryId ? "Virement" : (tx.categoryName ?? "À catégoriser")}
+                  </span>
+                </button>
+                <SuggestionChip tx={tx} compact />
+                <Money value={tx.amount} sign="always" colored className="text-[14px]" />
+              </SwipeRow>
+            </div>
+          )
+        })}
+      </div>
       {editing ? <TransactionEditor tx={editing} splits={childrenByParent[editing.id]} onClose={() => setEditing(null)} /> : null}
       {categorizing ? (
         <Dialog

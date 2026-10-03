@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm"
+import { eq, getTableColumns } from "drizzle-orm"
 import { Context, Effect, Layer } from "effect"
 import { isDay } from "~/domain/dates"
 import { bulkInsertStatements, chunkIds, chunkRows, Db, type DbError, newId } from "../db/client"
@@ -14,6 +14,13 @@ export type TxPayeeInput =
   | { readonly kind: "none" }
 
 type NewTxRow = typeof transactions.$inferInsert & { createdAt: string }
+
+// Deleted rows go to the trash as JSON, with every column of the table, so that an undo puts
+// back exactly what was there.
+const ALL_COLUMNS = Object.values(getTableColumns(transactions)).map((c) => c.name)
+const ROW_AS_JSON = `json_object(${ALL_COLUMNS.map((c) => `'${c}', ${c}`).join(", ")})`
+const ROW_FROM_JSON = ALL_COLUMNS.map((c) => `json_extract(row, '$.${c}')`).join(", ")
+const TRASH_KEPT_MS = 24 * 3600 * 1000
 
 const INSERT_COLUMNS = [
   "id",
@@ -133,7 +140,10 @@ export class Transactions extends Context.Service<
     get(id: string): Effect.Effect<TxRow, DbError | NotFound>
     create(input: TxInput): Effect.Effect<string, DbError | Invalid | NotFound>
     update(id: string, patch: TxPatch): Effect.Effect<void, DbError | Invalid | NotFound>
-    remove(ids: ReadonlyArray<string>): Effect.Effect<void, DbError>
+    /** Deletes transactions; the returned id undoes it with `restore` for a day. */
+    remove(ids: ReadonlyArray<string>): Effect.Effect<{ undoId: string }, DbError>
+    /** Puts back what a `remove` deleted. Fails once the deletion is too old or already undone. */
+    restore(undoId: string): Effect.Effect<{ restored: number }, DbError | Invalid>
     setCleared(ids: ReadonlyArray<string>, cleared: boolean): Effect.Effect<void, DbError>
     setCategory(ids: ReadonlyArray<string>, categoryId: string | null): Effect.Effect<void, DbError>
     /** Payee id that represents "transfer to/from" an account, created on demand. */
@@ -561,7 +571,52 @@ export class Transactions extends Context.Service<
         yield* db.batch([...deleteStatements([id]), ...insertStatements(rows)])
       })
 
-      const remove = (ids: ReadonlyArray<string>) => db.batch(deleteStatements(ids))
+      const remove = Effect.fn("Transactions.remove")(function* (ids: ReadonlyArray<string>) {
+        const undoId = newId()
+        const now = Date.now()
+        // Same rows as `deleteStatements`: the transactions, their split lines, their transfer
+        // mirrors and the mirrors' lines.
+        const trash = chunkRows(ids).map((chunk) =>
+          db.d1
+            .prepare(
+              `INSERT INTO transaction_trash (undo_id, deleted_at, row)
+               SELECT ?2, ?3, ${ROW_AS_JSON} FROM transactions WHERE id IN (
+                 SELECT value FROM json_each(?1)
+                 UNION SELECT transfer_id FROM transactions WHERE id IN (SELECT value FROM json_each(?1)) AND transfer_id IS NOT NULL
+                 UNION SELECT id FROM transactions WHERE parent_id IN (SELECT value FROM json_each(?1))
+                 UNION SELECT id FROM transactions WHERE parent_id IN (
+                   SELECT transfer_id FROM transactions WHERE id IN (SELECT value FROM json_each(?1)) AND transfer_id IS NOT NULL
+                 )
+               )`,
+            )
+            .bind(JSON.stringify(chunk), undoId, now),
+        )
+        yield* db.batch([
+          db.d1.prepare("DELETE FROM transaction_trash WHERE deleted_at < ?").bind(now - TRASH_KEPT_MS),
+          ...trash,
+          ...deleteStatements(ids),
+        ])
+        return { undoId }
+      })
+
+      const restore = Effect.fn("Transactions.restore")(function* (undoId: string) {
+        const found = yield* db.use((_, d1) =>
+          d1
+            .prepare("SELECT COUNT(*) AS n FROM transaction_trash WHERE undo_id = ? AND deleted_at >= ?")
+            .bind(undoId, Date.now() - TRASH_KEPT_MS)
+            .first<{ n: number }>(),
+        )
+        const restored = found?.n ?? 0
+        if (restored === 0) return yield* new Invalid({ message: "Cette suppression ne peut plus être annulée" })
+        // A row whose account, payee or category was deleted since makes the whole batch fail.
+        yield* db.batch([
+          db.d1
+            .prepare(`INSERT OR IGNORE INTO transactions (${ALL_COLUMNS.join(", ")}) SELECT ${ROW_FROM_JSON} FROM transaction_trash WHERE undo_id = ?`)
+            .bind(undoId),
+          db.d1.prepare("DELETE FROM transaction_trash WHERE undo_id = ?").bind(undoId),
+        ])
+        return { restored }
+      })
 
       const setCleared = (ids: ReadonlyArray<string>, cleared: boolean) =>
         db.batch(
@@ -583,7 +638,7 @@ export class Transactions extends Context.Service<
           ),
         )
 
-      return Transactions.of({ list, get, create, update, remove, setCleared, setCategory, transferPayee })
+      return Transactions.of({ list, get, create, update, remove, restore, setCleared, setCategory, transferPayee })
     }),
   )
 }

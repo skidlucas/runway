@@ -139,6 +139,21 @@ describe("computeFindings", () => {
     expect(plain(findings[0]?.context)).toBe("Budget 120 € · dépassement probable le 17 oct.")
   })
 
+  it("skips pace-based findings in the first days of the month", () => {
+    const overspending = category({
+      budgeted: 12_000,
+      history: hist([
+        ["2026-07", 14_000, 4000],
+        ["2026-08", 14_000, 4000],
+        ["2026-09", 14_000, 4000],
+        ["2026-10", 9000, 9000, 12_000],
+      ]),
+    })
+    const input = { categories: [overspending], topPayees: [], monthTotal: 0, newRecurring: [] }
+    expect(computeFindings({ ...input, today: "2026-10-05" })).toEqual([])
+    expect(computeFindings({ ...input, today: "2026-10-08" }).map((f) => f.kind)).toEqual(["projection"])
+  })
+
   it("reports a category clearly below the same date last month", () => {
     const [finding] = computeFindings({
       today: "2026-10-15",

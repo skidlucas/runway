@@ -195,12 +195,15 @@ function Summary({ data }: { data: WealthOverview }) {
 
 const COLUMNS = "grid grid-cols-[minmax(0,1fr)_110px_110px_160px] items-center gap-3 px-5"
 
+/** DVF publishes sales months late: the estimate says which month its data stops at. */
+const dataAge = (e: { asOf: string | null }) => (e.asOf ? ` · ventes jusqu'à ${formatMonthLong(e.asOf).toLowerCase()}` : "")
+
 function estimateCaption(item: WealthItem, today: string): { text: string; tone: "live" | "manual" | "stale" } {
   const e = item.estimate
   if (!e) return { text: isAutomaticSource(item) ? "En attente de cotation" : "Déclarative uniquement", tone: "manual" }
   if (item.stale) return { text: `À mettre à jour · ${formatDayLong(e.date)}`, tone: "stale" }
   const when = e.label === "Compte suivi" || e.label === "Tableau d'amortissement" ? "" : ` · ${e.date === today ? "aujourd'hui" : formatDayShort(e.date)}`
-  return { text: `${e.label}${when}`, tone: e.automatic ? "live" : "manual" }
+  return { text: `${e.label}${when}${dataAge(e)}`, tone: e.automatic ? "live" : "manual" }
 }
 
 function AssetTable({
@@ -301,7 +304,7 @@ function Detail({ item, months, today, onEdit }: { item: WealthItem; months: Mon
       kind: "estimated",
       label: "Estimée",
       amount: item.estimate?.amount ?? null,
-      caption: item.estimate ? `${item.estimate.label} · ${formatDayShort(item.estimate.date)}` : "aucune estimation",
+      caption: item.estimate ? `${item.estimate.label} · ${formatDayShort(item.estimate.date)}${dataAge(item.estimate)}` : "aucune estimation",
     },
   ]
 

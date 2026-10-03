@@ -23,7 +23,7 @@ Sur un budget vide, la page Budget propose de créer des catégories types, d'im
 | `SESSION_SECRET` | Chiffre le cookie de session, 32 caractères minimum (requis) |
 | `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` | Analyse rédigée des insights et repli pour la catégorisation |
 | `AI_PROVIDER` | `openai` (défaut) ou `anthropic` |
-| `AI_MODEL` | Modèle du fournisseur (défaut : `gpt-5.4-mini` / `claude-haiku-4-5`) |
+| `AI_MODEL` | Modèle du fournisseur (défaut : `gpt-6-luna` / `claude-haiku-4-5`) |
 | `TYPESAFE_API_KEY` | Catégorisation et suggestions de règles via Jev (TypeSafe AI) |
 | `DECISION_MODEL` | Modèle Jev (défaut : `jev-latest`) |
 

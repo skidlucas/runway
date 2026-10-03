@@ -159,21 +159,23 @@ export const buildActualExport = (
       const conditions = [
         { op: "is", field: "description", value: s.payeeId, type: "id" },
         { op: "is", field: "acct", value: s.accountId, type: "id" },
-        {
-          op: "isapprox",
-          field: "date",
-          type: "date",
-          value: {
-            start: s.startDate,
-            frequency: FREQUENCY[s.recurrence.unit],
-            interval: s.recurrence.interval,
-            patterns: [],
-            skipWeekend: false,
-            weekendSolveMode: "after",
-            endMode: s.endDate ? "on_date" : "never",
-            ...(s.endDate ? { endDate: s.endDate } : {}),
-          },
-        },
+        s.recurrence.unit === "once"
+          ? { op: "is", field: "date", type: "date", value: s.startDate }
+          : {
+              op: "isapprox",
+              field: "date",
+              type: "date",
+              value: {
+                start: s.startDate,
+                frequency: FREQUENCY[s.recurrence.unit],
+                interval: s.recurrence.interval,
+                patterns: [],
+                skipWeekend: false,
+                weekendSolveMode: "after",
+                endMode: s.endDate ? "on_date" : "never",
+                ...(s.endDate ? { endDate: s.endDate } : {}),
+              },
+            },
         { op: "isapprox", field: "amount", value: s.amount, type: "number" },
       ]
       const actions: unknown[] = [{ op: "link-schedule", value: s.id }]

@@ -70,6 +70,7 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
                   ["/budget", "Budget"],
                   ["/forecast", "Prévision"],
                   ["/insights", "Insights"],
+                  ["/dashboard", "Tableau de bord"],
                   ["/wealth", "Patrimoine"],
                   ["/schedules", "Échéances"],
                   ["/accounts/all", "Toutes les opérations"],

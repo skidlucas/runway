@@ -85,6 +85,14 @@ describe("recurrence", () => {
     expect(occurrencesBetween(weekly, "2026-10-02", "2026-10-31")).toEqual(["2026-10-08", "2026-10-15"])
     expect(describeRecurrence({ unit: "month", interval: 3 })).toBe("Tous les trimestres")
   })
+
+  it("has a single occurrence for a one-off", () => {
+    const once = { startDate: "2026-10-12", endDate: null, recurrence: { unit: "once", interval: 1 } } as const
+    expect(nextOnOrAfter(once, "2026-10-01")).toBe("2026-10-12")
+    expect(nextOnOrAfter(once, "2026-10-13")).toBeNull()
+    expect(occurrencesBetween(once, "2026-10-01", "2026-12-31")).toEqual(["2026-10-12"])
+    expect(describeRecurrence(once.recurrence)).toBe("Une seule fois")
+  })
 })
 
 describe("recurring detection", () => {

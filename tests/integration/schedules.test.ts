@@ -110,4 +110,55 @@ describe("Schedules", () => {
     expect(amounts.get(out)).toBe(-80_000)
     expect(amounts.get(back)).toBe(80_000)
   })
+
+  it("books a one-off schedule once and then ends it", async () => {
+    const id = await h.run(Schedules.use((s) => s.create(monthly(today, { name: "Remboursement", recurrence: { unit: "once", interval: 1 } }))))
+    await h.run(Schedules.use((s) => s.sync))
+    await h.run(Schedules.use((s) => s.sync))
+    expect(await booked(id)).toEqual([today])
+    expect((await schedule(id)).active).toBe(false)
+  })
+
+  it("forecasts one account, with or without the budget, and lists the next days", async () => {
+    const checking = await h.run(
+      Accounts.use((a) => a.create({ name: "Perso", kind: "checking", offBudget: false, startingBalance: 200_000, startingDate: "2020-01-01" })),
+    )
+    const livret = await h.run(
+      Accounts.use((a) => a.create({ name: "Livret perso", kind: "savings", offBudget: false, startingBalance: 500_000, startingDate: "2020-01-01" })),
+    )
+    const soon = addDays(today, 2)
+    const sameMonth = soon.slice(0, 7) === today.slice(0, 7)
+    await h.run(
+      Schedules.use((s) =>
+        s.create(monthly(soon, { name: "Vers livret perso", accountId: checking, autoPost: false, payee: { kind: "transfer", accountId: livret } })),
+      ),
+    )
+    await h.run(
+      Schedules.use((s) =>
+        s.create(monthly(soon, { name: "Assurance", accountId: checking, autoPost: false, recurrence: { unit: "once", interval: 1 } })),
+      ),
+    )
+
+    const perso = await h.run(ForecastService.use((f) => f.month({ accountId: checking })))
+    expect(perso.accountId).toBe(checking)
+    expect(perso.accounts.map((a) => a.id)).toEqual([checking])
+    expect(perso.balanceToday).toBe(200_000)
+    expect(perso.withBudget).toBe(true)
+
+    const saving = await h.run(ForecastService.use((f) => f.month({ accountId: livret })))
+    expect(saving.withBudget).toBe(false)
+    expect(saving.remainingToSpend).toBe(0)
+    // The transfer leaves the checking account and lands on the savings account.
+    expect(saving.projectedEndBalance).toBe(500_000 + (sameMonth ? 80_000 : 0))
+
+    const withoutBudget = await h.run(ForecastService.use((f) => f.month({ accountId: checking, withBudget: false })))
+    expect(withoutBudget.projectedEndBalance).toBe(200_000 - (sameMonth ? 160_000 : 0))
+
+    const next = await h.run(ForecastService.use((f) => f.upcoming({ accountId: checking, days: 7 })))
+    expect(next.items.map((i) => [i.name, i.date, i.amount]).sort()).toEqual([
+      ["Assurance", soon, -80_000],
+      ["Vers livret perso", soon, -80_000],
+    ])
+    await expect(h.run(ForecastService.use((f) => f.month({ accountId: "nope" })))).rejects.toThrow()
+  })
 })

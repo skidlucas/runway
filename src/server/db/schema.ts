@@ -202,6 +202,9 @@ export const assetValuations = sqliteTable(
     source: text("source").notNull(),
     // Unit price used to compute the amount, kept to explain the estimation.
     unitPrice: real("unit_price"),
+    // Last month covered by the source data, when it lags behind `date` (DVF publishes sales
+    // several months late).
+    asOf: text("as_of"),
     automatic: integer("automatic", { mode: "boolean" }).notNull().default(false),
   },
   (t) => [index("asset_valuations_asset_date_idx").on(t.assetId, t.date)],
@@ -220,6 +223,46 @@ export const savedViews = sqliteTable("saved_views", {
   config: text("config", { mode: "json" }).$type<InsightViewConfig>().notNull(),
   sortOrder: real("sort_order").notNull().default(0),
 })
+
+export type DashboardWidgetKind =
+  | "net_worth"
+  | "cash_flow"
+  | "spending_comparison"
+  | "category_spending"
+  | "account_balances"
+  | "upcoming"
+  | "insight_view"
+
+export type DashboardWidget = {
+  id: string
+  kind: DashboardWidgetKind
+  /** Columns taken on the 3-column desktop grid. */
+  size: 1 | 2 | 3
+  /** Period of the time-based widgets (net worth, cash flow, category spending). */
+  months?: number
+  /** Horizon of the `upcoming` widget. */
+  days?: number
+  /** Saved insights view shown by an `insight_view` widget. */
+  viewId?: string
+}
+
+export const dashboards = sqliteTable("dashboards", {
+  id: text("id").primaryKey(),
+  name: text("name").notNull(),
+  widgets: text("widgets", { mode: "json" }).$type<DashboardWidget[]>().notNull(),
+  sortOrder: real("sort_order").notNull().default(0),
+})
+
+// Deleted transactions, kept a day so a deletion can be undone. `row` is the transaction as JSON.
+export const transactionTrash = sqliteTable(
+  "transaction_trash",
+  {
+    undoId: text("undo_id").notNull(),
+    deletedAt: integer("deleted_at").notNull(),
+    row: text("row").notNull(),
+  },
+  (t) => [index("transaction_trash_undo_idx").on(t.undoId), index("transaction_trash_deleted_idx").on(t.deletedAt)],
+)
 
 export const settings = sqliteTable("settings", {
   key: text("key").primaryKey(),

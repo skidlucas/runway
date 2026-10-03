@@ -239,6 +239,11 @@ export const deleteTransactions = createServerFn({ method: "POST" })
   .validator(v(Schema.Struct({ ids: Ids })))
   .handler(({ data }) => runApp(Transactions.use((s) => s.remove(data.ids))))
 
+export const restoreTransactions = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
+  .validator(v(Schema.Struct({ undoId: Schema.String })))
+  .handler(({ data }) => runApp(Transactions.use((s) => s.restore(data.undoId))))
+
 export const setTransactionsCleared = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
   .validator(v(Schema.Struct({ ids: Ids, cleared: Schema.Boolean })))
