@@ -3,7 +3,6 @@ import { addMonths, todayIn } from "~/domain/dates"
 import { Accounts } from "~/server/services/accounts"
 import { Categories } from "~/server/services/categories"
 import { Dashboards, DEFAULT_WIDGETS, MAIN_DASHBOARD_ID } from "~/server/services/dashboards"
-import { ForecastService } from "~/server/services/forecast"
 import { Reports } from "~/server/services/reports"
 import { Transactions } from "~/server/services/transactions"
 import { createHarness, type Harness } from "./harness"
@@ -84,23 +83,5 @@ describe("Reports and dashboards", () => {
     await expect(h.run(Dashboards.use((d) => d.save(other.id, { widgets: [{ id: "x", kind: "net_worth", size: 2, months: 7 }] })))).rejects.toThrow(
       "Widget invalide",
     )
-  })
-
-  it("gives each budget account its share of the remaining budget", async () => {
-    // Actual has no account kinds: an imported savings account comes in as "checking".
-    const create = (name: string) =>
-      h.run(Accounts.use((a) => a.create({ name, kind: "checking", offBudget: false, startingBalance: 50_000, startingDate: "2020-01-01" })))
-    const livret = await create("Livret importé")
-    const cash = await create("Espèces")
-    await h.run(Transactions.use((t) => t.create({ accountId: cash, date: today, amount: -5_000, payee: { kind: "name", name: "Marché" }, categoryId: food })))
-    const forecast = (accountId: string, withBudget?: boolean) =>
-      h.run(ForecastService.use((f) => f.month({ accountId, ...(withBudget === undefined ? {} : { withBudget }) })))
-
-    const saving = await forecast(livret)
-    expect(saving).toMatchObject({ budgetShare: 0, withBudget: false, remainingToSpend: 0, projectedEndBalance: 50_000 })
-    const [main, coins] = await Promise.all([forecast(checking), forecast(cash)])
-    expect(coins.budgetShare).toBeGreaterThan(0)
-    expect(main.budgetShare + coins.budgetShare).toBeCloseTo(1)
-    expect((await forecast(livret, true)).budgetShare).toBe(1)
   })
 })

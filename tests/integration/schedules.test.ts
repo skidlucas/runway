@@ -119,7 +119,7 @@ describe("Schedules", () => {
     expect((await schedule(id)).active).toBe(false)
   })
 
-  it("forecasts one account, with or without the budget, and lists the next days", async () => {
+  it("forecasts one account from its schedules and lists the next days", async () => {
     const checking = await h.run(
       Accounts.use((a) => a.create({ name: "Perso", kind: "checking", offBudget: false, startingBalance: 200_000, startingDate: "2020-01-01" })),
     )
@@ -143,16 +143,11 @@ describe("Schedules", () => {
     expect(perso.accountId).toBe(checking)
     expect(perso.accounts.map((a) => a.id)).toEqual([checking])
     expect(perso.balanceToday).toBe(200_000)
-    expect(perso.withBudget).toBe(true)
+    expect(perso.projectedEndBalance).toBe(200_000 - (sameMonth ? 160_000 : 0))
 
     const saving = await h.run(ForecastService.use((f) => f.month({ accountId: livret })))
-    expect(saving.withBudget).toBe(false)
-    expect(saving.remainingToSpend).toBe(0)
     // The transfer leaves the checking account and lands on the savings account.
     expect(saving.projectedEndBalance).toBe(500_000 + (sameMonth ? 80_000 : 0))
-
-    const withoutBudget = await h.run(ForecastService.use((f) => f.month({ accountId: checking, withBudget: false })))
-    expect(withoutBudget.projectedEndBalance).toBe(200_000 - (sameMonth ? 160_000 : 0))
 
     const next = await h.run(ForecastService.use((f) => f.upcoming({ accountId: checking, days: 7 })))
     expect(next.items.map((i) => [i.name, i.date, i.amount]).sort()).toEqual([

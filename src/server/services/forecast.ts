@@ -3,8 +3,6 @@ import { addDays, type Day, isMonth, lastDay, type Month } from "~/domain/dates"
 import { computeForecast, type Forecast, type UpcomingItem } from "~/domain/forecast"
 import { Db, type DbError } from "../db/client"
 import { Invalid, NotFound } from "../errors"
-import type { AccountKind } from "./accounts"
-import { Budget } from "./budget"
 import { type Occurrence, Schedules } from "./schedules"
 import { Settings } from "./settings"
 
@@ -20,16 +18,9 @@ export type ForecastScope = {
   readonly month?: Month
   /** Limits the forecast to one account instead of the accounts flagged "in forecast". */
   readonly accountId?: string
-  /** Defaults to true for every forecast account, and for a single checking or credit account. */
-  readonly withBudget?: boolean
 }
 
 export type UpcomingDto = { today: Day; until: Day; items: UpcomingItem[] }
-
-type ScopedAccount = ForecastAccount & { kind: AccountKind; offBudget: number }
-
-/** How far back an account's share of the budget spending is measured. */
-const SHARE_DAYS = 90
 
 // Either one account, or the accounts that count as "money available now".
 const SCOPE = "((?1 IS NULL AND a.in_forecast = 1 AND a.closed = 0 AND a.off_budget = 0) OR a.id = ?1)"
@@ -69,7 +60,6 @@ export class ForecastService extends Context.Service<
     Effect.gen(function* () {
       const db = yield* Db
       const settings = yield* Settings
-      const budget = yield* Budget
       const schedules = yield* Schedules
 
       const month = Effect.fn("Forecast.month")(function* (scope: ForecastScope = {}) {
@@ -80,13 +70,11 @@ export class ForecastService extends Context.Service<
         const start = `${m}-01`
         const end = lastDay(m)
 
-        const [{ months, tree }, raw, occurrences] = yield* Effect.all([
-          budget.compute(m),
+        const [raw, occurrences] = yield* Effect.all([
           db.use(async (_, d1) => {
-            const [accounts, opening, daily, future, share] = await d1.batch([
+            const [accounts, opening, daily, future] = await d1.batch([
               d1.prepare(
-                `SELECT a.id, a.name, a.kind, a.off_budget AS offBudget,
-                        COALESCE(SUM(CASE WHEN t.date <= ?2 THEN t.amount END), 0) AS balance
+                `SELECT a.id, a.name, COALESCE(SUM(CASE WHEN t.date <= ?2 THEN t.amount END), 0) AS balance
                  FROM accounts a LEFT JOIN transactions t ON t.account_id = a.id AND t.parent_id IS NULL
                  WHERE ${SCOPE}
                  GROUP BY a.id ORDER BY a.sort_order`,
@@ -106,16 +94,9 @@ export class ForecastService extends Context.Service<
                  LEFT JOIN payees p ON p.id = t.payee_id LEFT JOIN accounts pa ON pa.id = p.transfer_account_id
                  WHERE ${SCOPE} AND t.parent_id IS NULL AND t.date > ?2 AND t.date <= ?3`,
               ).bind(accountId, today, end),
-              d1.prepare(
-                `SELECT COALESCE(SUM(CASE WHEN a.id = ?1 THEN -t.amount END), 0) AS mine, COALESCE(SUM(-t.amount), 0) AS total
-                 FROM transactions t JOIN accounts a ON a.id = t.account_id JOIN categories c ON c.id = t.category_id
-                 WHERE t.is_parent = 0 AND t.starting_balance = 0 AND a.off_budget = 0 AND c.is_income = 0
-                   AND t.date > ?2 AND t.date <= ?3`,
-              ).bind(accountId, addDays(today, -SHARE_DAYS), today),
             ])
             return {
-              share: (share?.results?.[0] ?? { mine: 0, total: 0 }) as { mine: number; total: number },
-              accounts: (accounts?.results ?? []) as ScopedAccount[],
+              accounts: (accounts?.results ?? []) as ForecastAccount[],
               opening: ((opening?.results?.[0] as { total: number } | undefined)?.total ?? 0) as number,
               daily: (daily?.results ?? []) as Array<{ date: string; total: number }>,
               future: (future?.results ?? []) as Array<{ date: string; amount: number; categoryId: string | null; name: string }>,
@@ -124,21 +105,7 @@ export class ForecastService extends Context.Service<
           schedules.occurrences(today > start ? today : start, end),
         ])
 
-        const single = raw.accounts[0]
-        if (accountId !== null && !single) return yield* new NotFound({ entity: "Compte", id: accountId })
-        // One account carries the part of the budget it has been paying lately: most of it for the
-        // checking account, nothing for a savings account. Without history, its kind decides.
-        const history =
-          accountId === null
-            ? 1
-            : raw.share.total > 0
-              ? Math.max(0, raw.share.mine) / raw.share.total
-              : single?.offBudget === 0 && (single.kind === "checking" || single.kind === "credit")
-                ? 1
-                : 0
-        const withBudget = scope.withBudget ?? history > 0
-        // Asked to count the budget on an account that never paid any of it: all of it, then.
-        const budgetShare = withBudget && history === 0 ? 1 : history
+        if (accountId !== null && raw.accounts.length === 0) return yield* new NotFound({ entity: "Compte", id: accountId })
 
         const dailyBalances = new Map<string, number>()
         let running = raw.opening
@@ -146,21 +113,6 @@ export class ForecastService extends Context.Service<
           running += d.total
           dailyBalances.set(d.date, running)
         }
-        const current = months.get(m)
-        const categories = tree.flatMap((g) =>
-          g.categories.map((c) => {
-            const cell = current?.categories.get(c.id)
-            return {
-              id: c.id,
-              name: c.name,
-              isIncome: c.isIncome,
-              hidden: c.hidden,
-              budgeted: cell?.budgeted ?? 0,
-              spent: c.isIncome ? (cell?.activity ?? 0) : -(cell?.activity ?? 0),
-              available: cell?.available ?? 0,
-            }
-          }),
-        )
         const upcoming: UpcomingItem[] = [
           ...raw.future.map((t) => ({ ...t, source: "transaction" as const, scheduleId: null })),
           ...scheduledItems(occurrences, new Set(raw.accounts.map((a) => a.id))),
@@ -168,12 +120,9 @@ export class ForecastService extends Context.Service<
         const forecast = computeForecast({
           today,
           month: m,
-          categories,
           dailyBalances,
           openingBalance: raw.opening,
           upcoming,
-          withBudget,
-          budgetShare,
         })
         return {
           ...forecast,

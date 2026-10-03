@@ -37,7 +37,6 @@ export const getForecast = createServerFn({ method: "GET" })
       Schema.Struct({
         month: Schema.optional(Schema.String),
         accountId: Schema.optional(Schema.String),
-        withBudget: Schema.optional(Schema.Boolean),
       }),
     ),
   )

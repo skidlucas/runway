@@ -318,7 +318,7 @@ function AccountSummary({ account }: { account: AccountDto }) {
               "Échéances comprises"
             ) : (
               <Link to="/forecast" search={{ account: account.id }} className="hover:text-fg">
-                {f && !f.withBudget ? "Échéances comprises" : "Budget restant compris"} · détail
+                Échéances comprises · détail
               </Link>
             )
           }

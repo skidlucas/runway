@@ -37,7 +37,7 @@ export const q = {
     }),
   rules: () => queryOptions({ queryKey: ["rules"], queryFn: () => getRules() }),
   ruleSuggestions: () => queryOptions({ queryKey: ["ruleSuggestions"], queryFn: () => getRuleSuggestions() }),
-  forecast: (scope: { month?: string; accountId?: string; withBudget?: boolean } = {}) =>
+  forecast: (scope: { month?: string; accountId?: string } = {}) =>
     queryOptions({ queryKey: ["forecast", scope], queryFn: () => getForecast({ data: scope }), placeholderData: (prev) => prev }),
   upcoming: (args: { accountId?: string; days: number }) =>
     queryOptions({ queryKey: ["upcoming", args], queryFn: () => getUpcoming({ data: args }) }),
