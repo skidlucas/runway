@@ -24,7 +24,8 @@ export const Route = createFileRoute("/_app/dashboard")({
 })
 
 const TITLES: Record<DashboardWidgetKind, string> = {
-  net_worth: "Valeur nette",
+  net_worth: "Total des comptes",
+  wealth: "Patrimoine net",
   cash_flow: "Flux de trésorerie",
   spending_comparison: "Dépenses du mois",
   category_spending: "Dépenses par catégorie",
@@ -36,6 +37,7 @@ const TITLES: Record<DashboardWidgetKind, string> = {
 /** What a new widget of each kind starts with. */
 const DEFAULTS: Record<Exclude<DashboardWidgetKind, "insight_view">, Omit<DashboardWidget, "id" | "kind">> = {
   net_worth: { size: 2, months: 12 },
+  wealth: { size: 2, months: 12 },
   cash_flow: { size: 1, months: 1 },
   spending_comparison: { size: 1 },
   category_spending: { size: 1, months: 1 },
@@ -44,6 +46,16 @@ const DEFAULTS: Record<Exclude<DashboardWidgetKind, "insight_view">, Omit<Dashbo
 }
 
 const SPAN = { 1: "", 2: "md:col-span-2", 3: "md:col-span-3" } as const
+
+/** The wealth page keeps a year of history. */
+const WEALTH_MONTHS = 12
+
+const periodsOf = (kind: DashboardWidgetKind) =>
+  kind === "wealth"
+    ? REPORT_MONTHS.filter((m) => m > 1 && m <= WEALTH_MONTHS)
+    : kind === "net_worth"
+      ? REPORT_MONTHS.filter((m) => m > 1)
+      : REPORT_MONTHS
 
 const periodLabel = (months: number) => (months === 1 ? "Ce mois" : `${months} mois`)
 
@@ -286,7 +298,7 @@ function WidgetCard({
     ...(widget.months !== undefined
       ? [
           { separator: true } as const,
-          ...REPORT_MONTHS.filter((m) => widget.kind !== "net_worth" || m > 1).map((months) => ({
+          ...periodsOf(widget.kind).map((months) => ({
             label: periodLabel(months),
             icon: mark(widget.months === months),
             onSelect: () => onChange({ ...widget, months }),
@@ -347,6 +359,8 @@ function WidgetBody({ widget, viewMissing }: { widget: DashboardWidget; viewMiss
   switch (widget.kind) {
     case "net_worth":
       return <NetWorthWidget months={widget.months ?? 12} />
+    case "wealth":
+      return <WealthWidget months={widget.months ?? 12} />
     case "cash_flow":
       return <CashFlowWidget months={widget.months ?? 1} />
     case "spending_comparison":
@@ -381,8 +395,32 @@ function NetWorthWidget({ months }: { months: number }) {
         <span className={r.change < 0 ? "text-negative" : "text-positive"}>{formatMoney(r.change, { sign: "always" })}</span> sur la période
       </Headline>
       <LineChart
-        series={[{ label: "Valeur nette", values: r.months.map((m) => m.value), color: "var(--chart-1)", area: true }]}
+        series={[{ label: "Total des comptes", values: r.months.map((m) => m.value), color: "var(--chart-1)", area: true }]}
         labels={r.months.map((m) => capitalize(formatMonthShort(m.month)))}
+        className="mt-auto"
+      />
+    </>
+  )
+}
+
+function WealthWidget({ months }: { months: number }) {
+  const wealth = useQuery(q.wealth())
+  const w = wealth.data
+  if (!w) return <Loading />
+  const values = w.history.slice(-months)
+  // Measured from the month before the window, like the accounts total.
+  const change = w.netWorth - (w.history.at(-months - 1) ?? values[0] ?? w.netWorth)
+  return (
+    <>
+      <Headline value={w.netWorth} negative={w.netWorth < 0}>
+        <span className={change < 0 ? "text-negative" : "text-positive"}>{formatMoney(change, { sign: "always" })}</span> sur la période ·{" "}
+        <Link to="/wealth" className="hover:text-fg">
+          détail
+        </Link>
+      </Headline>
+      <LineChart
+        series={[{ label: "Patrimoine net", values, color: "var(--chart-2)", area: true }]}
+        labels={w.months.slice(-months).map((m) => capitalize(formatMonthShort(m)))}
         className="mt-auto"
       />
     </>

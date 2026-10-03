@@ -11,6 +11,7 @@ export const DashboardWidget = Schema.Struct({
   id: Schema.String,
   kind: Schema.Literals([
     "net_worth",
+    "wealth",
     "cash_flow",
     "spending_comparison",
     "category_spending",

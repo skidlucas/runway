@@ -226,6 +226,7 @@ export const savedViews = sqliteTable("saved_views", {
 
 export type DashboardWidgetKind =
   | "net_worth"
+  | "wealth"
   | "cash_flow"
   | "spending_comparison"
   | "category_spending"
