@@ -12,6 +12,7 @@ import { Budget } from "~/server/services/budget"
 import { Categories } from "~/server/services/categories"
 import { type ExportMeta, type ExportTransaction, ImportExport } from "~/server/services/import-export"
 import { Rules } from "~/server/services/rules"
+import { Schedules } from "~/server/services/schedules"
 import { createHarness, type Harness, importApi } from "./harness"
 
 type ActualCategory = { id: string; name: string; is_income: boolean; budgeted?: number; spent?: number; balance?: number; received?: number }
@@ -24,6 +25,7 @@ let meta: ExportMeta
 let transactions: ExportTransaction[]
 let skippedRules: number
 let budgetId: string
+let schedulePathFields: unknown[] | undefined
 
 beforeAll(async () => {
   h = await createHarness({ now: "2026-10-04T10:00:00Z" })
@@ -46,6 +48,13 @@ beforeAll(async () => {
   skippedRules = built.skippedRules
 
   const files = unzipSync(built.zip)
+  const exported = new SQL.Database(files["db.sqlite"]!)
+  schedulePathFields = exported.exec(
+    `SELECT json_extract(r.conditions, p.account || '.field'), json_extract(r.conditions, p.amount || '.field'),
+            json_extract(r.conditions, p.date || '.field'), json_extract(r.conditions, p.payee || '.field')
+     FROM schedules s JOIN rules r ON r.id = s.rule JOIN schedules_json_paths p ON p.schedule_id = s.id LIMIT 1`,
+  )[0]?.values[0]
+  exported.close()
   const metadata = JSON.parse(new TextDecoder().decode(files["metadata.json"]))
   budgetId = metadata.id
   const dir = join(dataDir, budgetId)
@@ -115,5 +124,15 @@ describe("Actual export, read back by the official Actual API", () => {
     expect(schedules.map((s) => [s.name, s.next_date, s.posts_transaction, s.completed]).sort()).toEqual(
       meta.schedules.map((s) => [s.name, s.nextDate, s.autoPost, !s.active]).sort(),
     )
+  })
+
+  it("points each schedule's json paths at its payee, account, amount and date conditions", () => {
+    expect(schedulePathFields).toEqual(["acct", "amount", "date", "description"])
+  })
+
+  it("lets Actual read a schedule's account, amount and rhythm from its rule", async () => {
+    const theirs = (await actual.getSchedules()) as Array<{ name: string }>
+    const mine = (await h.run(Schedules.use((s) => s.list))).find((s) => s.name === "Netflix")!
+    expect(theirs.find((s) => s.name === "Netflix")).toMatchObject({ account: mine.accountId, amount: mine.amount, date: { frequency: "monthly" } })
   })
 })

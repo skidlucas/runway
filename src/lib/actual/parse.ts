@@ -266,10 +266,61 @@ const readDatabase = (db: Database, name: string): ImportBundle => {
 type ActualCondition = { field: string; op: string; value: unknown; options?: unknown }
 type ActualAction = { op: string; field?: string; value?: unknown }
 
+// Actual's internal column names for the fields its rule editor calls payee, account and
+// imported payee.
 const FIELD_ALIASES: Record<string, string> = {
   description: "payee",
   acct: "account",
   imported_description: "imported_payee",
+}
+
+/**
+ * Runway's conditions for one Actual condition, or null when runway cannot express it.
+ * `anyOf`: a payee "one of" became several `is` conditions, which only hold when OR'ed, so the
+ * condition must be the rule's only one.
+ */
+const translateCondition = (
+  c: ActualCondition,
+  mapPayee: (id: unknown) => string | null,
+  payeeName: Map<string, string>,
+): { conditions: RuleCondition[]; anyOf: boolean } | null => {
+  const field = FIELD_ALIASES[c.field] ?? c.field
+  // Payees are matched by name in runway: Actual's ids go through its payee merges first.
+  if (field === "payee" && (c.op === "is" || c.op === "oneOf")) {
+    const ids = Array.isArray(c.value) ? c.value : [c.value]
+    const names = ids.map((id) => payeeName.get(mapPayee(id) ?? "")).filter((n): n is string => !!n)
+    if (names.length === 0) return null
+    return { conditions: names.map((n) => ({ field: "payee", op: "is", value: n })), anyOf: names.length > 1 }
+  }
+  if ((field === "imported_payee" || field === "notes" || field === "payee") && typeof c.value === "string") {
+    const op = c.op === "contains" || c.op === "matches" || c.op === "is" ? c.op : null
+    if (!op || (op === "matches" && patternProblem(c.value))) return null
+    return { conditions: [{ field: field as RuleCondition["field"], op, value: c.value }], anyOf: false }
+  }
+  if (field === "amount") return translateAmount(c)
+  if (field === "account" && c.op === "is" && typeof c.value === "string") {
+    return { conditions: [{ field: "account", op: "is", value: c.value }], anyOf: false }
+  }
+  return null
+}
+
+// Actual's amounts are signed and its "isapprox" has a tolerance; runway compares the absolute
+// amount exactly, so "isapprox" becomes "is".
+const translateAmount = (c: ActualCondition): { conditions: RuleCondition[]; anyOf: boolean } | null => {
+  const v = c.value as number | { num1: number; num2: number }
+  const one = (condition: RuleCondition) => ({ conditions: [condition], anyOf: false })
+  if (c.op === "isbetween" && typeof v === "object" && v) return one({ field: "amount", op: "between", value: [Math.abs(v.num1), Math.abs(v.num2)] })
+  if (typeof v !== "number") return null
+  if (c.op === "is" || c.op === "isapprox") return one({ field: "amount", op: "is", value: Math.abs(v) })
+  if (c.op === "gt" || c.op === "gte" || c.op === "lt" || c.op === "lte") {
+    // Below a negative threshold means spending more than it. Amounts are whole cents, so an
+    // inclusive bound moves by one cent.
+    const above = (c.op === "gt" || c.op === "gte") === v >= 0
+    const inclusive = c.op === "gte" || c.op === "lte"
+    const limit = Math.abs(v) + (inclusive ? (above ? -1 : 1) : 0)
+    return one({ field: "amount", op: above ? "gt" : "lt", value: limit })
+  }
+  return null
 }
 
 const parseJson = <T>(text: unknown): T | null => {
@@ -303,52 +354,13 @@ const readRules = (
     const conditions: RuleCondition[] = []
     let ok = true
     for (const c of conds) {
-      const field = FIELD_ALIASES[c.field] ?? c.field
-      if (field === "payee" && (c.op === "is" || c.op === "oneOf")) {
-        const ids = Array.isArray(c.value) ? c.value : [c.value]
-        const names = ids.map((id) => payeeName.get(mapPayee(id) ?? "")).filter((n): n is string => !!n)
-        if (names.length === 0) {
-          ok = false
-          break
-        }
-        if (names.length > 1) {
-          if (conds.length > 1) {
-            ok = false
-            break
-          }
-          op = "or"
-        }
-        for (const n of names) conditions.push({ field: "payee", op: "is", value: n })
-      } else if ((field === "imported_payee" || field === "notes" || field === "payee") && typeof c.value === "string") {
-        const mapped = c.op === "contains" || c.op === "matches" || c.op === "is" ? c.op : null
-        if (!mapped || (mapped === "matches" && patternProblem(c.value))) {
-          ok = false
-          break
-        }
-        conditions.push({ field: field as RuleCondition["field"], op: mapped, value: c.value })
-      } else if (field === "amount") {
-        const v = c.value as number | { num1: number; num2: number }
-        if (c.op === "isbetween" && typeof v === "object" && v) {
-          conditions.push({ field: "amount", op: "between", value: [Math.abs(v.num1), Math.abs(v.num2)] })
-        } else if (typeof v === "number" && (c.op === "is" || c.op === "isapprox")) {
-          conditions.push({ field: "amount", op: "is", value: Math.abs(v) })
-        } else if (typeof v === "number" && (c.op === "gt" || c.op === "gte" || c.op === "lt" || c.op === "lte")) {
-          // runway compares the absolute amount: below a negative threshold means spending more
-          // than it. Amounts are whole cents, so an inclusive bound moves by one cent.
-          const above = (c.op === "gt" || c.op === "gte") === v >= 0
-          const inclusive = c.op === "gte" || c.op === "lte"
-          const limit = Math.abs(v) + (inclusive ? (above ? -1 : 1) : 0)
-          conditions.push({ field: "amount", op: above ? "gt" : "lt", value: limit })
-        } else {
-          ok = false
-          break
-        }
-      } else if (field === "account" && c.op === "is" && typeof c.value === "string") {
-        conditions.push({ field: "account", op: "is", value: c.value })
-      } else {
+      const translated = translateCondition(c, mapPayee, payeeName)
+      if (!translated || (translated.anyOf && conds.length > 1)) {
         ok = false
         break
       }
+      if (translated.anyOf) op = "or"
+      conditions.push(...translated.conditions)
     }
     const actions: RuleAction[] = []
     for (const a of acts) {

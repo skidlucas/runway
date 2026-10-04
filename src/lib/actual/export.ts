@@ -7,8 +7,16 @@ import type { ExportMeta, ExportTransaction } from "~/server/services/import-exp
 // produced by scripts/make-actual-template.mjs) and zips it with metadata.json: the same
 // shape as Actual's own "Export" so it can be re-imported with "Import file > Actual".
 
-const toInt = (day: string) => Number(day.replaceAll("-", ""))
-const toMonthInt = (month: string) => Number(month.replace("-", ""))
+/** Actual stores days as the number 20261005 and months as 202610. */
+const toActualDate = (day: string) => Number(day.replaceAll("-", ""))
+const toActualMonth = (month: string) => Number(month.replace("-", ""))
+
+/** Gap between consecutive sort orders, as Actual spaces them to insert rows in between. */
+const ACTUAL_SORT_STEP = 16384
+
+/** Order of a schedule rule's conditions: schedules_json_paths points into it by index. */
+const SCHEDULE_CONDITIONS = ["payee", "account", "date", "amount"] as const
+const conditionPath = (name: (typeof SCHEDULE_CONDITIONS)[number]) => `$[${SCHEDULE_CONDITIONS.indexOf(name)}]`
 
 const FREQUENCY = { day: "daily", week: "weekly", month: "monthly", year: "yearly" } as const
 
@@ -54,15 +62,15 @@ export const buildActualExport = (
 
     insert(
       "INSERT INTO accounts (id, name, offbudget, closed, sort_order, tombstone) VALUES (?, ?, ?, ?, ?, 0)",
-      meta.accounts.map((a, i) => [a.id, a.name, a.offBudget ? 1 : 0, a.closed ? 1 : 0, (i + 1) * 16384]),
+      meta.accounts.map((a, i) => [a.id, a.name, a.offBudget ? 1 : 0, a.closed ? 1 : 0, (i + 1) * ACTUAL_SORT_STEP]),
     )
     insert(
       "INSERT INTO category_groups (id, name, is_income, sort_order, hidden, tombstone) VALUES (?, ?, ?, ?, ?, 0)",
-      meta.groups.map((g, i) => [g.id, g.name, g.isIncome ? 1 : 0, (i + 1) * 16384, g.hidden ? 1 : 0]),
+      meta.groups.map((g, i) => [g.id, g.name, g.isIncome ? 1 : 0, (i + 1) * ACTUAL_SORT_STEP, g.hidden ? 1 : 0]),
     )
     insert(
       "INSERT INTO categories (id, name, is_income, cat_group, sort_order, hidden, tombstone) VALUES (?, ?, ?, ?, ?, ?, 0)",
-      meta.categories.map((c, i) => [c.id, c.name, c.isIncome ? 1 : 0, c.groupId, (i + 1) * 16384, c.hidden ? 1 : 0]),
+      meta.categories.map((c, i) => [c.id, c.name, c.isIncome ? 1 : 0, c.groupId, (i + 1) * ACTUAL_SORT_STEP, c.hidden ? 1 : 0]),
     )
     insert(
       "INSERT INTO category_mapping (id, transferId) VALUES (?, ?)",
@@ -92,7 +100,7 @@ export const buildActualExport = (
         t.amount,
         t.payeeId,
         t.notes,
-        toInt(t.date),
+        toActualDate(t.date),
         t.importedId,
         t.importedPayee,
         t.startingBalance ? 1 : 0,
@@ -106,7 +114,7 @@ export const buildActualExport = (
 
     insert(
       "INSERT INTO zero_budgets (id, month, category, amount, carryover) VALUES (?, ?, ?, ?, ?)",
-      meta.budgets.map((b) => [`${toMonthInt(b.month)}-${b.categoryId}`, toMonthInt(b.month), b.categoryId, b.amount, b.carryover ? 1 : 0]),
+      meta.budgets.map((b) => [`${toActualMonth(b.month)}-${b.categoryId}`, toActualMonth(b.month), b.categoryId, b.amount, b.carryover ? 1 : 0]),
     )
     insert(
       "INSERT INTO zero_budget_months (id, buffered) VALUES (?, ?)",
@@ -144,22 +152,25 @@ export const buildActualExport = (
         skippedRules++
         continue
       }
-      const actions = rule.actions.map((a) =>
-        a.type === "set_category"
-          ? { op: "set", field: "category", value: a.categoryId, type: "id" }
-          : a.type === "set_payee"
-            ? { op: "set", field: "description", value: a.payeeId, type: "id" }
-            : { op: "set", field: "notes", value: a.notes, type: "string" },
-      )
+      const actions = rule.actions.map((a) => {
+        switch (a.type) {
+          case "set_category":
+            return { op: "set", field: "category", value: a.categoryId, type: "id" }
+          case "set_payee":
+            return { op: "set", field: "description", value: a.payeeId, type: "id" }
+          case "set_notes":
+            return { op: "set", field: "notes", value: a.notes, type: "string" }
+        }
+      })
       ruleRows.push([rule.id, null, JSON.stringify(conditions), JSON.stringify(actions), rule.conditionsOp])
     }
 
     for (const s of meta.schedules) {
       const ruleId = `${s.id}-rule`
-      const conditions = [
-        { op: "is", field: "description", value: s.payeeId, type: "id" },
-        { op: "is", field: "acct", value: s.accountId, type: "id" },
-        s.recurrence.unit === "once"
+      const byName = {
+        payee: { op: "is", field: "description", value: s.payeeId, type: "id" },
+        account: { op: "is", field: "acct", value: s.accountId, type: "id" },
+        date: s.recurrence.unit === "once"
           ? { op: "is", field: "date", type: "date", value: s.startDate }
           : {
               op: "isapprox",
@@ -176,8 +187,9 @@ export const buildActualExport = (
                 ...(s.endDate ? { endDate: s.endDate } : {}),
               },
             },
-        { op: "isapprox", field: "amount", value: s.amount, type: "number" },
-      ]
+        amount: { op: "isapprox", field: "amount", value: s.amount, type: "number" },
+      }
+      const conditions = SCHEDULE_CONDITIONS.map((name) => byName[name])
       const actions: unknown[] = [{ op: "link-schedule", value: s.id }]
       if (s.categoryId) actions.push({ op: "set", field: "category", value: s.categoryId, type: "id" })
       ruleRows.push([ruleId, null, JSON.stringify(conditions), JSON.stringify(actions), "and"])
@@ -187,9 +199,11 @@ export const buildActualExport = (
       const ts = Date.UTC(Number(s.nextDate.slice(0, 4)), Number(s.nextDate.slice(5, 7)) - 1, Number(s.nextDate.slice(8, 10)))
       insert(
         "INSERT INTO schedules_next_date (id, schedule_id, local_next_date, local_next_date_ts, base_next_date, base_next_date_ts, tombstone) VALUES (?, ?, ?, ?, ?, ?, 0)",
-        [[`${s.id}-next`, s.id, toInt(s.nextDate), ts, toInt(s.nextDate), ts]],
+        [[`${s.id}-next`, s.id, toActualDate(s.nextDate), ts, toActualDate(s.nextDate), ts]],
       )
-      insert("INSERT INTO schedules_json_paths (schedule_id, payee, account, amount, date) VALUES (?, '$[0]', '$[1]', '$[3]', '$[2]')", [[s.id]])
+      insert("INSERT INTO schedules_json_paths (schedule_id, payee, account, amount, date) VALUES (?, ?, ?, ?, ?)", [
+        [s.id, conditionPath("payee"), conditionPath("account"), conditionPath("amount"), conditionPath("date")],
+      ])
     }
     insert("INSERT INTO rules (id, stage, conditions, actions, conditions_op, tombstone) VALUES (?, ?, ?, ?, ?, 0)", ruleRows)
     db.run("COMMIT")
