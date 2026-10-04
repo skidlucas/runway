@@ -21,6 +21,13 @@ export const migrate = async (d1: D1Database) => {
   }
 }
 
+// Shared CI runners are several times slower than a developer machine: wall-clock bounds (and
+// the timeouts around them) are scaled by PERF_FACTOR, 3 by default on CI.
+const perfFactor = Number(process.env.PERF_FACTOR) || (process.env.CI ? 3 : 1)
+
+/** A wall-clock bound (or test timeout) in ms, scaled for slower machines. */
+export const timeBudget = (ms: number) => ms * perfFactor
+
 export type Harness = Awaited<ReturnType<typeof createHarness>>
 
 /**

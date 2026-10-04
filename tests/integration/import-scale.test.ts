@@ -4,7 +4,7 @@ import { Categories } from "~/server/services/categories"
 import { ImportExport, type ImportRow } from "~/server/services/import-export"
 import { Rules } from "~/server/services/rules"
 import { Schedules } from "~/server/services/schedules"
-import { createHarness, type Harness } from "./harness"
+import { createHarness, type Harness, timeBudget } from "./harness"
 
 // Sizes of a long-lived Actual budget: D1 refuses statements with more than 100 bound
 // parameters and Workers cap queries per request, so per-row writes break here.
@@ -117,6 +117,6 @@ describe("Import at the scale of a real budget", () => {
       .all<{ n: number }>()
     expect(results[0]!.n).toBe(0)
     // Row by row this took ~20 s locally and blew the per-request query limit in production.
-    expect(elapsed).toBeLessThan(5_000)
-  }, 60_000)
+    expect(elapsed).toBeLessThan(timeBudget(5_000))
+  }, timeBudget(60_000))
 })

@@ -10,7 +10,7 @@ import { Insights } from "~/server/services/insights"
 import { Payees } from "~/server/services/payees"
 import { Transactions } from "~/server/services/transactions"
 import { Wealth } from "~/server/services/wealth"
-import { createHarness, type Harness } from "./harness"
+import { createHarness, type Harness, timeBudget } from "./harness"
 
 // 100 000 operations over three years: the volume of a long Actual history. Timings are loose
 // bounds against regressions to row-by-row work, not benchmarks.
@@ -59,8 +59,8 @@ describe("Volume", () => {
     const again = await h.run(ImportExport.use((s) => s.importTransactions(chunks[0]!, { dedupe: true, applyRules: false })))
     expect(again).toEqual({ inserted: 0, skipped: 0, duplicates: chunks[0]!.length })
     console.info(`import ${ROWS} rows: ${Math.round(importMs)} ms (${chunks.length} chunks) · re-import chunk: ${Math.round(performance.now() - started)} ms`)
-    expect(importMs).toBeLessThan(60_000)
-  }, 120_000)
+    expect(importMs).toBeLessThan(timeBudget(60_000))
+  }, timeBudget(120_000))
 
   it("keeps the main screens fast on that history", async () => {
     const timings: Record<string, number> = {}
@@ -93,6 +93,6 @@ describe("Volume", () => {
     })
     expect(exported).toBe(ROWS)
     console.info("timings (ms)", timings)
-    for (const [name, ms] of Object.entries(timings)) expect(ms, name).toBeLessThan(name === "export" ? 20_000 : 5_000)
-  }, 120_000)
+    for (const [name, ms] of Object.entries(timings)) expect(ms, name).toBeLessThan(timeBudget(name === "export" ? 20_000 : 5_000))
+  }, timeBudget(120_000))
 })
