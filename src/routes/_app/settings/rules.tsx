@@ -223,10 +223,14 @@ const OPS: Record<RuleConditionField, Array<{ value: RuleConditionOp; label: str
   account: [{ value: "is", label: "est" }],
 }
 
-type DraftCondition = { field: RuleConditionField; op: RuleConditionOp; text: string; text2: string }
-type DraftAction = { type: RuleAction["type"]; categoryId: string | null; payee: PayeeValue; notes: string }
+type DraftCondition = { key: string; field: RuleConditionField; op: RuleConditionOp; text: string; text2: string }
+type DraftAction = { key: string; type: RuleAction["type"]; categoryId: string | null; payee: PayeeValue; notes: string }
+
+const draftCondition = (c: Omit<DraftCondition, "key">): DraftCondition => ({ key: crypto.randomUUID(), ...c })
+const draftAction = (a: Omit<DraftAction, "key">): DraftAction => ({ key: crypto.randomUUID(), ...a })
 
 const toDraftCondition = (c: RuleCondition): DraftCondition => ({
+  key: crypto.randomUUID(),
   field: c.field,
   op: c.op,
   text:
@@ -249,17 +253,19 @@ function RuleEditor({ rule, onClose }: { rule: RuleDto | null; onClose: () => vo
   const accounts = useQuery(q.accounts())
   const [op, setOp] = React.useState<"and" | "or">(rule?.conditionsOp ?? "and")
   const [conditions, setConditions] = React.useState<DraftCondition[]>(
-    rule ? rule.conditions.map(toDraftCondition) : [{ field: "imported_payee", op: "contains", text: "", text2: "" }],
+    rule ? rule.conditions.map(toDraftCondition) : [draftCondition({ field: "imported_payee", op: "contains", text: "", text2: "" })],
   )
   const [actions, setActions] = React.useState<DraftAction[]>(
     rule
-      ? rule.actions.map((a) => ({
-          type: a.type,
-          categoryId: a.type === "set_category" ? a.categoryId : null,
-          payee: a.type === "set_payee" ? { kind: "id", id: a.payeeId, name: names.payee(a.payeeId) ?? "" } : { kind: "none" },
-          notes: a.type === "set_notes" ? a.notes : "",
-        }))
-      : [{ type: "set_category", categoryId: null, payee: { kind: "none" }, notes: "" }],
+      ? rule.actions.map((a) =>
+          draftAction({
+            type: a.type,
+            categoryId: a.type === "set_category" ? a.categoryId : null,
+            payee: a.type === "set_payee" ? { kind: "id", id: a.payeeId, name: names.payee(a.payeeId) ?? "" } : { kind: "none" },
+            notes: a.type === "set_notes" ? a.notes : "",
+          }),
+        )
+      : [draftAction({ type: "set_category", categoryId: null, payee: { kind: "none" }, notes: "" })],
   )
   const [applyNow, setApplyNow] = React.useState(true)
 
@@ -361,7 +367,7 @@ function RuleEditor({ rule, onClose }: { rule: RuleDto | null; onClose: () => vo
             {op === "and" ? "conditions suivantes sont remplies :" : "conditions suivantes est remplie :"}
           </div>
           {conditions.map((c, i) => (
-            <div key={i} className="grid grid-cols-[170px_150px_minmax(0,1fr)_32px] items-center gap-2 max-md:grid-cols-1">
+            <div key={c.key} className="grid grid-cols-[170px_150px_minmax(0,1fr)_32px] items-center gap-2 max-md:grid-cols-1">
               <Select
                 value={c.field}
                 aria-label="Champ"
@@ -422,7 +428,7 @@ function RuleEditor({ rule, onClose }: { rule: RuleDto | null; onClose: () => vo
             variant="ghost"
             icon={<Plus size={13} />}
             className="self-start"
-            onClick={() => setConditions((cs) => [...cs, { field: "payee", op: "is", text: "", text2: "" }])}
+            onClick={() => setConditions((cs) => [...cs, draftCondition({ field: "payee", op: "is", text: "", text2: "" })])}
           >
             Ajouter une condition
           </Button>
@@ -430,7 +436,7 @@ function RuleEditor({ rule, onClose }: { rule: RuleDto | null; onClose: () => vo
         <div className="flex flex-col gap-2">
           <span className="text-[12px] text-muted">Alors :</span>
           {actions.map((a, i) => (
-            <div key={i} className="grid grid-cols-[170px_minmax(0,1fr)_32px] items-center gap-2 max-md:grid-cols-1">
+            <div key={a.key} className="grid grid-cols-[170px_minmax(0,1fr)_32px] items-center gap-2 max-md:grid-cols-1">
               <Select
                 value={a.type}
                 aria-label="Action"
@@ -462,7 +468,7 @@ function RuleEditor({ rule, onClose }: { rule: RuleDto | null; onClose: () => vo
             variant="ghost"
             icon={<Plus size={13} />}
             className="self-start"
-            onClick={() => setActions((as) => [...as, { type: "set_payee", categoryId: null, payee: { kind: "none" }, notes: "" }])}
+            onClick={() => setActions((as) => [...as, draftAction({ type: "set_payee", categoryId: null, payee: { kind: "none" }, notes: "" })])}
           >
             Ajouter une action
           </Button>

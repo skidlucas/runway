@@ -51,7 +51,9 @@ export function useDeleteTransactions(onSuccess?: () => void) {
   })
 }
 
-type SplitLine = { amount: string; categoryId: string | null; notes: string }
+type SplitLine = { key: string; amount: string; categoryId: string | null; notes: string }
+
+const splitLine = (line: Omit<SplitLine, "key">): SplitLine => ({ key: crypto.randomUUID(), ...line })
 
 /** Full editor for one transaction, including its split lines. */
 export function TransactionEditor({
@@ -71,7 +73,7 @@ export function TransactionEditor({
   const [notes, setNotes] = React.useState(tx.notes ?? "")
   const [cleared, setCleared] = React.useState(tx.cleared)
   const [lines, setLines] = React.useState<SplitLine[]>(
-    tx.isParent && splits ? splits.map((s) => ({ amount: amountInput(s.amount), categoryId: s.categoryId, notes: s.notes ?? "" })) : [],
+    tx.isParent && splits ? splits.map((s) => splitLine({ amount: amountInput(s.amount), categoryId: s.categoryId, notes: s.notes ?? "" })) : [],
   )
   const update = useAction(updateTransaction, { success: "Opération modifiée", onSuccess: onClose })
   const remove = useDeleteTransactions(onClose)
@@ -85,8 +87,8 @@ export function TransactionEditor({
 
   const startSplit = () =>
     setLines([
-      { amount: amount, categoryId, notes: "" },
-      { amount: "0", categoryId: null, notes: "" },
+      splitLine({ amount: amount, categoryId, notes: "" }),
+      splitLine({ amount: "0", categoryId: null, notes: "" }),
     ])
 
   const save = () => {
@@ -179,7 +181,7 @@ export function TransactionEditor({
           </div>
           <div className="flex flex-col gap-2">
             {lines.map((line, i) => (
-              <div key={i} className="grid grid-cols-[110px_minmax(0,1fr)_minmax(0,1fr)_32px] items-center gap-2 max-md:grid-cols-[90px_minmax(0,1fr)_32px]">
+              <div key={line.key} className="grid grid-cols-[110px_minmax(0,1fr)_minmax(0,1fr)_32px] items-center gap-2 max-md:grid-cols-[90px_minmax(0,1fr)_32px]">
                 <Input
                   value={line.amount}
                   aria-label={`Montant ligne ${i + 1}`}
@@ -207,7 +209,7 @@ export function TransactionEditor({
               size="sm"
               variant="ghost"
               icon={<Plus size={13} />}
-              onClick={() => setLines((ls) => [...ls, { amount: amountInput(remaining), categoryId: null, notes: "" }])}
+              onClick={() => setLines((ls) => [...ls, splitLine({ amount: amountInput(remaining), categoryId: null, notes: "" })])}
             >
               Ajouter une ligne
             </Button>
