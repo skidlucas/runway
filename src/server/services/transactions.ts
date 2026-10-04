@@ -463,8 +463,8 @@ export class Transactions extends Context.Service<
       /**
        * Computes the rows of a transaction (parent, split lines, transfer mirror) without writing.
        * `keep` carries over what a rewritten transaction must not lose: its ids, creation time,
-       * bank id (re-import dedupe), opening-balance flag and the status of the other side of a
-       * transfer that stays on the same account.
+       * bank id (re-import dedupe), opening-balance flag and, for the other side of a transfer that
+       * stays on the same account, its status and its own bank id, bank label and notes.
        */
       const prepare = Effect.fn("Transactions.prepare")(function* (
         input: TxInput,
@@ -475,7 +475,14 @@ export class Transactions extends Context.Service<
           reconciled: boolean
           importedId: string | null
           startingBalance: boolean
-          mirror: { accountId: string; cleared: boolean; reconciled: boolean } | null
+          mirror: {
+            accountId: string
+            cleared: boolean
+            reconciled: boolean
+            importedId: string | null
+            importedPayee: string | null
+            notes: string | null
+          } | null
         },
         lookup: Lookup = live,
       ) {
@@ -552,10 +559,12 @@ export class Transactions extends Context.Service<
             payeeId: mirrorPayee,
             // The off-budget side of a transfer never carries a category.
             categoryId: !otherAccount.offBudget && account.offBudget ? (input.categoryId ?? null) : null,
-            notes,
+            notes: mirrorStatus ? mirrorStatus.notes : notes,
             transferId: id,
             cleared: mirrorStatus?.cleared ?? false,
             reconciled: mirrorStatus?.reconciled ?? false,
+            importedId: mirrorStatus?.importedId ?? null,
+            importedPayee: mirrorStatus?.importedPayee ?? null,
             createdAt,
           })
         }
@@ -700,7 +709,16 @@ export class Transactions extends Context.Service<
           reconciled: current.reconciled,
           importedId: current.importedId,
           startingBalance: current.startingBalance,
-          mirror: mirror ? { accountId: mirror.accountId, cleared: mirror.cleared, reconciled: mirror.reconciled } : null,
+          mirror: mirror
+            ? {
+                accountId: mirror.accountId,
+                cleared: mirror.cleared,
+                reconciled: mirror.reconciled,
+                importedId: mirror.importedId,
+                importedPayee: mirror.importedPayee,
+                notes: mirror.notes,
+              }
+            : null,
         })
         yield* db.batch([...deleteStatements([id]), ...insertStatements(rows)])
       })

@@ -241,4 +241,28 @@ describe("Transactions", () => {
     expect(await categoryOf(outgoing)).toBe(categories[0])
     expect(await spent()).toBe(before + 2_000)
   })
+
+  it("keeps each side's bank id, bank label and notes when an edit rebuilds a transfer", async () => {
+    const sides = (id: string) =>
+      h.d1
+        .prepare(
+          `SELECT id, imported_id AS importedId, imported_payee AS importedPayee, notes FROM transactions
+           WHERE id = ?1 OR transfer_id = ?1 ORDER BY id = ?1 DESC`,
+        )
+        .bind(id)
+        .all<{ id: string; importedId: string | null; importedPayee: string | null; notes: string | null }>()
+    const id = await h.run(
+      Transactions.use((t) => t.create({ accountId: account, date: "2026-09-12", amount: -3_000, payee: { kind: "transfer", accountId: savings } })),
+    )
+    const [, mirror] = (await sides(id)).results
+    await h.d1.batch([
+      h.d1.prepare("UPDATE transactions SET imported_id = 'OUT-1', imported_payee = 'VIR VERS EPARGNE', notes = 'Sortie' WHERE id = ?").bind(id),
+      h.d1.prepare("UPDATE transactions SET imported_id = 'IN-1', imported_payee = 'VIR DE COURANT', notes = 'Entrée' WHERE id = ?").bind(mirror!.id),
+    ])
+    await h.run(Transactions.use((t) => t.update(id, { amount: -3_500, payee: { kind: "transfer", accountId: savings }, notes: "Sortie corrigée" })))
+    expect((await sides(id)).results).toEqual([
+      { id, importedId: "OUT-1", importedPayee: "VIR VERS EPARGNE", notes: "Sortie corrigée" },
+      { id: mirror!.id, importedId: "IN-1", importedPayee: "VIR DE COURANT", notes: "Entrée" },
+    ])
+  })
 })
