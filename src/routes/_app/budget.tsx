@@ -647,16 +647,14 @@ function AvailableMenu({ category, month, budget }: { category: BudgetCategoryRo
         }
       >
         <div className="flex flex-col">
-          {overspent ? (
-            <MenuButton
-              onClick={() => {
-                setOpen(false)
-                setMode("cover")
-              }}
-            >
-              Couvrir le dépassement…
-            </MenuButton>
-          ) : null}
+          <MenuButton
+            onClick={() => {
+              setOpen(false)
+              setMode("cover")
+            }}
+          >
+            {overspent ? "Couvrir le dépassement…" : "Prendre dans une autre catégorie…"}
+          </MenuButton>
           {category.available > 0 ? (
             <MenuButton
               onClick={() => {
@@ -718,7 +716,7 @@ function MoveMoneyDialog({
 }) {
   const [other, setOther] = React.useState<string | null>(null)
   const [amount, setAmount] = React.useState(
-    amountInput(mode === "cover" ? -category.available : category.available),
+    mode === "cover" ? (category.available < 0 ? amountInput(-category.available) : "") : amountInput(category.available),
   )
   const available = new Map(budget.groups.flatMap((g) => g.categories.map((c) => [c.id, c.available] as const)))
   const move = useAction(moveBudget, { success: "Budget mis à jour", onSuccess: onClose, invalidates: BUDGET_QUERIES })
@@ -741,7 +739,9 @@ function MoveMoneyDialog({
     <Dialog
       open
       onOpenChange={(o) => !o && onClose()}
-      title={mode === "cover" ? `Couvrir ${category.name}` : `Transférer depuis ${category.name}`}
+      title={
+        mode === "transfer" ? `Transférer depuis ${category.name}` : category.available < 0 ? `Couvrir ${category.name}` : `Alimenter ${category.name}`
+      }
       width={420}
       footer={
         <>
@@ -793,6 +793,7 @@ const MOBILE_GRID = "grid grid-cols-[minmax(0,1fr)_68px_68px_84px] gap-x-2 px-4 
 
 function MobileBudget({ budget, month, showHidden }: { budget: BudgetMonthDto; month: string; showHidden: boolean }) {
   const [editing, setEditing] = React.useState<BudgetCategoryRow | null>(null)
+  const [moving, setMoving] = React.useState<{ category: BudgetCategoryRow; mode: "cover" | "transfer" } | null>(null)
   const groups = budget.groups.filter((g) => !g.isIncome && (showHidden || !g.hidden))
   return (
     <div className="flex flex-col">
@@ -832,12 +833,35 @@ function MobileBudget({ budget, month, showHidden }: { budget: BudgetMonthDto; m
             ))}
         </section>
       ))}
-      {editing ? <MobileBudgetDialog category={editing} month={month} onClose={() => setEditing(null)} /> : null}
+      {editing ? (
+        <MobileBudgetDialog
+          category={editing}
+          month={month}
+          onClose={() => setEditing(null)}
+          onMove={(mode) => {
+            setMoving({ category: editing, mode })
+            setEditing(null)
+          }}
+        />
+      ) : null}
+      {moving ? (
+        <MoveMoneyDialog mode={moving.mode} category={moving.category} month={month} budget={budget} onClose={() => setMoving(null)} />
+      ) : null}
     </div>
   )
 }
 
-function MobileBudgetDialog({ category, month, onClose }: { category: BudgetCategoryRow; month: string; onClose: () => void }) {
+function MobileBudgetDialog({
+  category,
+  month,
+  onClose,
+  onMove,
+}: {
+  category: BudgetCategoryRow
+  month: string
+  onClose: () => void
+  onMove: (mode: "cover" | "transfer") => void
+}) {
   const [text, setText] = React.useState(category.budgeted ? amountInput(category.budgeted) : "")
   const save = useAction(setBudgetAmount, { onSuccess: onClose, invalidates: BUDGET_QUERIES })
   const value = text.trim() === "" ? 0 : parseAmount(text)
@@ -878,6 +902,16 @@ function MobileBudgetDialog({ category, month, onClose }: { category: BudgetCate
         <Field label="Budget du mois">
           <Input inputMode="decimal" value={text} onChange={(e) => setText(e.target.value)} className="num h-11 text-[18px]" autoFocus />
         </Field>
+        <div className="flex gap-2">
+          <Button className="flex-1" onClick={() => onMove("cover")}>
+            {category.available < 0 ? "Couvrir…" : "Prendre ailleurs…"}
+          </Button>
+          {category.available > 0 ? (
+            <Button className="flex-1" onClick={() => onMove("transfer")}>
+              Transférer…
+            </Button>
+          ) : null}
+        </div>
       </div>
     </Dialog>
   )

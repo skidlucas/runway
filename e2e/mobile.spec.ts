@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test"
-import { open, visible } from "./helpers"
+import { open, pickInCommand, visible, waitForToast } from "./helpers"
 
 const tabs = [
   { name: "Accueil", url: /\/forecast/ },
@@ -27,6 +27,20 @@ test("the budget shows one to-budget chip and category rows", async ({ page }) =
   await open(page, "/budget")
   await expect(visible(page.getByTestId("to-budget"))).toHaveCount(1)
   await expect(page.getByRole("main").getByText("Courses", { exact: true })).toBeVisible()
+})
+
+test("moves money from a category that is not overspent", async ({ page }) => {
+  await open(page, "/budget")
+  const restaurants = page.getByRole("main").getByRole("button", { name: /^Restaurants/ })
+  const before = await restaurants.textContent()
+  await page.getByRole("main").getByRole("button", { name: /^Courses/ }).click()
+  await visible(page.getByRole("button", { name: "Transférer…" })).click()
+  const dialog = page.getByRole("dialog", { name: "Transférer depuis Courses" })
+  await dialog.getByLabel("Montant").fill("10")
+  await pickInCommand(page, dialog.getByRole("button", { name: "Une catégorie" }), "Restaurants", /^Restaurants/)
+  await dialog.getByRole("button", { name: "Valider" }).click()
+  await waitForToast(page, "Budget mis à jour")
+  await expect(restaurants).not.toHaveText(before ?? "")
 })
 
 test("wealth opens an asset in a sheet", async ({ page }) => {
