@@ -37,6 +37,8 @@ export type ScheduleDto = {
   overdue: boolean
   /** Occurrences left until the end date; null without one or once stopped. */
   remaining: Remaining | null
+  /** Day of the last transaction it booked (or was linked to). */
+  lastBooked: string | null
 }
 
 export type ScheduleInput = {
@@ -170,7 +172,8 @@ export class Schedules extends Context.Service<
         const rows = yield* db.use(async (_, d1) => {
           const { results } = await d1
             .prepare(
-              `SELECT s.*, COALESCE(pa.name, p.name) AS payeeName, a.name AS accountName, c.name AS categoryName
+              `SELECT s.*, COALESCE(pa.name, p.name) AS payeeName, a.name AS accountName, c.name AS categoryName,
+                 (SELECT MAX(t.date) FROM transactions t WHERE t.schedule_id = s.id) AS lastBooked
                FROM schedules s
                JOIN accounts a ON a.id = s.account_id
                LEFT JOIN payees p ON p.id = s.payee_id
@@ -194,6 +197,7 @@ export class Schedules extends Context.Service<
               next_date: string
               auto_post: number
               active: number
+              lastBooked: string | null
             }>()
           return results
         })
@@ -220,6 +224,7 @@ export class Schedules extends Context.Service<
             active,
             overdue: active && r.next_date < today,
             remaining: active ? remainingOccurrences({ startDate: r.start_date, endDate: r.end_date, recurrence }, r.next_date, r.amount) : null,
+            lastBooked: r.lastBooked,
           }
         })
       }).pipe(Effect.withSpan("Schedules.list"))

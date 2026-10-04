@@ -97,6 +97,26 @@ describe("Budget planned from schedules", () => {
     await h.run(Budget.use((s) => s.fill(month, { kind: "planned" })))
     expect((await row(a)).budgeted).toBe(9_000)
   })
+
+  it("does not ask again in its month for a yearly bill paid early, and keeps one paid on time", async () => {
+    const accountId = (await h.run(Accounts.use((s) => s.list)))[0]!.id
+    const bill = (name: string) =>
+      h.run(
+        Schedules.use((s) =>
+          s.create({ name, payee: { kind: "name", name }, accountId, categoryId: c, amount: -60_000, recurrence: { unit: "year", interval: 1 }, startDate: "2030-11-03", autoPost: false }),
+        ),
+      )
+    const early = await bill("Taxe payée en avance")
+    const onTime = await bill("Taxe payée à l'heure")
+    await h.run(Schedules.use((s) => s.post(early, "2030-10-30")))
+    await h.run(Schedules.use((s) => s.post(onTime, "2030-11-03")))
+    const lines = async (m: string) =>
+      (await h.run(Budget.use((s) => s.month(m)))).groups.flatMap((g) => g.categories).find((x) => x.id === c)!.planned?.lines ?? []
+    const november = await lines("2030-11")
+    expect(november.find((l) => l.scheduleId === early)).toMatchObject({ date: "2031-11-03", monthsLeft: 13 })
+    expect(november.find((l) => l.scheduleId === onTime)).toMatchObject({ date: "2030-11-03", monthsLeft: 1 })
+    expect((await lines("2030-10")).find((l) => l.scheduleId === early)).toMatchObject({ date: "2030-10-30", monthsLeft: 1 })
+  })
 })
 
 describe("Age of money", () => {

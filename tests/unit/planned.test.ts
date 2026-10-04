@@ -16,6 +16,7 @@ const schedule = (
   timing: { startDate, endDate: extra.endDate ?? null, recurrence },
   nextDate: startDate,
   active: true,
+  lastBooked: null,
   ...extra,
 })
 
@@ -91,6 +92,43 @@ describe("plannedByCategory", () => {
       none,
     )
     expect(planned.size).toBe(0)
+  })
+
+  describe("a yearly bill due on 2026-11-03", () => {
+    const bill = (extra: Partial<PlannedSchedule>) => schedule("taxe", -60000, yearly, "2025-11-03", { nextDate: "2027-11-03", ...extra })
+
+    it("paid early on 2026-10-30, counts in October and is not asked again in November", () => {
+      const paidEarly = bill({ lastBooked: "2026-10-30" })
+      expect(plannedByCategory([paidEarly], "2026-10", none).get("cat")).toMatchObject({
+        thisMonth: 60000,
+        lines: [{ date: "2026-10-30", monthsLeft: 1 }],
+      })
+      const november = plannedByCategory([paidEarly], "2026-11", none).get("cat")
+      expect(november).toMatchObject({ thisMonth: 0, lines: [{ date: "2027-11-03", monthsLeft: 13 }] })
+      expect(november?.amount).toBe(4700)
+    })
+
+    it("paid on time, stays due in November", () => {
+      expect(plannedByCategory([bill({ lastBooked: "2026-11-03" })], "2026-11", none).get("cat")).toMatchObject({
+        amount: 60000,
+        thisMonth: 60000,
+        lines: [{ date: "2026-11-03", monthsLeft: 1 }],
+      })
+    })
+
+    it("skipped, is not asked in November", () => {
+      expect(plannedByCategory([bill({ lastBooked: "2025-11-03" })], "2026-11", none).get("cat")).toMatchObject({
+        thisMonth: 0,
+        lines: [{ date: "2027-11-03" }],
+      })
+    })
+
+    it("not paid yet, is due in November", () => {
+      expect(plannedByCategory([bill({ nextDate: "2026-11-03", lastBooked: "2025-11-03" })], "2026-11", none).get("cat")).toMatchObject({
+        thisMonth: 60000,
+        lines: [{ date: "2026-11-03", monthsLeft: 1 }],
+      })
+    })
   })
 })
 

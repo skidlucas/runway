@@ -1,4 +1,4 @@
-import { type Day, firstDay, lastDay, type Month, monthOf, monthRange } from "./dates"
+import { addDays, type Day, firstDay, lastDay, type Month, monthOf, monthRange } from "./dates"
 import { nextOnOrAfter, occurrencesBetween, periodDays, type Recurrence, type ScheduleTiming } from "./recurrence"
 
 export type PlannedSchedule = {
@@ -10,6 +10,8 @@ export type PlannedSchedule = {
   readonly timing: ScheduleTiming
   readonly nextDate: Day
   readonly active: boolean
+  /** Day of the last transaction booked by the schedule. */
+  readonly lastBooked: Day | null
 }
 
 export type Remaining = {
@@ -81,6 +83,23 @@ const setAsideNeed = (lines: ReadonlyArray<PlannedLine>, saved: number) => {
 }
 
 /**
+ * The occurrence a spaced-out schedule sets money aside for in [from, to], and the months left
+ * until it is paid. The last occurrence already booked or skipped counts in the month its
+ * transaction is dated, not the month it was due: paid early (or skipped) before `from`, the next
+ * one takes its place; paid this month ahead of its date, it is this month's.
+ */
+const spacedTarget = (s: PlannedSchedule, month: Month, from: Day, to: Day): { date: Day; monthsLeft: number } | null => {
+  let date = nextOnOrAfter(s.timing, from)
+  if (date === null) return null
+  const lastClaimed = date < s.nextDate && (nextOnOrAfter(s.timing, addDays(date, 1)) ?? s.nextDate) >= s.nextDate
+  if (lastClaimed) {
+    if (s.lastBooked === null || s.lastBooked < from) date = nextOnOrAfter(s.timing, s.nextDate)
+    else if (s.lastBooked <= to && date > to) return { date: s.lastBooked, monthsLeft: 1 }
+  }
+  return date === null ? null : { date, monthsLeft: monthRange(month, monthOf(date)).length }
+}
+
+/**
  * Expense schedules of each category for `month`. Frequent ones count every occurrence of the
  * month, paid or not, so that the target stays put once one is booked; spaced-out ones (every
  * few months, yearly, one-off) are smoothed until their next date, net of `carryIn`.
@@ -101,8 +120,8 @@ export const plannedByCategory = (
       const dates = occurrencesBetween(s.timing, from, to)
       if (dates[0]) line = { ...base, kind: "due", date: dates[0], count: dates.length, monthsLeft: null }
     } else {
-      const date = nextOnOrAfter(s.timing, from)
-      if (date) line = { ...base, kind: "setAside", date, count: 1, monthsLeft: monthRange(month, monthOf(date)).length }
+      const target = spacedTarget(s, month, from, to)
+      if (target) line = { ...base, kind: "setAside", count: 1, ...target }
     }
     if (!line) continue
     const list = lines.get(s.categoryId) ?? []

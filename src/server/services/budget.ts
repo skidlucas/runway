@@ -193,6 +193,7 @@ export class Budget extends Context.Service<
             timing: { startDate: s.startDate, endDate: s.endDate, recurrence: s.recurrence },
             nextDate: s.nextDate,
             active: s.active,
+            lastBooked: s.lastBooked,
           })),
           m,
           new Map([...(current?.categories ?? [])].map(([id, cell]) => [id, cell.carryIn])),
