@@ -11,12 +11,10 @@ import {
   MoreHorizontal,
   Pencil,
   Plus,
-  Search,
   SkipForward,
   Split,
   Trash2,
   Wand2,
-  X,
 } from "lucide-react"
 import * as React from "react"
 import { EditAccountDialog, ReconcileDialog } from "~/components/account-dialogs"
@@ -37,7 +35,7 @@ import {
   payeeValueOf,
   useDeleteTransactions,
 } from "~/components/transaction-editor"
-import { Button, Calendar, Checkbox, Chip, cx, DateInput, Dialog, EmptyState, IconButton, InlineEdit, Input, Kpi, Menu, Money, Popover, revealOnHover, SkeletonRows, useConfirm } from "~/components/ui"
+import { Button, Calendar, Checkbox, Chip, cx, DateInput, Dialog, EmptyState, IconButton, heroAmountClass, InlineEdit, Kpi, Menu, Money, Popover, RemovableChip, revealOnHover, SearchInput, SkeletonRows, useConfirm } from "~/components/ui"
 import { type Day, formatDayLong, formatDayShort, formatMonthLong, monthOf, parseDayInput } from "~/domain/dates"
 import { amountInput, formatMoney, parseAmount } from "~/domain/money"
 import { shortcutBlocked, useDebounced, useIsMobile, useToday } from "~/lib/hooks"
@@ -172,9 +170,8 @@ function AccountPage({ accountId }: { accountId: string }) {
         right={
           <>
             <Button
-              size="sm"
               variant="primary"
-              icon={<Plus size={13} />}
+              icon={<Plus size={14} />}
               onClick={() => openNewTransaction(all ? {} : { accountId })}
               className="max-md:hidden"
             >
@@ -182,7 +179,7 @@ function AccountPage({ accountId }: { accountId: string }) {
             </Button>
             {account ? (
               <>
-                <Button size="sm" onClick={() => setDialog("reconcile")} className="max-md:hidden">
+                <Button onClick={() => setDialog("reconcile")} className="max-md:hidden">
                   Rapprocher
                 </Button>
                 <Menu
@@ -219,18 +216,16 @@ function AccountPage({ accountId }: { accountId: string }) {
       />
       {account ? mobile ? <MobileAccountSummary account={account} /> : <AccountSummary account={account} /> : null}
       <div className="flex flex-wrap items-center gap-2 border-b border-line px-5 py-2 max-md:border-none max-md:pt-3">
-        <div className="relative w-[280px] max-md:w-full">
-          <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-faint" />
-          <Input
-            ref={searchRef}
-            value={text}
-            onChange={(e) => setText(e.target.value)}
-            placeholder="Rechercher"
-            aria-label="Rechercher une opération"
-            className="pl-8 max-md:h-9 max-md:border-none max-md:bg-subtle"
-          />
-          {!mobile ? <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[11px] text-faint">/</span> : null}
-        </div>
+        <SearchInput
+          ref={searchRef}
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          placeholder="Rechercher"
+          aria-label="Rechercher une opération"
+          shortcut={mobile ? undefined : "/"}
+          wrapperClassName="w-[280px] max-md:w-full"
+          className="max-md:h-9 max-md:border-none max-md:bg-subtle"
+        />
         {search.categoryId ? (
           <FilterChip label={`Catégorie : ${categoryName ?? "…"}`} onClear={() => void navigate({ search: { ...search, categoryId: undefined } })} />
         ) : null}
@@ -291,12 +286,9 @@ function AccountPage({ accountId }: { accountId: string }) {
 }
 
 const FilterChip = ({ label, onClear }: { label: string; onClear: () => void }) => (
-  <span className="flex items-center gap-1.5 rounded-[6px] border border-line-control bg-subtle py-1 pl-2.5 pr-1.5">
+  <RemovableChip removeLabel={`Retirer le filtre ${label}`} onRemove={onClear}>
     {label}
-    <button type="button" aria-label={`Retirer le filtre ${label}`} onClick={onClear} className="text-faint hover:text-fg">
-      <X size={12} />
-    </button>
-  </span>
+  </RemovableChip>
 )
 
 // --- Balances ----------------------------------------------------
@@ -311,17 +303,19 @@ function AccountSummary({ account }: { account: AccountDto }) {
   return (
     <div className="border-b border-line">
       <div className="grid grid-cols-3 gap-4 px-5 py-4">
-        <Kpi label="Aujourd'hui" value={formatMoney(account.balanceToday)} valueClassName={cx("text-[20px]", account.balanceToday < 0 && "text-negative")} />
+        <Kpi label="Aujourd'hui" value={formatMoney(account.balanceToday)} size="lg" valueClassName={account.balanceToday < 0 ? "text-negative" : undefined} />
         <Kpi
           label="Avec les opérations à venir"
           value={formatMoney(account.balance)}
-          valueClassName={cx("text-[20px]", booked === 0 && "text-muted", account.balance < 0 && "text-negative")}
+          size="lg"
+          valueClassName={cx(booked === 0 && "text-muted", account.balance < 0 && "text-negative")}
           hint={booked === 0 ? "Pas d'écart avec aujourd'hui" : `${formatMoney(booked, { sign: "always" })} déjà saisis`}
         />
         <Kpi
           label={f ? `Prévu au ${formatDayShort(f.days.at(-1)?.date ?? f.today)}` : "Fin de mois"}
           value={f ? formatMoney(f.projectedEndBalance) : "…"}
-          valueClassName={cx("text-[20px]", f && f.projectedEndBalance < 0 ? "text-negative" : "text-accent-fg")}
+          size="lg"
+          valueClassName={f && f.projectedEndBalance < 0 ? "text-negative" : "text-accent-fg"}
           hint={
             account.offBudget ? (
               "Échéances comprises"
@@ -342,7 +336,7 @@ function MobileAccountSummary({ account }: { account: AccountDto }) {
   const f = forecast.data?.accountId === account.id ? forecast.data : undefined
   return (
     <div className="flex flex-col gap-1 border-b border-line px-5 pb-4">
-      <Money value={account.balanceToday} className="text-[32px] font-medium tracking-[-0.02em]" />
+      <Money value={account.balanceToday} className={heroAmountClass} />
       <span className="text-[12px] text-muted">
         {account.balance !== account.balanceToday ? `${formatMoney(account.balance)} avec les opérations à venir` : "Aujourd'hui"}
         {f ? ` · ${formatMoney(f.projectedEndBalance)} prévus en fin de mois` : ""}

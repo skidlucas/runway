@@ -210,14 +210,14 @@ function DashboardPage() {
             {editing ? (
               <Menu
                 trigger={
-                  <Button size="sm" icon={<Plus size={13} />}>
+                  <Button icon={<Plus size={14} />}>
                     Ajouter un widget
                   </Button>
                 }
                 items={addItems}
               />
             ) : null}
-            <Button size="sm" variant={editing ? "primary" : "secondary"} onClick={() => setEditing((e) => !e)}>
+            <Button variant={editing ? "primary" : "secondary"} onClick={() => setEditing((e) => !e)}>
               {editing ? "Terminer" : "Modifier"}
             </Button>
           </>

@@ -5,12 +5,12 @@ import { Bookmark, Check, ChevronDown, Sparkles, X } from "lucide-react"
 import * as React from "react"
 import { MonthlyChart } from "~/components/monthly-chart"
 import { PageHeader } from "~/components/shell"
-import { Button, cx, Dialog, Dot, EmptyState, Field, Input, Kpi, Menu, Money, Popover, SkeletonRows, Spinner, Tabs, useConfirm } from "~/components/ui"
+import { Button, ChipButton, cx, Dialog, Dot, EmptyState, Field, Input, Kpi, Menu, Money, Popover, SkeletonRows, Spinner, Tabs, useConfirm } from "~/components/ui"
 import { toastError } from "~/components/toast"
 import { formatMonthName } from "~/domain/dates"
 import type { Finding, FindingTone } from "~/domain/insights"
 import { formatCompact, formatMoney } from "~/domain/money"
-import { commandFilter, MAX_PAYEE_OPTIONS } from "~/components/pickers"
+import { commandFilter, commandGroupClass, commandInputClass, commandItemClass, commandListClass, MAX_PAYEE_OPTIONS } from "~/components/pickers"
 import { normalizeText } from "~/domain/rules"
 import { parseInsightSearch, queryToSearch, searchToQuery } from "~/lib/insight-search"
 import { q, useAction } from "~/lib/queries"
@@ -130,17 +130,11 @@ function ViewTabs() {
 
 // --- Query bar -----------------------------------------------------------------
 
-const chipClass =
-  "flex h-7 items-center gap-1.5 rounded-[6px] border border-line-control bg-subtle px-2.5 text-[13px] outline-none hover:border-line-strong focus-visible:border-accent-line"
-
-function QueryChip({ label, value, ...props }: { label: string; value: React.ReactNode } & React.ButtonHTMLAttributes<HTMLButtonElement>) {
-  return (
-    <button type="button" className={chipClass} {...props}>
-      <span className="text-faint">{label}</span>
-      <span className="max-w-[220px] truncate">{value}</span>
-    </button>
-  )
-}
+const QueryChip = ({ label, value, ...props }: { label: string; value: React.ReactNode } & React.ButtonHTMLAttributes<HTMLButtonElement>) => (
+  <ChipButton label={label} {...props}>
+    <span className="max-w-[220px] truncate">{value}</span>
+  </ChipButton>
+)
 
 function QueryBar() {
   const { query, setQuery } = useQueryNavigation()
@@ -187,12 +181,6 @@ function QueryBar() {
   )
 }
 
-const listClass = "max-h-[320px] overflow-y-auto p-1"
-const itemClass =
-  "flex cursor-default items-center gap-2 rounded-[6px] px-2 py-1.5 text-fg-2 data-[selected=true]:bg-hover data-[selected=true]:text-fg"
-const groupClass =
-  "[&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:pb-1 [&_[cmdk-group-heading]]:pt-2 [&_[cmdk-group-heading]]:text-[11px] [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group-heading]]:text-faint"
-
 function TargetPicker() {
   const { query, setQuery } = useQueryNavigation()
   const view = useQuery(q.insightView(query))
@@ -228,11 +216,9 @@ function TargetPicker() {
       }}
       className="w-[320px]"
       trigger={
-        <button type="button" className={chipClass}>
-          <span className="text-faint">{kindLabel}</span>
-          <span className="max-w-[220px] truncate">{query.target.kind === "all" ? "Toutes" : (view.data?.label ?? "…")}</span>
+        <QueryChip label={kindLabel} value={query.target.kind === "all" ? "Toutes" : (view.data?.label ?? "…")}>
           <ChevronDown size={12} className="text-faint" />
-        </button>
+        </QueryChip>
       }
     >
       <Command loop filter={commandFilter}>
@@ -241,23 +227,23 @@ function TargetPicker() {
           value={search}
           onValueChange={setSearch}
           placeholder="Catégorie, groupe ou bénéficiaire"
-          className="h-9 w-full border-b border-line bg-transparent px-3 outline-none placeholder:text-faint"
+          className={commandInputClass}
         />
-        <Command.List className={listClass}>
+        <Command.List className={commandListClass}>
           <Command.Empty className="px-2 py-3 text-muted">Aucun résultat</Command.Empty>
-          <Command.Item value="__all" keywords={["toutes", "tout"]} onSelect={() => select({ kind: "all" })} className={itemClass}>
+          <Command.Item value="__all" keywords={["toutes", "tout"]} onSelect={() => select({ kind: "all" })} className={commandItemClass}>
             <span className="flex-1">{income ? "Tous les revenus" : "Toutes les dépenses"}</span>
             {query.target.kind === "all" ? <Check size={13} className="text-accent-fg" /> : null}
           </Command.Item>
-          <Command.Group heading="Groupes" className={groupClass}>
+          <Command.Group heading="Groupes" className={commandGroupClass}>
             {groups.map((g) => (
-              <Command.Item key={g.id} value={`group-${g.id}`} keywords={[g.name]} onSelect={() => select({ kind: "group", id: g.id })} className={itemClass}>
+              <Command.Item key={g.id} value={`group-${g.id}`} keywords={[g.name]} onSelect={() => select({ kind: "group", id: g.id })} className={commandItemClass}>
                 <span className="flex-1 truncate">{g.name}</span>
                 {current === g.id ? <Check size={13} className="text-accent-fg" /> : null}
               </Command.Item>
             ))}
           </Command.Group>
-          <Command.Group heading="Catégories" className={groupClass}>
+          <Command.Group heading="Catégories" className={commandGroupClass}>
             {groups.flatMap((g) =>
               g.categories
                 .filter((c) => !c.hidden)
@@ -267,7 +253,7 @@ function TargetPicker() {
                     value={`category-${c.id}`}
                     keywords={[c.name, g.name]}
                     onSelect={() => select({ kind: "category", id: c.id })}
-                    className={itemClass}
+                    className={commandItemClass}
                   >
                     <span className="flex-1 truncate">{c.name}</span>
                     <span className="text-[12px] text-faint">{g.name}</span>
@@ -276,14 +262,14 @@ function TargetPicker() {
                 )),
             )}
           </Command.Group>
-          <Command.Group heading="Bénéficiaires" className={groupClass}>
+          <Command.Group heading="Bénéficiaires" className={commandGroupClass}>
             {payeeOptions.map((p) => (
               <Command.Item
                 key={p.id}
                 value={`payee-${p.id}`}
                 keywords={[p.name]}
                 onSelect={() => select({ kind: "payee", id: p.id })}
-                className={itemClass}
+                className={commandItemClass}
               >
                 <span className="flex-1 truncate">{p.name}</span>
                 {current === p.id ? <Check size={13} className="text-accent-fg" /> : null}
@@ -401,16 +387,17 @@ function ViewKpis({ v }: { v: InsightViewDto }) {
   const monthLabel = capitalize(formatMonthName(v.month))
   return (
     <div className="grid grid-cols-3 gap-5 px-5 pt-5">
-      <Kpi label={`${monthLabel} (en cours)`} value={formatMoney(v.current)} valueClassName="text-[24px]" />
+      <Kpi size="lg" label={`${monthLabel} (en cours)`} value={formatMoney(v.current)} />
       {v.average !== null ? (
-        <Kpi label={`Moyenne ${v.query.rolling} mois`} value={formatMoney(v.average)} valueClassName="text-[24px]" />
+        <Kpi size="lg" label={`Moyenne ${v.query.rolling} mois`} value={formatMoney(v.average)} />
       ) : (
-        <Kpi label={`Moyenne sur ${v.query.months} mois`} value={formatMoney(v.periodAverage)} valueClassName="text-[24px]" />
+        <Kpi size="lg" label={`Moyenne sur ${v.query.months} mois`} value={formatMoney(v.periodAverage)} />
       )}
       <Kpi
         label="Projection fin de mois"
         value={formatMoney(v.projection)}
-        valueClassName={cx("text-[24px]", v.projectionAlert && "text-negative")}
+        size="lg"
+        valueClassName={v.projectionAlert ? "text-negative" : undefined}
         hint={v.budget ? `Budget ${formatMoney(v.budget)}` : undefined}
       />
     </div>

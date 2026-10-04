@@ -6,7 +6,7 @@ import { AssetDialog } from "~/components/asset-dialog"
 import { creditOf, DataCredit } from "~/components/data-credit"
 import { PageHeader } from "~/components/shell"
 import { toast } from "~/components/toast"
-import { Button, Chip, cx, DateInput, EmptyState, IconButton, Input, Menu, Money, Sheet, SkeletonRows, Tabs, useConfirm } from "~/components/ui"
+import { Button, Chip, cx, DateInput, EmptyState, heroAmountClass, IconButton, Input, Menu, Money, Sheet, SkeletonRows, Tabs, useConfirm } from "~/components/ui"
 import { formatDayLong, formatDayShort, formatMonthLong, formatMonthShort, type Month } from "~/domain/dates"
 import { formatMoney, formatPercent, parseAmount } from "~/domain/money"
 import {
@@ -116,16 +116,15 @@ function WealthPage() {
         right={
           <>
             <Button
-              size="sm"
               variant="ghost"
-              icon={<RefreshCw size={13} className={cx(refresh.isPending && "animate-spin")} />}
+              icon={<RefreshCw size={14} className={cx(refresh.isPending && "animate-spin")} />}
               onClick={refreshAll}
               disabled={refresh.isPending}
               className="max-md:hidden"
             >
               Mettre à jour
             </Button>
-            <Button size="sm" icon={<Plus size={13} />} onClick={() => setDialog({ item: null })} className="max-md:ml-auto">
+            <Button icon={<Plus size={14} />} onClick={() => setDialog({ item: null })} className="max-md:ml-auto">
               Ajouter un bien
             </Button>
           </>
@@ -221,7 +220,7 @@ function TypeSummary({
   const history = months.map((_, m) => [...items, ...closed].reduce((sum, i) => sum + i.history[m]!, 0))
   return (
     <div className="flex items-baseline gap-3 border-b border-line px-5 pb-4 pt-5">
-      <span className="num text-[30px] font-medium tracking-[-0.02em]">{euros(total)}</span>
+      <span className={heroAmountClass}>{euros(total)}</span>
       <Change change={historyChange(history, months, total)} months={months} />
       <span className="ml-auto text-faint">{TYPE_PLURAL_LABELS[type]}</span>
     </div>
@@ -244,7 +243,7 @@ function Summary({ data }: { data: WealthOverview }) {
   return (
     <div className="flex flex-col gap-3 border-b border-line px-5 pb-4 pt-5">
       <div className="flex items-baseline gap-3">
-        <span className="num text-[30px] font-medium tracking-[-0.02em]" data-testid="net-worth">
+        <span className={heroAmountClass} data-testid="net-worth">
           {euros(data.netWorth)}
         </span>
         <Change change={data.change} months={data.months} />
@@ -600,7 +599,7 @@ function MobileWealth({
   return (
     <div className="flex flex-col pb-8">
       <span className="px-5 pt-2 text-[13px] text-muted">Patrimoine net</span>
-      <span className="num px-5 pt-1 text-[36px] font-medium tracking-[-0.03em]">{euros(data.netWorth)}</span>
+      <span className={cx(heroAmountClass, "px-5 pt-1")}>{euros(data.netWorth)}</span>
       <Change change={data.change} months={data.months} className="px-5 pt-1 text-[13px]" />
       <AllocationBar slices={data.allocation} className="mx-5 mt-4" />
       <div className="mt-4 flex gap-1.5 overflow-x-auto px-5 text-[13px]">

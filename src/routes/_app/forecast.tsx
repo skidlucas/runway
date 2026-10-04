@@ -7,7 +7,7 @@ import { useQuery } from "@tanstack/react-query"
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router"
 import * as React from "react"
 import { PageHeader } from "~/components/shell"
-import { Chip, cx, EmptyState, Kpi, Money, SectionTitle, SkeletonRows, Tabs } from "~/components/ui"
+import { Chip, cx, EmptyState, heroAmountClass, Kpi, Money, SectionTitle, SkeletonRows, StatChip, Tabs } from "~/components/ui"
 import { formatDayShort, formatMonthLong, formatMonthName, parseDay } from "~/domain/dates"
 import type { UpcomingTag } from "~/domain/forecast"
 import { formatMoney } from "~/domain/money"
@@ -49,14 +49,8 @@ function ForecastPage() {
         right={
           f ? (
             <span className="flex items-center gap-2 max-md:hidden">
-              <span className="flex items-center gap-2 rounded-[6px] border border-line-control px-2.5 py-[5px]">
-                <span className="text-muted">Échéances à venir</span>
-                <Money value={f.scheduledUpcoming} />
-              </span>
-              <span className="flex items-center gap-2 rounded-[6px] border border-accent-line bg-accent-soft px-2.5 py-[5px]">
-                <span className="text-accent-fg">Fin de mois</span>
-                <Money value={f.projectedEndBalance} className="text-[var(--accent-strong-text)]" />
-              </span>
+              <StatChip label="Échéances à venir" value={<Money value={f.scheduledUpcoming} />} />
+              <StatChip tone="accent" label="Fin de mois" value={<Money value={f.projectedEndBalance} />} />
             </span>
           ) : null
         }
@@ -99,13 +93,13 @@ function DesktopForecast({ f }: { f: ForecastDto }) {
     <>
       <div className="grid grid-cols-3 border-b border-line">
         <div className="border-r border-line p-5">
-          <Kpi label="Solde aujourd'hui" value={formatMoney(f.balanceToday)} valueClassName="text-[24px]" />
+          <Kpi size="lg" label="Solde aujourd'hui" value={formatMoney(f.balanceToday)} />
         </div>
         <div className="border-r border-line p-5">
           <Kpi
             label="Échéances à venir"
             value={formatMoney(f.scheduledUpcoming)}
-            valueClassName="text-[24px]"
+            size="lg"
             hint={f.daysLeft > 0 ? `d'ici ${count(f.daysLeft, "jour")}` : "Mois terminé"}
           />
         </div>
@@ -113,7 +107,8 @@ function DesktopForecast({ f }: { f: ForecastDto }) {
           <Kpi
             label={`Solde projeté au ${formatDayShort(f.days[f.days.length - 1]?.date ?? f.today)}`}
             value={formatMoney(f.projectedEndBalance)}
-            valueClassName={cx("text-[24px]", f.projectedEndBalance < 0 ? "text-negative" : "text-accent-fg")}
+            size="lg"
+            valueClassName={f.projectedEndBalance < 0 ? "text-negative" : "text-accent-fg"}
             hint={<ProjectionHint f={f} />}
           />
         </div>
@@ -249,7 +244,7 @@ function MobileForecast({ f }: { f: ForecastDto }) {
       <div className="px-5 pt-3 text-[13px] text-muted">{capitalize(formatMonthName(f.month))} · fin de mois</div>
       <Money
         value={f.projectedEndBalance}
-        className={cx("px-5 pt-1 text-[44px] font-medium tracking-[-0.03em]", f.projectedEndBalance < 0 && "text-negative")}
+        className={cx(heroAmountClass, "px-5 pt-1", f.projectedEndBalance < 0 && "text-negative")}
       />
       <div className="mx-5 mt-6 grid grid-cols-2 gap-2.5">
         <div className="flex flex-col gap-1 rounded-[12px] border border-line p-3.5">

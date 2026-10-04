@@ -1,9 +1,8 @@
 import { useQuery } from "@tanstack/react-query"
 import { createFileRoute, Link } from "@tanstack/react-router"
-import { Search } from "lucide-react"
 import * as React from "react"
 import { PageHeader } from "~/components/shell"
-import { Button, Checkbox, Dialog, Field, InlineEdit, Input, Select, SkeletonRows, useConfirm } from "~/components/ui"
+import { Button, Checkbox, Dialog, Field, InlineEdit, SearchInput, Select, SkeletonRows, useConfirm } from "~/components/ui"
 import { formatDayShort } from "~/domain/dates"
 import { normalizeText } from "~/domain/rules"
 import { q, useAction } from "~/lib/queries"
@@ -46,10 +45,13 @@ function PayeesSettings() {
           </>
         }
       />
-      <div className="relative mx-5 my-3 w-[300px] max-md:w-auto">
-        <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-faint" />
-        <Input value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Filtrer" className="pl-8" />
-      </div>
+      <SearchInput
+        value={filter}
+        onChange={(e) => setFilter(e.target.value)}
+        placeholder="Filtrer"
+        aria-label="Filtrer les bénéficiaires"
+        wrapperClassName="mx-5 my-3 w-[300px] max-md:w-auto"
+      />
       {!payees.data ? (
         <SkeletonRows />
       ) : (

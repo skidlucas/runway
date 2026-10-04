@@ -5,7 +5,7 @@ import { Menu as BMenu } from "@base-ui/react/menu"
 import { Popover as BPopover } from "@base-ui/react/popover"
 import { Select as BSelect } from "@base-ui/react/select"
 import { Switch as BSwitch } from "@base-ui/react/switch"
-import { CalendarDays, Check, ChevronDown, ChevronLeft, ChevronRight, X } from "lucide-react"
+import { CalendarDays, Check, ChevronDown, ChevronLeft, ChevronRight, Search, X } from "lucide-react"
 import * as React from "react"
 import { addDays, addMonths, type Day, daysInMonth, firstDay, formatDayInput, formatDayLong, formatMonthLong, monthOf, parseDayInput, weekday } from "~/domain/dates"
 import { formatMoney } from "~/domain/money"
@@ -17,6 +17,12 @@ export const cx = clsx
  * Row actions hidden until the row (a `group`) is hovered or holds the focus. Only with a mouse:
  * on a touch screen they stay visible, since a hidden button would still take taps.
  */
+/** Widens a small control's tap area on touch screens without moving the layout. Not for absolutely positioned elements. */
+export const touchHitArea = "relative max-md:after:absolute max-md:after:-inset-3"
+
+/** The headline amount at the top of a page. */
+export const heroAmountClass = "num text-[30px] font-medium tracking-[-0.02em] max-md:text-[36px]"
+
 export const revealOnHover =
   "hoverable:opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100 data-[popup-open]:opacity-100"
 
@@ -120,6 +126,19 @@ export const Input = React.forwardRef<HTMLInputElement, React.InputHTMLAttribute
       )}
       {...rest}
     />
+  )
+})
+
+export const SearchInput = React.forwardRef<
+  HTMLInputElement,
+  React.InputHTMLAttributes<HTMLInputElement> & { shortcut?: string; wrapperClassName?: string }
+>(function SearchInput({ shortcut, className, wrapperClassName, ...rest }, ref) {
+  return (
+    <div className={cx("relative", wrapperClassName)}>
+      <Search size={14} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-faint" />
+      <Input ref={ref} className={cx("pl-8", shortcut && "pr-8", className)} {...rest} />
+      {shortcut ? <Kbd className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2">{shortcut}</Kbd> : null}
+    </div>
   )
 })
 
@@ -745,6 +764,50 @@ export const Chip = ({
   </span>
 )
 
+const chipControlClass =
+  "flex h-7 shrink-0 items-center gap-1.5 rounded-[6px] border border-line-control bg-subtle px-2.5 text-[13px] outline-none"
+
+/** A chip that opens a menu or a picker; `label` names what the chip sets. */
+export const ChipButton = React.forwardRef<HTMLButtonElement, React.ButtonHTMLAttributes<HTMLButtonElement> & { label?: React.ReactNode }>(
+  function ChipButton({ label, className, children, type = "button", ...rest }, ref) {
+    return (
+      <button
+        ref={ref}
+        type={type}
+        className={cx(chipControlClass, "hover:border-line-strong focus-visible:border-accent-line", className)}
+        {...rest}
+      >
+        {label ? <span className="text-faint">{label}</span> : null}
+        {children}
+      </button>
+    )
+  },
+)
+
+export const RemovableChip = ({ children, removeLabel, onRemove }: { children: React.ReactNode; removeLabel: string; onRemove: () => void }) => (
+  <span className={cx(chipControlClass, "pr-1.5")}>
+    {children}
+    <button type="button" aria-label={removeLabel} onClick={onRemove} className={cx("text-faint hover:text-fg", touchHitArea)}>
+      <X size={12} />
+    </button>
+  </span>
+)
+
+/** A figure in a page header: a label and its amount. */
+export const StatChip = ({ label, value, tone = "neutral" }: { label: React.ReactNode; value: React.ReactNode; tone?: "neutral" | "accent" | "negative" }) => (
+  <span
+    className={cx(
+      "flex items-center gap-2 rounded-[6px] border px-2.5 py-[5px]",
+      tone === "neutral" && "border-line-control",
+      tone === "accent" && "border-accent-line bg-accent-soft",
+      tone === "negative" && "border-negative/40 bg-negative-soft",
+    )}
+  >
+    <span className={cx(tone === "neutral" && "text-muted", tone === "accent" && "text-accent-fg", tone === "negative" && "text-negative")}>{label}</span>
+    <span className={cx("num", tone === "accent" && "text-[var(--accent-strong-text)]", tone === "negative" && "font-medium text-negative")}>{value}</span>
+  </span>
+)
+
 export const Dot = ({ color, className }: { color: string; className?: string }) => (
   <span className={cx("inline-block h-1.5 w-1.5 shrink-0 rounded-full", className)} style={{ background: color }} />
 )
@@ -1017,18 +1080,20 @@ export const Kpi = ({
   label,
   value,
   hint,
+  size = "md",
   className,
   valueClassName,
 }: {
   label: React.ReactNode
   value: React.ReactNode
   hint?: React.ReactNode
+  size?: "md" | "lg"
   className?: string
   valueClassName?: string
 }) => (
   <div className={cx("flex min-w-0 flex-col gap-1", className)}>
     <span className="text-[12px] text-faint">{label}</span>
-    <span className={cx("num truncate text-[18px]", valueClassName)}>{value}</span>
+    <span className={cx("num truncate", size === "lg" ? "text-[24px]" : "text-[18px]", valueClassName)}>{value}</span>
     {hint ? <span className="text-[12px] text-muted">{hint}</span> : null}
   </div>
 )

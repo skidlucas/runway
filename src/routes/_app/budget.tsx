@@ -21,6 +21,7 @@ import {
   Popover,
   revealOnHover,
   SkeletonRows,
+  StatChip,
   Switch,
   useReturnFocus,
 } from "~/components/ui"
@@ -181,18 +182,8 @@ function ToBudgetChip({ budget }: { budget: BudgetMonthDto }) {
       align="end"
       className="w-[300px] p-4"
       trigger={
-        <button
-          type="button"
-          data-testid="to-budget"
-          className={cx(
-            "flex items-center gap-2.5 rounded-[6px] border py-[5px] pl-3 pr-2.5",
-            negative ? "border-negative/40 bg-negative-soft" : "border-accent-line bg-accent-soft",
-          )}
-        >
-          <span className={negative ? "text-negative" : "text-accent-fg"}>
-            {negative ? "Trop budgété" : "À budgéter"}
-          </span>
-          <Money value={budget.toBudget} className="font-medium text-[var(--accent-strong-text)]" />
+        <button type="button" data-testid="to-budget" className="rounded-[6px]">
+          <StatChip tone={negative ? "negative" : "accent"} label={negative ? "Trop budgété" : "À budgéter"} value={<Money value={budget.toBudget} />} />
         </button>
       }
     >

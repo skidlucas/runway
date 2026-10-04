@@ -21,9 +21,12 @@ export const commandFilter = (value: string, search: string, keywords?: string[]
 const triggerClass =
   "flex h-8 w-full items-center gap-2 rounded-[8px] border border-line-control px-2.5 text-left outline-none hover:border-line-strong focus-visible:border-accent-line"
 
-const listClass = "max-h-[300px] overflow-y-auto p-1"
-const itemClass =
+export const commandInputClass = "h-9 w-full border-b border-line bg-transparent px-3 outline-none placeholder:text-faint"
+export const commandListClass = "max-h-[300px] overflow-y-auto p-1"
+export const commandItemClass =
   "flex cursor-default items-center gap-2 rounded-[6px] px-2 py-1.5 text-fg-2 data-[selected=true]:bg-hover data-[selected=true]:text-fg"
+export const commandGroupClass =
+  "[&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:pb-1 [&_[cmdk-group-heading]]:pt-2 [&_[cmdk-group-heading]]:text-[11px] [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group-heading]]:text-faint"
 
 // --- Category ------------------------------------------------------------------
 
@@ -81,9 +84,9 @@ export function CategoryPicker({
             <Command.Input
               autoFocus
               placeholder="Rechercher une catégorie"
-              className="h-9 w-full border-b border-line bg-transparent px-3 outline-none placeholder:text-faint"
+              className={commandInputClass}
             />
-            <Command.List className={listClass}>
+            <Command.List className={commandListClass}>
               <Command.Empty className="px-2 py-3 text-muted">Aucune catégorie</Command.Empty>
               {allowNone ? (
                 <Command.Item
@@ -93,7 +96,7 @@ export function CategoryPicker({
                     onChange(null)
                     setOpen(false)
                   }}
-                  className={itemClass}
+                  className={commandItemClass}
                 >
                   <span className="flex-1 text-muted">Aucune catégorie</span>
                 </Command.Item>
@@ -105,7 +108,7 @@ export function CategoryPicker({
                   <Command.Group
                     key={g.id}
                     heading={g.name}
-                    className="[&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:pb-1 [&_[cmdk-group-heading]]:pt-2 [&_[cmdk-group-heading]]:text-[11px] [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group-heading]]:text-faint"
+                    className={commandGroupClass}
                   >
                     {options.map((c) => {
                       const amount = available?.get(c.id)
@@ -118,7 +121,7 @@ export function CategoryPicker({
                             onChange(c.id)
                             setOpen(false)
                           }}
-                          className={itemClass}
+                          className={commandItemClass}
                         >
                           <span className="flex-1 truncate">{c.name}</span>
                           {amount !== undefined && !c.isIncome ? (
@@ -237,11 +240,11 @@ function PayeeOptions({
         value={search}
         onValueChange={setSearch}
         placeholder="Nom du bénéficiaire"
-        className="h-9 w-full border-b border-line bg-transparent px-3 outline-none placeholder:text-faint"
+        className={commandInputClass}
       />
-      <Command.List className={listClass}>
+      <Command.List className={commandListClass}>
         {search.trim() && !exact ? (
-          <Command.Item value={`__create ${search}`} onSelect={() => onPick({ kind: "name", name: search.trim() })} className={itemClass}>
+          <Command.Item value={`__create ${search}`} onSelect={() => onPick({ kind: "name", name: search.trim() })} className={commandItemClass}>
             <Plus size={13} className="text-muted" />
             <span>
               Créer « <span className="text-fg">{search.trim()}</span> »
@@ -249,7 +252,7 @@ function PayeeOptions({
           </Command.Item>
         ) : null}
         {matches.slice(0, MAX_PAYEE_OPTIONS).map(({ payee: p }) => (
-          <Command.Item key={p.id} value={p.id} onSelect={() => onPick({ kind: "id", id: p.id, name: p.name })} className={itemClass}>
+          <Command.Item key={p.id} value={p.id} onSelect={() => onPick({ kind: "id", id: p.id, name: p.name })} className={commandItemClass}>
             <span className="flex-1 truncate">{p.name}</span>
             {value.kind === "id" && value.id === p.id ? <Check size={13} className="text-accent-fg" /> : null}
           </Command.Item>
@@ -260,14 +263,14 @@ function PayeeOptions({
         {transferAccounts.length > 0 ? (
           <Command.Group
             heading="Virement vers / depuis"
-            className="[&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:pb-1 [&_[cmdk-group-heading]]:pt-2 [&_[cmdk-group-heading]]:text-[11px] [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group-heading]]:text-faint"
+            className={commandGroupClass}
           >
             {transferAccounts.map((a) => (
               <Command.Item
                 key={a.id}
                 value={`transfer ${a.id}`}
                 onSelect={() => onPick({ kind: "transfer", accountId: a.id, name: a.name })}
-                className={itemClass}
+                className={commandItemClass}
               >
                 <ArrowLeftRight size={13} className="text-muted" />
                 <span className="flex-1 truncate">{a.name}</span>
@@ -357,9 +360,9 @@ export function RemotePicker<T>({
           value={text}
           onValueChange={setText}
           placeholder={searchPlaceholder}
-          className="h-9 w-full border-b border-line bg-transparent px-3 outline-none placeholder:text-faint"
+          className={commandInputClass}
         />
-        <Command.List className={listClass}>
+        <Command.List className={commandListClass}>
           {query.length < 2 ? (
             <div className="px-2 py-2 text-[12px] text-faint">Tape au moins 2 caractères.</div>
           ) : results.isFetching && !results.data ? (
@@ -379,7 +382,7 @@ export function RemotePicker<T>({
                     onSelect(item)
                     setOpen(false)
                   }}
-                  className={itemClass}
+                  className={commandItemClass}
                 >
                   <span className="flex-1 truncate">{d.title}</span>
                   {d.hint ? <span className="shrink-0 text-[12px] text-faint">{d.hint}</span> : null}
