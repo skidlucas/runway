@@ -2,7 +2,7 @@ import { createServerFn } from "@tanstack/react-start"
 import { Schema } from "effect"
 import { authMiddleware } from "../auth"
 import { runApp } from "../runtime"
-import { AssetType, RetainedValue } from "../schemas"
+import { AssetType, Ids, Name, Notes, RetainedValue, SearchText } from "../schemas"
 import { MarketData } from "../services/market-data"
 import { Wealth } from "../services/wealth"
 
@@ -31,15 +31,15 @@ export const AssetSource = Schema.Union([
 ])
 
 const AssetInput = Schema.Struct({
-  name: Schema.String,
+  name: Name,
   type: AssetType,
-  subtitle: Schema.NullOr(Schema.String),
+  subtitle: Schema.NullOr(Name),
   purchase: DatedAmount,
   declared: DatedAmount,
   retained: RetainedValue,
   share: Schema.Int,
   source: AssetSource,
-  notes: Schema.NullOr(Schema.String),
+  notes: Schema.NullOr(Notes),
 })
 
 export const getWealth = createServerFn({ method: "GET" })
@@ -78,10 +78,10 @@ export const deleteAssetValuation = createServerFn({ method: "POST" })
 
 export const refreshValuations = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
-  .validator(v(Schema.Struct({ ids: Schema.optional(Schema.Array(Schema.String)) })))
+  .validator(v(Schema.Struct({ ids: Schema.optional(Ids) })))
   .handler(({ data }) => runApp(Wealth.use((w) => w.refresh(data.ids ? { ids: data.ids } : {}))))
 
-const Query = v(Schema.Struct({ query: Schema.String }))
+const Query = v(Schema.Struct({ query: SearchText }))
 
 export const searchCoins = createServerFn({ method: "GET" })
   .middleware([authMiddleware])

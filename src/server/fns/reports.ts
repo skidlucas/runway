@@ -2,6 +2,7 @@ import { createServerFn } from "@tanstack/react-start"
 import { Schema } from "effect"
 import { authMiddleware } from "../auth"
 import { runApp } from "../runtime"
+import { MonthCount, Name } from "../schemas"
 import { Dashboards } from "../services/dashboards"
 import { Reports } from "../services/reports"
 
@@ -25,7 +26,7 @@ export const DashboardWidget = Schema.Struct({
   viewId: Schema.optional(Schema.String),
 })
 
-const Months = Schema.Struct({ months: Schema.Int })
+const Months = Schema.Struct({ months: MonthCount })
 
 export const getNetWorth = createServerFn({ method: "GET" })
   .middleware([authMiddleware])
@@ -52,13 +53,13 @@ export const getDashboards = createServerFn({ method: "GET" })
 
 export const createDashboard = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
-  .validator(v(Schema.Struct({ name: Schema.String })))
+  .validator(v(Schema.Struct({ name: Name })))
   .handler(({ data }) => runApp(Dashboards.use((d) => d.create(data.name))))
 
 export const saveDashboard = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
   .validator(
-    v(Schema.Struct({ id: Schema.String, name: Schema.optional(Schema.String), widgets: Schema.optional(Schema.Array(DashboardWidget)) })),
+    v(Schema.Struct({ id: Schema.String, name: Schema.optional(Name), widgets: Schema.optional(Schema.Array(DashboardWidget)) })),
   )
   .handler(({ data }) =>
     runApp(

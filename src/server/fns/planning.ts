@@ -4,7 +4,7 @@ import { addDays } from "~/domain/dates"
 import { authMiddleware } from "../auth"
 import { Invalid } from "../errors"
 import { runApp } from "../runtime"
-import { Cents, Day, Id, Month, PayeeInput, Recurrence } from "../schemas"
+import { Cents, Day, Days, Id, Month, Name, PayeeInput, Recurrence } from "../schemas"
 import { ForecastService } from "../services/forecast"
 import { registerRows, Schedules } from "../services/schedules"
 import { Settings } from "../services/settings"
@@ -12,7 +12,7 @@ import { Settings } from "../services/settings"
 const v = Schema.toStandardSchemaV1
 
 const ScheduleInput = Schema.Struct({
-  name: Schema.optional(Schema.NullOr(Schema.String)),
+  name: Schema.optional(Schema.NullOr(Name)),
   payee: PayeeInput,
   accountId: Id,
   categoryId: Schema.NullOr(Id),
@@ -37,13 +37,13 @@ export const getForecast = createServerFn({ method: "GET" })
 
 export const getUpcoming = createServerFn({ method: "GET" })
   .middleware([authMiddleware])
-  .validator(v(Schema.Struct({ accountId: Schema.optional(Schema.String), days: Schema.Int })))
+  .validator(v(Schema.Struct({ accountId: Schema.optional(Id), days: Days })))
   .handler(({ data }) => runApp(ForecastService.use((s) => s.upcoming(data))))
 
 /** Schedule occurrences shown as forecast lines at the top of a register. */
 export const getScheduledRows = createServerFn({ method: "GET" })
   .middleware([authMiddleware])
-  .validator(v(Schema.Struct({ accountId: Schema.optional(Schema.String), days: Schema.Int })))
+  .validator(v(Schema.Struct({ accountId: Schema.optional(Id), days: Days })))
   .handler(({ data }) =>
     runApp(
       Effect.gen(function* () {
@@ -102,7 +102,7 @@ const isTimeZone = (tz: string) => {
 /** Books due schedules. The browser sends its time zone so the server's "today" follows the user. */
 export const syncSchedules = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
-  .validator(v(Schema.Struct({ timeZone: Schema.optional(Schema.String) })))
+  .validator(v(Schema.Struct({ timeZone: Schema.optional(Name) })))
   .handler(({ data }) =>
     runApp(
       Effect.gen(function* () {

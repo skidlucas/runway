@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest"
 import { addMonths, daysInMonth, formatDayShort, formatMonthLong, monthRange, todayIn } from "~/domain/dates"
 import { describeRecurrence, nextOnOrAfter, occurrence, occurrencesBetween } from "~/domain/recurrence"
 import { detectRecurring, type HistoryTransaction } from "~/domain/recurring-detection"
-import { applyRules, compileRules, describeRule, type Rule } from "~/domain/rules"
+import { applyRules, compileRules, describeRule, patternProblem, type Rule } from "~/domain/rules"
 
 describe("dates", () => {
   it("handles month arithmetic and labels", () => {
@@ -137,5 +137,33 @@ describe("recurring detection", () => {
     const groceries = [tx("2026-09-01", -4000, "monop"), tx("2026-09-03", -1200, "monop"), tx("2026-09-20", -8000, "monop")]
     const stopped = [tx("2026-01-05", -900, "gym"), tx("2026-02-05", -900, "gym"), tx("2026-03-05", -900, "gym")]
     expect(detectRecurring([...groceries, ...stopped], "2026-10-02")).toEqual([])
+  })
+})
+
+describe("rule patterns", () => {
+  it("accepts ordinary patterns", () => {
+    expect(patternProblem("^cb (picard|carrefour)")).toBeNull()
+    expect(patternProblem("prlv sepa .*edf")).toBeNull()
+    expect(patternProblem("(\\d{2})/(\\d{2})")).toBeNull()
+  })
+
+  it("refuses broken, overly long or catastrophic patterns", () => {
+    expect(patternProblem("(")).toMatch(/invalide/)
+    expect(patternProblem("a".repeat(201))).toMatch(/trop longue/)
+    expect(patternProblem("(a+)+$")).toMatch(/imbriquée/)
+    expect(patternProblem("(\\w*x)*")).toMatch(/imbriquée/)
+    expect(patternProblem("(a{1,})+")).toMatch(/imbriquée/)
+  })
+
+  it("never runs a refused pattern", () => {
+    const rule: Rule = {
+      id: "r",
+      conditionsOp: "and",
+      conditions: [{ field: "payee", op: "matches", value: "(a+)+$" }],
+      actions: [{ type: "set_category", categoryId: "c" }],
+      enabled: true,
+    }
+    const subject = { payeeName: `${"a".repeat(40)}!`, importedPayee: null, notes: null, amount: -100, accountId: "x" }
+    expect(applyRules([rule], subject).categoryId).toBeUndefined()
   })
 })

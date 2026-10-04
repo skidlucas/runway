@@ -12,7 +12,7 @@ export const getAuthState = createServerFn({ method: "GET" }).handler(async () =
 })
 
 export const login = createServerFn({ method: "POST" })
-  .validator(Schema.toStandardSchemaV1(Schema.Struct({ password: Schema.String })))
+  .validator(Schema.toStandardSchemaV1(Schema.Struct({ password: Schema.String.check(Schema.isMaxLength(256)) })))
   .handler(async ({ data }) => {
     const client = clientKey(getRequestHeader("cf-connecting-ip"))
     const lockedUntil = await runApp(LoginGuard.use((g) => g.attempt(client, Date.now())))

@@ -2,6 +2,7 @@ import { createServerFn } from "@tanstack/react-start"
 import { Effect, Schema } from "effect"
 import { authMiddleware } from "../auth"
 import { runApp } from "../runtime"
+import { Ids, Name, Notes } from "../schemas"
 import { Ai } from "../services/ai"
 import { Categorizer } from "../services/categorize"
 import { Insights } from "../services/insights"
@@ -33,7 +34,7 @@ export const getAiAnalysis = createServerFn({ method: "POST" })
 
 export const interpretQuestion = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
-  .validator(v(Schema.Struct({ question: Schema.String })))
+  .validator(v(Schema.Struct({ question: Notes })))
   .handler(({ data }) => runApp(Insights.use((s) => s.interpret(data.question))))
 
 export const getSavedViews = createServerFn({ method: "GET" })
@@ -42,7 +43,7 @@ export const getSavedViews = createServerFn({ method: "GET" })
 
 export const saveView = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
-  .validator(v(Schema.Struct({ name: Schema.String, config: InsightQuery })))
+  .validator(v(Schema.Struct({ name: Name, config: InsightQuery })))
   .handler(({ data }) => runApp(Insights.use((s) => s.saveView(data.name, data.config))))
 
 export const deleteView = createServerFn({ method: "POST" })
@@ -56,5 +57,5 @@ export const getAiStatus = createServerFn({ method: "GET" })
 
 export const suggestCategories = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
-  .validator(v(Schema.Struct({ ids: Schema.optional(Schema.Array(Schema.String)) })))
+  .validator(v(Schema.Struct({ ids: Schema.optional(Ids) })))
   .handler(({ data }) => runApp(Categorizer.use((c) => c.suggest(data.ids))))

@@ -51,14 +51,30 @@ export const normalizeText = (value: string): string =>
     .replace(/\s+/g, " ")
     .trim()
 
+const MAX_PATTERN_LENGTH = 200
+
+// A group that repeats and itself contains a repetition, like (a+)+ or (\w*x)*: on a text that
+// almost matches, the engine tries every way of splitting it and an import freezes.
+const NESTED_REPEAT = /\((?:[^()\\]|\\.)*(?:[+*]|\{\d+,\d*\})(?:[^()\\]|\\.)*\)(?:[+*]|\{\d+,\d*\})/
+
+/** Why a "matches" pattern is refused, or null when rules may run it. */
+export const patternProblem = (pattern: string): string | null => {
+  if (pattern.length > MAX_PATTERN_LENGTH) return `Expression trop longue (${MAX_PATTERN_LENGTH} caractères maximum)`
+  if (NESTED_REPEAT.test(pattern)) return `Expression trop coûteuse (répétition imbriquée) : ${pattern}`
+  try {
+    new RegExp(pattern)
+  } catch {
+    return `Expression invalide : ${pattern}`
+  }
+  return null
+}
+
+const REGEX_CACHE_SIZE = 500
 const regexCache = new Map<string, RegExp | null>()
 const safeRegex = (pattern: string): RegExp | null => {
   if (!regexCache.has(pattern)) {
-    try {
-      regexCache.set(pattern, new RegExp(pattern, "i"))
-    } catch {
-      regexCache.set(pattern, null)
-    }
+    if (regexCache.size >= REGEX_CACHE_SIZE) regexCache.clear()
+    regexCache.set(pattern, patternProblem(pattern) ? null : new RegExp(pattern, "i"))
   }
   return regexCache.get(pattern) ?? null
 }

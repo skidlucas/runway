@@ -8,12 +8,11 @@ import { Categories } from "../services/categories"
 import { Payees } from "../services/payees"
 import { Rules } from "../services/rules"
 import { Transactions } from "../services/transactions"
-import { Cents, Day, Id, Month, PayeeInput, RuleAction, RuleCondition, RulesOp } from "../schemas"
+import { Cents, Day, Id, Ids, Month, MonthCount, Name, Notes, PayeeInput, RuleAction, RuleCondition, RulesOp, SearchText } from "../schemas"
 
 const v = Schema.toStandardSchemaV1
 
-const Ids = Schema.Array(Schema.String)
-const NullableId = Schema.NullOr(Schema.String)
+const NullableId = Schema.NullOr(Id)
 const AccountKind = Schema.Literals(["checking", "savings", "credit", "investment", "other"])
 
 // --- Accounts -------------------------------------------------------------------
@@ -27,7 +26,7 @@ export const createAccount = createServerFn({ method: "POST" })
   .validator(
     v(
       Schema.Struct({
-        name: Schema.String,
+        name: Name,
         kind: AccountKind,
         offBudget: Schema.Boolean,
         startingBalance: Cents,
@@ -43,7 +42,7 @@ export const updateAccount = createServerFn({ method: "POST" })
     v(
       Schema.Struct({
         id: Id,
-        name: Schema.optional(Schema.String),
+        name: Schema.optional(Name),
         kind: Schema.optional(AccountKind),
         offBudget: Schema.optional(Schema.Boolean),
         inForecast: Schema.optional(Schema.Boolean),
@@ -84,13 +83,13 @@ export const createStarterCategories = createServerFn({ method: "POST" })
 
 export const createCategoryGroup = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
-  .validator(v(Schema.Struct({ name: Schema.String, isIncome: Schema.optional(Schema.Boolean) })))
+  .validator(v(Schema.Struct({ name: Name, isIncome: Schema.optional(Schema.Boolean) })))
   .handler(({ data }) => runApp(Categories.use((s) => s.createGroup(data))))
 
 export const updateCategoryGroup = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
   .validator(
-    v(Schema.Struct({ id: Id, name: Schema.optional(Schema.String), hidden: Schema.optional(Schema.Boolean) })),
+    v(Schema.Struct({ id: Id, name: Schema.optional(Name), hidden: Schema.optional(Schema.Boolean) })),
   )
   .handler(({ data: { id, ...patch } }) => runApp(Categories.use((s) => s.updateGroup(id, patch))))
 
@@ -101,7 +100,7 @@ export const deleteCategoryGroup = createServerFn({ method: "POST" })
 
 export const createCategory = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
-  .validator(v(Schema.Struct({ groupId: Id, name: Schema.String })))
+  .validator(v(Schema.Struct({ groupId: Id, name: Name })))
   .handler(({ data }) => runApp(Categories.use((s) => s.create(data))))
 
 export const updateCategory = createServerFn({ method: "POST" })
@@ -110,9 +109,9 @@ export const updateCategory = createServerFn({ method: "POST" })
     v(
       Schema.Struct({
         id: Id,
-        name: Schema.optional(Schema.String),
+        name: Schema.optional(Name),
         hidden: Schema.optional(Schema.Boolean),
-        groupId: Schema.optional(Schema.String),
+        groupId: Schema.optional(Id),
       }),
     ),
   )
@@ -136,7 +135,7 @@ export const getPayees = createServerFn({ method: "GET" })
 
 export const renamePayee = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
-  .validator(v(Schema.Struct({ id: Id, name: Schema.String })))
+  .validator(v(Schema.Struct({ id: Id, name: Name })))
   .handler(({ data }) => runApp(Payees.use((s) => s.rename(data.id, data.name))))
 
 export const mergePayees = createServerFn({ method: "POST" })
@@ -150,7 +149,7 @@ export const deleteUnusedPayees = createServerFn({ method: "POST" })
 
 export const resolvePayee = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
-  .validator(v(Schema.Struct({ name: Schema.String })))
+  .validator(v(Schema.Struct({ name: Name })))
   .handler(({ data }) =>
     runApp(Payees.use((s) => s.resolveNames([data.name])).pipe(Effect.map((ids) => ids.get(data.name) ?? ""))),
   )
@@ -165,7 +164,7 @@ export const suggestPayeeCategory = createServerFn({ method: "GET" })
 const SplitInput = Schema.Struct({
   amount: Cents,
   categoryId: NullableId,
-  notes: Schema.optional(Schema.NullOr(Schema.String)),
+  notes: Schema.optional(Schema.NullOr(Notes)),
 })
 
 export const listTransactions = createServerFn({ method: "GET" })
@@ -179,7 +178,7 @@ export const listTransactions = createServerFn({ method: "GET" })
         month: Schema.optional(Schema.String),
         from: Schema.optional(Schema.String),
         to: Schema.optional(Schema.String),
-        search: Schema.optional(Schema.String),
+        search: Schema.optional(SearchText),
         uncategorized: Schema.optional(Schema.Boolean),
         limit: Schema.optional(Schema.Int),
         offset: Schema.optional(Schema.Int),
@@ -198,7 +197,7 @@ export const createTransaction = createServerFn({ method: "POST" })
         amount: Cents,
         payee: PayeeInput,
         categoryId: Schema.optional(NullableId),
-        notes: Schema.optional(Schema.NullOr(Schema.String)),
+        notes: Schema.optional(Schema.NullOr(Notes)),
         cleared: Schema.optional(Schema.Boolean),
         splits: Schema.optional(Schema.Array(SplitInput)),
       }),
@@ -217,7 +216,7 @@ export const updateTransaction = createServerFn({ method: "POST" })
         amount: Schema.optional(Cents),
         payee: Schema.optional(PayeeInput),
         categoryId: Schema.optional(NullableId),
-        notes: Schema.optional(Schema.NullOr(Schema.String)),
+        notes: Schema.optional(Schema.NullOr(Notes)),
         cleared: Schema.optional(Schema.Boolean),
         splits: Schema.optional(Schema.NullOr(Schema.Array(SplitInput))),
       }),
@@ -275,7 +274,7 @@ export const fillBudget = createServerFn({ method: "POST" })
         month: Month,
         mode: Schema.Union([
           Schema.Struct({ kind: Schema.Literal("copyLastMonth") }),
-          Schema.Struct({ kind: Schema.Literal("average"), months: Schema.Int }),
+          Schema.Struct({ kind: Schema.Literal("average"), months: MonthCount }),
           Schema.Struct({ kind: Schema.Literal("zero") }),
           Schema.Struct({ kind: Schema.Literal("spent") }),
           Schema.Struct({ kind: Schema.Literal("planned") }),

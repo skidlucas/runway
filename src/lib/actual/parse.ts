@@ -2,7 +2,7 @@ import { unzipSync } from "fflate"
 import type { Database, SqlJsStatic } from "sql.js"
 import { addDays } from "~/domain/dates"
 import { nextOnOrAfter, occurrence, periodDays, type Recurrence } from "~/domain/recurrence"
-import type { RuleAction, RuleCondition } from "~/domain/rules"
+import { patternProblem, type RuleAction, type RuleCondition } from "~/domain/rules"
 import { type BundleRule, type BundleSchedule, type BundleTransaction, type ImportBundle, orderStamps } from "../import-bundle"
 
 // Reads an Actual Budget export (zip with db.sqlite + metadata.json).
@@ -305,7 +305,7 @@ const readRules = (
         for (const n of names) conditions.push({ field: "payee", op: "is", value: n })
       } else if ((field === "imported_payee" || field === "notes" || field === "payee") && typeof c.value === "string") {
         const mapped = c.op === "contains" || c.op === "matches" || c.op === "is" ? c.op : null
-        if (!mapped) {
+        if (!mapped || (mapped === "matches" && patternProblem(c.value))) {
           ok = false
           break
         }
