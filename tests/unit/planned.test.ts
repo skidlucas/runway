@@ -130,6 +130,40 @@ describe("plannedByCategory", () => {
       })
     })
   })
+
+  // Booking or skipping the only occurrence of a one-off (or the last one of an ended schedule)
+  // makes it inactive: it ran out, unlike a schedule paused by hand.
+  describe("a one-off bill due on 2026-10-15", () => {
+    const once = { unit: "once", interval: 1 } as const
+    const bill = (extra: Partial<PlannedSchedule>) => schedule("garagiste", -60000, once, "2026-10-15", extra)
+
+    it("paid on its date, stays in October's target and is not asked in November", () => {
+      const paid = bill({ active: false, nextDate: "2026-10-16", lastBooked: "2026-10-15" })
+      expect(plannedByCategory([paid], "2026-10", none).get("cat")).toMatchObject({ amount: 60000, thisMonth: 60000, target: 60000 })
+      expect(plannedByCategory([paid], "2026-11", none).has("cat")).toBe(false)
+    })
+
+    it("paid early in September, counts in September and not in October", () => {
+      const paidEarly = bill({ active: false, nextDate: "2026-10-16", lastBooked: "2026-09-28" })
+      expect(plannedByCategory([paidEarly], "2026-09", none).get("cat")).toMatchObject({ thisMonth: 60000, lines: [{ date: "2026-09-28" }] })
+      expect(plannedByCategory([paidEarly], "2026-10", none).has("cat")).toBe(false)
+    })
+
+    it("skipped or paused, is not asked", () => {
+      expect(plannedByCategory([bill({ active: false, nextDate: "2026-10-16" })], "2026-10", none).has("cat")).toBe(false)
+      expect(plannedByCategory([bill({ active: false })], "2026-10", none).has("cat")).toBe(false)
+    })
+  })
+
+  it("keeps the last payment of an ended schedule in its month", () => {
+    const loan = schedule("crédit", -21000, monthly, "2026-01-10", {
+      endDate: "2026-10-10",
+      active: false,
+      nextDate: "2026-10-11",
+      lastBooked: "2026-10-10",
+    })
+    expect(plannedByCategory([loan], "2026-10", none).get("cat")?.amount).toBe(21000)
+  })
 })
 
 describe("plannedStatus", () => {

@@ -39,6 +39,8 @@ export type ScheduleDto = {
   remaining: Remaining | null
   /** Day of the last transaction it booked (or was linked to). */
   lastBooked: string | null
+  /** False when the stored rhythm no longer decodes: `recurrence` is then a placeholder. */
+  readable: boolean
 }
 
 export type ScheduleInput = {
@@ -225,6 +227,7 @@ export class Schedules extends Context.Service<
             overdue: active && r.next_date < today,
             remaining: active ? remainingOccurrences({ startDate: r.start_date, endDate: r.end_date, recurrence }, r.next_date, r.amount) : null,
             lastBooked: r.lastBooked,
+            readable: Option.isSome(decoded),
           }
         })
       }).pipe(Effect.withSpan("Schedules.list"))

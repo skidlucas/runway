@@ -301,6 +301,18 @@ describe("Budget planned from a yearly bill", () => {
     expect(november.find((l) => l.scheduleId === onTime)).toMatchObject({ date: "2030-11-03", monthsLeft: 1 })
     expect((await lines("2030-10")).find((l) => l.scheduleId === early)).toMatchObject({ date: "2030-10-30", monthsLeft: 1 })
   })
+
+  it("keeps a one-off in its month's target once it is paid", async () => {
+    const accountId = (await h.run(Accounts.use((s) => s.list)))[0]!.id
+    const repair = await h.run(
+      Schedules.use((s) =>
+        s.create({ name: "Garagiste", payee: { kind: "name", name: "Garagiste" }, accountId, categoryId: c, amount: -40_000, recurrence: { unit: "once", interval: 1 }, startDate: "2030-09-12", autoPost: false }),
+      ),
+    )
+    await h.run(Schedules.use((s) => s.post(repair, "2030-09-12")))
+    const september = (await h.run(Budget.use((s) => s.month("2030-09")))).groups.flatMap((g) => g.categories).find((x) => x.id === c)!
+    expect(september.planned?.lines.find((l) => l.scheduleId === repair)).toMatchObject({ date: "2030-09-12", amount: 40_000 })
+  })
 })
 
 describe("Age of money", () => {

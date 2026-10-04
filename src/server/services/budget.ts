@@ -194,7 +194,7 @@ export class Budget extends Context.Service<
 
       const plannedIn = (m: Month, current: BudgetMonth | undefined, schedules: ReadonlyArray<ScheduleDto>) =>
         plannedByCategory(
-          schedules.map((s) => ({
+          schedules.filter((s) => s.readable).map((s) => ({
             id: s.id,
             name: s.name ?? s.payeeName ?? "Échéance",
             categoryId: s.categoryId,

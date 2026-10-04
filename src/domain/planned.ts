@@ -9,6 +9,7 @@ export type PlannedSchedule = {
   readonly amount: number
   readonly timing: ScheduleTiming
   readonly nextDate: Day
+  /** False once paused, or once it ran out (its last occurrence booked or skipped). */
   readonly active: boolean
   /** Day of the last transaction booked by the schedule. */
   readonly lastBooked: Day | null
@@ -113,7 +114,10 @@ export const plannedByCategory = (
   const to = lastDay(month)
   const lines = new Map<string, PlannedLine[]>()
   for (const s of schedules) {
-    if (!s.active || s.categoryId === null || s.amount >= 0) continue
+    // A schedule that ran out still counts for the month its last occurrence was paid in; a
+    // paused one has occurrences left and asks for nothing.
+    const paused = !s.active && nextOnOrAfter(s.timing, s.nextDate) !== null
+    if (paused || s.categoryId === null || s.amount >= 0) continue
     const base = { scheduleId: s.id, name: s.name, amount: -s.amount, remaining: remainingOccurrences(s.timing, s.nextDate, s.amount) }
     let line: PlannedLine | null = null
     if (isFrequent(s.timing.recurrence)) {
