@@ -3,6 +3,7 @@ import { Context, Effect, Layer } from "effect"
 import { bulkInsertStatements, Db, type DbError, newId } from "../db/client"
 import { categories, categoryGroups, rules } from "../db/schema"
 import { Invalid, NotFound } from "../errors"
+import { retargetViews } from "./saved-views"
 import { Settings } from "./settings"
 
 export type CategoryDto = {
@@ -209,10 +210,12 @@ export class Categories extends Context.Service<
       })
 
       const remove = Effect.fn("Categories.remove")(function* (id: string, reassignTo: string | null) {
-        yield* findCategory(id)
+        const category = yield* findCategory(id)
         if (reassignTo === id) return yield* new Invalid({ message: "Choisis une autre catégorie" })
         if (reassignTo) yield* findCategory(reassignTo)
-        yield* removeCategories([id], reassignTo)
+        yield* removeCategories([id], reassignTo, [
+          retargetViews(db.d1, "category", [id], reassignTo ? { kind: "category", id: reassignTo } : { kind: "group", id: category.groupId }),
+        ])
       })
 
       const deleteGroup = Effect.fn("Categories.deleteGroup")(function* (id: string, reassignTo: string | null) {
@@ -224,10 +227,15 @@ export class Categories extends Context.Service<
         if (reassignTo && cats.some((c) => c.id === reassignTo)) {
           return yield* new Invalid({ message: "La catégorie de remplacement appartient au groupe supprimé" })
         }
+        const views = reassignTo ? ({ kind: "category", id: reassignTo } as const) : ({ kind: "all" } as const)
         yield* removeCategories(
           cats.map((c) => c.id),
           reassignTo,
-          [db.d1.prepare("DELETE FROM category_groups WHERE id = ?").bind(id)],
+          [
+            retargetViews(db.d1, "group", [id], views),
+            retargetViews(db.d1, "category", cats.map((c) => c.id), views),
+            db.d1.prepare("DELETE FROM category_groups WHERE id = ?").bind(id),
+          ],
         )
       })
 

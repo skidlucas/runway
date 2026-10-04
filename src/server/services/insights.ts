@@ -1,4 +1,4 @@
-import { asc, eq } from "drizzle-orm"
+import { asc } from "drizzle-orm"
 import { Clock, Context, Effect, Layer, Schema } from "effect"
 import { addMonths, type Day, diffDays, lastDay, type Month, monthRange, parseDay } from "~/domain/dates"
 import {
@@ -13,7 +13,7 @@ import {
   type PayeeTotal,
 } from "~/domain/insights"
 import { Db, type DbError, newId } from "../db/client"
-import { type InsightViewConfig, savedViews } from "../db/schema"
+import { dashboards, type InsightViewConfig, savedViews } from "../db/schema"
 import { type ExternalError, Invalid, NotFound } from "../errors"
 import { normalizeText } from "~/domain/rules"
 import { Ai } from "./ai"
@@ -118,17 +118,17 @@ export class Insights extends Context.Service<
           ? Effect.fail(new Invalid({ message: "Période ou moyenne invalide" }))
           : Effect.void
 
+      // Deletions and merges retarget saved views; a view restored from an older backup may still
+      // point at something gone, and then shows empty figures under this label.
+      const MISSING_TARGET = { category: "Catégorie supprimée", group: "Groupe supprimé", payee: "Bénéficiaire supprimé" } as const
+
       const targetLabel = (query: InsightQuery) => {
         const { target, measure } = query
         if (target.kind === "all") return Effect.succeed(measure === "income" ? "Tous les revenus" : "Toutes les dépenses")
         const table = target.kind === "category" ? "categories" : target.kind === "group" ? "category_groups" : "payees"
         return db
           .use((_, d1) => d1.prepare(`SELECT name FROM ${table} WHERE id = ?`).bind(target.id).first<{ name: string }>())
-          .pipe(
-            Effect.flatMap((row) =>
-              row ? Effect.succeed(row.name) : Effect.fail(new NotFound({ entity: target.kind, id: target.id })),
-            ),
-          )
+          .pipe(Effect.map((row) => row?.name ?? MISSING_TARGET[target.kind]))
       }
 
       const view = Effect.fn("Insights.view")(function* (query: InsightQuery) {
@@ -465,7 +465,18 @@ export class Insights extends Context.Service<
         return { id, name: trimmed, config }
       })
 
-      const deleteView = (id: string) => db.use((orm) => orm.delete(savedViews).where(eq(savedViews.id, id))).pipe(Effect.asVoid)
+      const deleteView = Effect.fn("Insights.deleteView")(function* (id: string) {
+        const boards = yield* db.use((orm) => orm.select().from(dashboards))
+        const showing = boards.filter((b) => b.widgets.some((w) => w.viewId === id))
+        yield* db.batch([
+          ...showing.map((b) =>
+            db.d1
+              .prepare("UPDATE dashboards SET widgets = ? WHERE id = ?")
+              .bind(JSON.stringify(b.widgets.filter((w) => w.viewId !== id)), b.id),
+          ),
+          db.d1.prepare("DELETE FROM saved_views WHERE id = ?").bind(id),
+        ])
+      })
 
       return Insights.of({ view, findings, analysis, interpret, savedViews: listViews, saveView, deleteView })
     }),

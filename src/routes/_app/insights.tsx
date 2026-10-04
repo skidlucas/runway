@@ -93,7 +93,7 @@ function ViewTabs() {
   const navigate = useNavigate()
   const { query } = useQueryNavigation()
   const views = useQuery(q.savedViews())
-  const remove = useAction((id: string) => deleteView({ data: { id } }), { success: "Vue supprimée", invalidates: ["savedViews"] })
+  const remove = useAction((id: string) => deleteView({ data: { id } }), { success: "Vue supprimée", invalidates: ["savedViews", "dashboards"] })
   if (!views.data?.length) return null
   const current = JSON.stringify(queryToSearch(query))
   const active = views.data.find((view) => JSON.stringify(queryToSearch(view.config)) === current)

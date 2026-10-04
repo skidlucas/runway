@@ -4,6 +4,7 @@ import { normalizeText } from "~/domain/rules"
 import { bulkInsertStatements, Db, type DbError, newId } from "../db/client"
 import { payees, rules } from "../db/schema"
 import { Invalid, NotFound } from "../errors"
+import { retargetViews } from "./saved-views"
 
 export type PayeeDto = {
   id: string
@@ -128,6 +129,7 @@ export class Payees extends Context.Service<
           db.d1.prepare(`UPDATE transactions SET payee_id = ? WHERE payee_id ${inSources}`).bind(targetId, sourcesJson),
           db.d1.prepare(`UPDATE schedules SET payee_id = ? WHERE payee_id ${inSources}`).bind(targetId, sourcesJson),
           ...ruleUpdates,
+          retargetViews(db.d1, "payee", sources, { kind: "payee", id: targetId }),
           db.d1.prepare(`DELETE FROM payees WHERE id ${inSources}`).bind(sourcesJson),
         ])
       })
@@ -139,7 +141,9 @@ export class Payees extends Context.Service<
                AND id NOT IN (SELECT payee_id FROM transactions WHERE payee_id IS NOT NULL)
                AND id NOT IN (SELECT payee_id FROM schedules WHERE payee_id IS NOT NULL)
                AND id NOT IN (SELECT json_extract(a.value, '$.payeeId') FROM rules, json_each(rules.actions) a
-                              WHERE json_extract(a.value, '$.payeeId') IS NOT NULL)`,
+                              WHERE json_extract(a.value, '$.payeeId') IS NOT NULL)
+               AND id NOT IN (SELECT json_extract(config, '$.target.id') FROM saved_views
+                              WHERE json_extract(config, '$.target.kind') = 'payee')`,
           )
           .run()
         return res.meta.changes ?? 0

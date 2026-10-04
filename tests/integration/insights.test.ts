@@ -2,9 +2,12 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import { addMonths, todayIn } from "~/domain/dates"
 import { Accounts } from "~/server/services/accounts"
 import { Budget } from "~/server/services/budget"
+import type { InsightViewConfig } from "~/server/db/schema"
 import { Categories } from "~/server/services/categories"
+import { Dashboards } from "~/server/services/dashboards"
 import { Demo } from "~/server/services/demo"
 import { Insights } from "~/server/services/insights"
+import { Payees } from "~/server/services/payees"
 import { Transactions } from "~/server/services/transactions"
 import { createHarness, type Harness } from "./harness"
 
@@ -91,10 +94,12 @@ describe("insights view", () => {
     expect(byCategory.breakdown).toEqual({ by: "category", rows: [{ id: ids.courses, name: "Courses", amount: 60_000, count: 2 }] })
   })
 
-  it("rejects unknown targets and options", async () => {
-    expect(
-      await h.fail(Insights.use((s) => s.view({ measure: "expenses", target: { kind: "category", id: "nope" }, months: 3, rolling: 0 }))),
-    ).toMatchObject({ _tag: "NotFound" })
+  it("names a missing target instead of failing, and rejects unknown options", async () => {
+    const missing = await h.run(
+      Insights.use((s) => s.view({ measure: "expenses", target: { kind: "category", id: "nope" }, months: 3, rolling: 0 })),
+    )
+    expect(missing.label).toBe("Catégorie supprimée")
+    expect(missing.bars.every((b) => b.value === 0)).toBe(true)
     await expect(
       h.run(Insights.use((s) => s.view({ measure: "expenses", target: { kind: "all" }, months: 5, rolling: 0 }))),
     ).rejects.toThrow(/invalide/)
@@ -108,6 +113,59 @@ describe("saved views", () => {
     expect(await h.run(Insights.use((s) => s.savedViews))).toEqual([saved])
     await h.run(Insights.use((s) => s.deleteView(saved.id)))
     expect(await h.run(Insights.use((s) => s.savedViews))).toEqual([])
+  })
+
+  it("follows its target when a category, a group or a payee goes away", async () => {
+    const save = (target: InsightViewConfig["target"]) =>
+      h.run(Insights.use((s) => s.saveView("Vue", { measure: "expenses", target, months: 3, rolling: 0 })))
+    const targetOf = async (id: string) => (await h.run(Insights.use((s) => s.savedViews))).find((v) => v.id === id)!.config.target
+    const group = await h.run(Categories.use((c) => c.createGroup({ name: "Temporaire" })))
+    const cinema = await h.run(Categories.use((c) => c.create({ groupId: group.id, name: "Cinéma" })))
+    const concerts = await h.run(Categories.use((c) => c.create({ groupId: group.id, name: "Concerts" })))
+    const theatre = await h.run(Categories.use((c) => c.create({ groupId: group.id, name: "Théâtre" })))
+
+    const reassigned = await save({ kind: "category", id: cinema.id })
+    await h.run(Categories.use((c) => c.remove(cinema.id, ids.restaurants)))
+    expect(await targetOf(reassigned.id)).toEqual({ kind: "category", id: ids.restaurants })
+
+    const dropped = await save({ kind: "category", id: concerts.id })
+    await h.run(Categories.use((c) => c.remove(concerts.id, null)))
+    expect(await targetOf(dropped.id)).toEqual({ kind: "group", id: group.id })
+
+    const onGroup = await save({ kind: "group", id: group.id })
+    const onCategory = await save({ kind: "category", id: theatre.id })
+    await h.run(Categories.use((c) => c.deleteGroup(group.id, null)))
+    expect(await targetOf(onGroup.id)).toEqual({ kind: "all" })
+    expect(await targetOf(onCategory.id)).toEqual({ kind: "all" })
+    expect(await targetOf(dropped.id)).toEqual({ kind: "all" })
+
+    const payeeIds = await h.run(Payees.use((p) => p.resolveNames(["Le Comptoir", "Comptoir (ancien)"])))
+    const onPayee = await save({ kind: "payee", id: payeeIds.get("Comptoir (ancien)")! })
+    await h.run(Payees.use((p) => p.deleteUnused))
+    const kept = await h.d1.prepare("SELECT COUNT(*) AS n FROM payees WHERE id = ?").bind(payeeIds.get("Comptoir (ancien)")).first<{ n: number }>()
+    expect(kept?.n).toBe(1)
+    await h.run(Payees.use((p) => p.merge([payeeIds.get("Comptoir (ancien)")!], payeeIds.get("Le Comptoir")!)))
+    expect(await targetOf(onPayee.id)).toEqual({ kind: "payee", id: payeeIds.get("Le Comptoir") })
+  })
+
+  it("removes a deleted view from the dashboards", async () => {
+    const view = await h.run(
+      Insights.use((s) => s.saveView("Courses", { measure: "expenses", target: { kind: "category", id: ids.courses }, months: 3, rolling: 0 })),
+    )
+    const board = await h.run(Dashboards.use((d) => d.create("Suivi")))
+    await h.run(
+      Dashboards.use((d) =>
+        d.save(board.id, {
+          widgets: [
+            { id: "w1", kind: "insight_view", size: 1, viewId: view.id },
+            { id: "w2", kind: "account_balances", size: 1 },
+          ],
+        }),
+      ),
+    )
+    await h.run(Insights.use((s) => s.deleteView(view.id)))
+    const boards = await h.run(Dashboards.use((d) => d.list))
+    expect(boards.find((b) => b.id === board.id)!.widgets).toEqual([{ id: "w2", kind: "account_balances", size: 1 }])
   })
 })
 
