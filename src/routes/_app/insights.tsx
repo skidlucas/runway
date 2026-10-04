@@ -5,7 +5,7 @@ import { Bookmark, Check, ChevronDown, Sparkles, X } from "lucide-react"
 import * as React from "react"
 import { MonthlyChart } from "~/components/monthly-chart"
 import { PageHeader } from "~/components/shell"
-import { Button, cx, Dialog, Dot, EmptyState, Field, Input, Kpi, Menu, Money, Popover, SkeletonRows, Spinner, Tabs } from "~/components/ui"
+import { Button, cx, Dialog, Dot, EmptyState, Field, Input, Kpi, Menu, Money, Popover, SkeletonRows, Spinner, Tabs, useConfirm } from "~/components/ui"
 import { toastError } from "~/components/toast"
 import { formatMonthName } from "~/domain/dates"
 import type { Finding, FindingTone } from "~/domain/insights"
@@ -94,10 +94,12 @@ function ViewTabs() {
   const { query } = useQueryNavigation()
   const views = useQuery(q.savedViews())
   const remove = useAction((id: string) => deleteView({ data: { id } }), { success: "Vue supprimée", invalidates: ["savedViews", "dashboards"] })
+  const { confirm, dialog: confirmDialog } = useConfirm()
   if (!views.data?.length) return null
   const current = JSON.stringify(queryToSearch(query))
   const active = views.data.find((view) => JSON.stringify(queryToSearch(view.config)) === current)
   return (
+    <>
     <Tabs
       label="Vues enregistrées"
       value={active?.id ?? EXPLORE}
@@ -110,10 +112,19 @@ function ViewTabs() {
         ...views.data.map((view) => ({
           value: view.id,
           label: view.name,
-          action: { label: `Supprimer la vue ${view.name}`, icon: <X size={12} />, run: () => remove.mutate(view.id) },
+          action: {
+            label: `Supprimer la vue ${view.name}`,
+            icon: <X size={12} />,
+            run: async () => {
+              if (await confirm({ title: `Supprimer la vue « ${view.name} » ?` }))
+                remove.mutate(view.id)
+            },
+          },
         })),
       ]}
     />
+    {confirmDialog}
+    </>
   )
 }
 

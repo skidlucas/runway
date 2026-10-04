@@ -4,7 +4,7 @@ import { ArrowDown, ArrowUp, Eye, EyeOff, MoreHorizontal, Plus, Trash2 } from "l
 import * as React from "react"
 import { CategoryPicker } from "~/components/pickers"
 import { PageHeader } from "~/components/shell"
-import { Button, cx, Dialog, Field, IconButton, Input, Menu, SkeletonRows } from "~/components/ui"
+import { Button, ConfirmDialog, cx, Dialog, Field, IconButton, Input, Menu, SkeletonRows } from "~/components/ui"
 import { q, useAction } from "~/lib/queries"
 import {
   createCategory,
@@ -243,30 +243,19 @@ function DeleteDialog({
   const [target, setTarget] = React.useState<string | null>(null)
   const run = useAction((reassignTo: string | null) => onConfirm(reassignTo), { success: "Supprimé", onSuccess: onClose })
   return (
-    <Dialog
-      open
+    <ConfirmDialog
       onOpenChange={(o) => !o && onClose()}
       title={title}
       description={description}
-      width={440}
-      footer={
-        <>
-          <span />
-          <div className="flex gap-2">
-            <Button onClick={onClose}>Annuler</Button>
-            <Button variant="danger" onClick={() => run.mutate(target)} loading={run.isPending}>
-              Supprimer
-            </Button>
-          </div>
-        </>
-      }
+      pending={run.isPending}
+      onConfirm={() => run.mutate(target)}
     >
       <div className="px-5 py-4">
         <Field label="Transférer vers">
           <CategoryPicker value={target} onChange={setTarget} exclude={exclude} placeholder="Aucune (laisser sans catégorie)" />
         </Field>
       </div>
-    </Dialog>
+    </ConfirmDialog>
   )
 }
 

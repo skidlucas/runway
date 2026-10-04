@@ -5,7 +5,7 @@ import * as React from "react"
 import { AccountSelect } from "~/components/pickers"
 import { PageHeader } from "~/components/shell"
 import { toast, toastError } from "~/components/toast"
-import { Button, Checkbox, cx, Dialog, Field, Input, Money, ProgressBar, Segmented, Select, Switch } from "~/components/ui"
+import { Button, Checkbox, cx, Dialog, Field, Input, Money, ProgressBar, Segmented, Select, Switch, useConfirm } from "~/components/ui"
 import { formatDayShort } from "~/domain/dates"
 import { count, plural } from "~/domain/text"
 import { parseActual, unzipActual } from "~/lib/actual/parse"
@@ -178,6 +178,7 @@ function BundleImportDialog({ fileName, bundle, onClose }: { fileName: string; b
   const [duplicatesFailed, setDuplicatesFailed] = React.useState(false)
   const [progress, setProgress] = React.useState<ImportProgress | null>(null)
   const [running, setRunning] = React.useState(false)
+  const { confirm, dialog: confirmDialog } = useConfirm()
   const topLevel = bundle.transactions.filter((t) => !t.parentId).length
   const months = new Set(bundle.budgets.map((b) => b.month)).size
   const lastDate = bundle.transactions.reduce((m, t) => (t.date > m ? t.date : m), "")
@@ -219,7 +220,11 @@ function BundleImportDialog({ fileName, bundle, onClose }: { fileName: string; b
   const toImport = include.transactions ? Math.max(0, topLevel - (mode === "merge" ? (duplicates ?? 0) : 0)) : 0
 
   const run = async () => {
-    if (mode === "replace" && !window.confirm("Effacer toutes les données actuelles avant l'import ? C'est irréversible.")) return
+    if (
+      mode === "replace" &&
+      !(await confirm({ title: "Effacer toutes les données actuelles avant l'import ?", description: "C'est irréversible.", confirmLabel: "Tout effacer et importer" }))
+    )
+      return
     setRunning(true)
     try {
       if (mode === "replace") await wipeAllData({ data: { confirm: "SUPPRIMER" } })
@@ -343,6 +348,7 @@ function BundleImportDialog({ fileName, bundle, onClose }: { fileName: string; b
           </span>
         </div>
       ) : null}
+      {confirmDialog}
     </Dialog>
   )
 }

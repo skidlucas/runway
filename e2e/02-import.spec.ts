@@ -19,8 +19,8 @@ test("replaces everything with an Actual export and reproduces its balances", as
   await expect(dialog).toContainText("Fichier Actual détecté")
   await expect(dialog).toContainText("Fixture Perso")
   await dialog.getByRole("radio", { name: "Tout remplacer" }).click()
-  page.once("dialog", (d) => d.accept())
   await dialog.getByTestId("confirm-import").click()
+  await page.getByTestId("confirm-dialog-confirm").click()
   await waitForToast(page, "109 opérations importées")
 
   await open(page, "/accounts")

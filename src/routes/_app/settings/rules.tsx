@@ -4,7 +4,7 @@ import { ArrowDown, ArrowUp, MoreHorizontal, Play, Plus, Sparkles, Trash2 } from
 import * as React from "react"
 import { CategoryPicker, PayeePicker, type PayeeValue } from "~/components/pickers"
 import { PageHeader } from "~/components/shell"
-import { Button, Chip, cx, Dialog, EmptyState, IconButton, Input, Menu, type Option, SectionTitle, Select, SkeletonRows, Switch } from "~/components/ui"
+import { Button, Chip, cx, Dialog, EmptyState, IconButton, Input, Menu, type Option, SectionTitle, Select, SkeletonRows, Switch, useConfirm } from "~/components/ui"
 import { parseAmount } from "~/domain/money"
 import { describeRule, type RuleAction, type RuleCondition, type RuleConditionField, type RuleConditionOp } from "~/domain/rules"
 import { q, useAction } from "~/lib/queries"
@@ -149,6 +149,7 @@ function RuleRow({
   const text = describeRule(rule, names)
   const update = useAction(updateRule)
   const remove = useAction(deleteRule, { success: "Règle supprimée" })
+  const { confirm, dialog: confirmDialog } = useConfirm()
   const apply = useAction(applyRule, { success: (n) => `${count(n, "opération")} ${plural(n, "mise")} à jour` })
   return (
     <div data-testid="rule-row" className={cx("group flex items-center gap-3 border-t border-line-subtle px-5 py-2.5 hover:bg-hover", !rule.enabled && "text-muted")}>
@@ -180,9 +181,10 @@ function RuleRow({
           { label: "Appliquer aux opérations non catégorisées", icon: <Play size={13} />, onSelect: () => apply.mutate({ data: { id: rule.id } }) },
           { label: "Modifier…", onSelect: onEdit },
           { separator: true },
-          { label: "Supprimer", danger: true, icon: <Trash2 size={13} />, onSelect: () => window.confirm("Supprimer cette règle ?") && remove.mutate({ data: { id: rule.id } }) },
+          { label: "Supprimer", danger: true, icon: <Trash2 size={13} />, onSelect: async () => (await confirm({ title: "Supprimer cette règle ?" })) && remove.mutate({ data: { id: rule.id } }) },
         ]}
       />
+      {confirmDialog}
     </div>
   )
 }

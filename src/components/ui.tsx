@@ -703,6 +703,77 @@ export const Dialog = ({
   </BDialog.Root>
 )
 
+/** Asks before a destructive or irreversible action. `children` holds extra choices (where to move what is deleted…). */
+export const ConfirmDialog = ({
+  open = true,
+  onOpenChange,
+  title,
+  description,
+  confirmLabel = "Supprimer",
+  tone = "danger",
+  pending,
+  onConfirm,
+  children,
+}: {
+  open?: boolean
+  onOpenChange: (open: boolean) => void
+  title: React.ReactNode
+  description?: React.ReactNode
+  confirmLabel?: string
+  tone?: "danger" | "primary"
+  pending?: boolean
+  onConfirm: () => void
+  children?: React.ReactNode
+}) => (
+  <Dialog
+    open={open}
+    onOpenChange={onOpenChange}
+    title={title}
+    description={description}
+    width={440}
+    footer={
+      <>
+        <span />
+        <div className="flex gap-2">
+          <Button onClick={() => onOpenChange(false)}>Annuler</Button>
+          <Button variant={tone} loading={pending} onClick={onConfirm} data-testid="confirm-dialog-confirm">
+            {confirmLabel}
+          </Button>
+        </div>
+      </>
+    }
+  >
+    {children}
+  </Dialog>
+)
+
+type ConfirmRequest = Omit<React.ComponentProps<typeof ConfirmDialog>, "open" | "onOpenChange" | "onConfirm" | "pending" | "children">
+
+/**
+ * A confirmation that reads like `window.confirm`: `if (await confirm({ title })) …`. Render `dialog`
+ * in the component; asked from inside another dialog, it must be rendered inside that dialog so the
+ * two stack instead of the first one closing.
+ */
+export function useConfirm() {
+  const [request, setRequest] = React.useState<(ConfirmRequest & { resolve: (ok: boolean) => void }) | null>(null)
+  const confirm = React.useCallback(
+    (options: ConfirmRequest) => new Promise<boolean>((resolve) => setRequest({ ...options, resolve })),
+    [],
+  )
+  const settle = (ok: boolean) => {
+    request?.resolve(ok)
+    setRequest(null)
+  }
+  const dialog = request ? (
+    <ConfirmDialog
+      {...request}
+      onOpenChange={(o) => !o && settle(false)}
+      onConfirm={() => settle(true)}
+    />
+  ) : null
+  return { confirm, dialog }
+}
+
 /** Full-screen sheet used on mobile for entry forms. */
 export const Sheet = ({
   open,

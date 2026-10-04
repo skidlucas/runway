@@ -8,7 +8,7 @@ import { createSchedule, deleteSchedule, updateSchedule } from "~/server/fns/pla
 import type { ScheduleDto } from "~/server/services/schedules"
 import { AccountSelect, CategoryPicker, PayeePicker, type PayeeValue } from "./pickers"
 import { payeeInputOf } from "./transaction-editor"
-import { Button, DateInput, Dialog, Field, Input, Segmented, Select, Switch } from "./ui"
+import { Button, DateInput, Dialog, Field, Input, Segmented, Select, Switch, useConfirm } from "./ui"
 import { capitalize } from "~/domain/text"
 
 export type ScheduleInitial = {
@@ -82,6 +82,7 @@ export function ScheduleDialog({
   const create = useAction(createSchedule, { success: "Échéance créée", onSuccess: onClose })
   const update = useAction(updateSchedule, { success: "Échéance modifiée", onSuccess: onClose })
   const remove = useAction(deleteSchedule, { success: "Échéance supprimée", onSuccess: onClose })
+  const { confirm, dialog: confirmDialog } = useConfirm()
 
   const cents = parseAmount(amount)
   const recurrence = frequencies.find((f) => f.value === frequency)?.recurrence ?? { unit: "month", interval: 1 }
@@ -116,7 +117,17 @@ export function ScheduleDialog({
       footer={
         <>
           {schedule ? (
-            <Button variant="danger" onClick={() => window.confirm(`Supprimer l'échéance « ${schedule.name ?? schedule.payeeName ?? ""} » ? Les opérations déjà passées restent.`) && remove.mutate({ data: { id: schedule.id } })} loading={remove.isPending}>
+            <Button
+              variant="danger"
+              loading={remove.isPending}
+              onClick={async () => {
+                const ok = await confirm({
+                  title: `Supprimer l'échéance « ${schedule.name ?? schedule.payeeName ?? ""} » ?`,
+                  description: "Les opérations déjà passées restent.",
+                })
+                if (ok) remove.mutate({ data: { id: schedule.id } })
+              }}
+            >
               Supprimer
             </Button>
           ) : (
@@ -175,6 +186,7 @@ export function ScheduleDialog({
           <Switch checked={autoPost} onCheckedChange={setAutoPost} label="Saisie automatique" />
         </label>
       </div>
+      {confirmDialog}
     </Dialog>
   )
 }

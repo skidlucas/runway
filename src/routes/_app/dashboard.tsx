@@ -11,7 +11,7 @@ import { LineChart } from "~/components/charts"
 import { MonthlyChart } from "~/components/monthly-chart"
 import { PageHeader } from "~/components/shell"
 import { toastError } from "~/components/toast"
-import { Button, cx, Dialog, EmptyState, Field, IconButton, Input, Menu, type MenuItem, Money } from "~/components/ui"
+import { Button, cx, Dialog, EmptyState, Field, IconButton, Input, Menu, type MenuItem, Money, useConfirm } from "~/components/ui"
 import { UpcomingList } from "~/components/upcoming-list"
 import { formatDayShort, formatMonthLong, formatMonthShort, type Month } from "~/domain/dates"
 import { formatMoney } from "~/domain/money"
@@ -134,6 +134,7 @@ function DashboardPage() {
   const [naming, setNaming] = React.useState<null | "create" | "rename">(null)
   const [moved, setMoved] = React.useState<{ id: string; delta: number; message: string } | null>(null)
   const save = useSaveDashboard()
+  const { confirm, dialog: confirmDialog } = useConfirm()
 
   const create = useMutation({
     mutationFn: (name: string) => createDashboard({ data: { name } }),
@@ -199,7 +200,7 @@ function DashboardPage() {
                 icon: <Trash2 size={13} />,
                 danger: true,
                 disabled: list.length < 2,
-                onSelect: () => window.confirm(`Supprimer le tableau de bord « ${current.name} » ?`) && remove.mutate(current.id),
+                onSelect: async () => (await confirm({ title: `Supprimer le tableau de bord « ${current.name} » ?` })) && remove.mutate(current.id),
               },
             ]}
           />
@@ -255,6 +256,7 @@ function DashboardPage() {
       <span className="sr-only" aria-live="polite">
         {moved?.message}
       </span>
+      {confirmDialog}
       {naming ? (
         <NameDialog
           title={naming === "create" ? "Nouveau tableau de bord" : "Renommer le tableau de bord"}

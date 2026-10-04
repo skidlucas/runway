@@ -5,7 +5,7 @@ import * as React from "react"
 import { AssetDialog } from "~/components/asset-dialog"
 import { PageHeader } from "~/components/shell"
 import { toast } from "~/components/toast"
-import { Button, Chip, cx, DateInput, EmptyState, IconButton, Input, Menu, Money, Sheet, SkeletonRows, Tabs } from "~/components/ui"
+import { Button, Chip, cx, DateInput, EmptyState, IconButton, Input, Menu, Money, Sheet, SkeletonRows, Tabs, useConfirm } from "~/components/ui"
 import { formatDayLong, formatDayShort, formatMonthLong, formatMonthShort, type Month } from "~/domain/dates"
 import { formatMoney, formatPercent, parseAmount } from "~/domain/money"
 import {
@@ -365,6 +365,7 @@ function sourceDescription(item: WealthItem): string | null {
 
 function Detail({ item, months, today, onEdit }: { item: WealthItem; months: Month[]; today: string; onEdit: () => void }) {
   const remove = useAction(deleteAsset, { success: "Bien supprimé", invalidates: ["wealth"] })
+  const { confirm, dialog: confirmDialog } = useConfirm()
   const setRetained = useAction(updateAsset, { success: "Valeur retenue modifiée", invalidates: ["wealth"] })
   const isAsset = item.kind === "asset"
   const shared = item.share !== FULL_SHARE
@@ -427,7 +428,7 @@ function Detail({ item, months, today, onEdit }: { item: WealthItem; months: Mon
                 label: "Supprimer",
                 danger: true,
                 icon: <Trash2 size={13} />,
-                onSelect: () => window.confirm(`Supprimer « ${item.name} » et son historique ?`) && remove.mutate({ data: { id: item.id } }),
+                onSelect: async () => (await confirm({ title: `Supprimer « ${item.name} » et son historique ?` })) && remove.mutate({ data: { id: item.id } }),
               },
             ]}
           />
@@ -498,6 +499,7 @@ function Detail({ item, months, today, onEdit }: { item: WealthItem; months: Mon
           </div>
         ) : null}
       </div>
+      {confirmDialog}
     </div>
   )
 }

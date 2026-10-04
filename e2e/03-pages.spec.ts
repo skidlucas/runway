@@ -83,5 +83,6 @@ test("a saved view becomes a tab of the insights page", async ({ page }) => {
   await tabs.getByRole("tab", { name: "Six mois" }).click()
   await expect(page).toHaveURL(/months=6/)
   await tabs.getByRole("button", { name: "Supprimer la vue Six mois" }).click()
+  await page.getByTestId("confirm-dialog-confirm").click()
   await expect(tabs).toHaveCount(0)
 })

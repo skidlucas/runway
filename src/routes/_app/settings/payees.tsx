@@ -3,7 +3,7 @@ import { createFileRoute, Link } from "@tanstack/react-router"
 import { Search } from "lucide-react"
 import * as React from "react"
 import { PageHeader } from "~/components/shell"
-import { Button, Checkbox, Dialog, Field, Input, Select, SkeletonRows } from "~/components/ui"
+import { Button, Checkbox, Dialog, Field, Input, Select, SkeletonRows, useConfirm } from "~/components/ui"
 import { formatDayShort } from "~/domain/dates"
 import { normalizeText } from "~/domain/rules"
 import { q, useAction } from "~/lib/queries"
@@ -21,6 +21,7 @@ function PayeesSettings() {
   const [filter, setFilter] = React.useState("")
   const [selected, setSelected] = React.useState<Set<string>>(new Set())
   const [merging, setMerging] = React.useState(false)
+  const { confirm, dialog: confirmDialog } = useConfirm()
   const cleanup = useAction(deleteUnusedPayees, { success: (n) => `${count(n, "bénéficiaire")} ${plural(n, "supprimé")}` })
   const catName = new Map((categories.data ?? []).flatMap((g) => g.categories.map((c) => [c.id, c.name] as const)))
   const list = (payees.data ?? []).filter((p) => !p.transferAccountId && normalizeText(p.name).includes(normalizeText(filter)))
@@ -39,7 +40,7 @@ function PayeesSettings() {
                 Fusionner {chosen.length} bénéficiaires
               </Button>
             ) : null}
-            <Button variant="ghost" onClick={() => window.confirm("Supprimer les bénéficiaires sans opération, règle ni échéance ?") && cleanup.mutate(undefined)} loading={cleanup.isPending}>
+            <Button variant="ghost" onClick={async () => (await confirm({ title: "Supprimer les bénéficiaires sans opération, règle ni échéance ?" })) && cleanup.mutate(undefined)} loading={cleanup.isPending}>
               Supprimer les inutilisés
             </Button>
           </>
@@ -96,6 +97,7 @@ function PayeesSettings() {
           }}
         />
       ) : null}
+      {confirmDialog}
     </>
   )
 }

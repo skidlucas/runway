@@ -37,7 +37,7 @@ import {
   payeeValueOf,
   useDeleteTransactions,
 } from "~/components/transaction-editor"
-import { Button, Calendar, Checkbox, Chip, cx, DateInput, Dialog, EmptyState, IconButton, Input, Kpi, Menu, Money, Popover, SkeletonRows } from "~/components/ui"
+import { Button, Calendar, Checkbox, Chip, cx, DateInput, Dialog, EmptyState, IconButton, Input, Kpi, Menu, Money, Popover, SkeletonRows, useConfirm } from "~/components/ui"
 import { type Day, formatDayLong, formatDayShort, formatMonthLong, monthOf, parseDayInput } from "~/domain/dates"
 import { amountInput, formatMoney, parseAmount } from "~/domain/money"
 import { shortcutBlocked, useDebounced, useIsMobile, useToday } from "~/lib/hooks"
@@ -148,6 +148,7 @@ function AccountPage({ accountId }: { accountId: string }) {
     return () => window.removeEventListener("keydown", onKey)
   }, [])
 
+  const { confirm, dialog: confirmDialog } = useConfirm()
   const closeAccount = useAction(setAccountClosed, { success: "Compte mis à jour" })
   const removeAccount = useAction(deleteAccount, {
     success: "Compte supprimé",
@@ -202,10 +203,11 @@ function AccountPage({ accountId }: { accountId: string }) {
                       label: "Supprimer le compte",
                       danger: true,
                       icon: <Trash2 size={13} />,
-                      onSelect: () => {
-                        if (window.confirm(`Supprimer « ${account.name} »${account.transactionCount === 1 ? " et son opération" : account.transactionCount > 1 ? ` et ses ${count(account.transactionCount, "opération")}` : ""} ?`)) {
-                          removeAccount.mutate({ data: { id: account.id } })
-                        }
+                      onSelect: async () => {
+                        const ok = await confirm({
+                          title: `Supprimer « ${account.name} »${account.transactionCount === 1 ? " et son opération" : account.transactionCount > 1 ? ` et ses ${count(account.transactionCount, "opération")}` : ""} ?`,
+                        })
+                        if (ok) removeAccount.mutate({ data: { id: account.id } })
                       },
                     },
                   ]}
@@ -283,6 +285,7 @@ function AccountPage({ accountId }: { accountId: string }) {
       ) : null}
       {dialog === "edit-account" && account ? <EditAccountDialog account={account} onClose={() => setDialog(null)} /> : null}
       {dialog === "reconcile" && account ? <ReconcileDialog account={account} onClose={() => setDialog(null)} /> : null}
+      {confirmDialog}
     </>
   )
 }
