@@ -209,4 +209,25 @@ describe("Wealth", () => {
     expect(item.history[7]).toBe(2_100_00)
     expect(item.history[12]).toBe(2_100_00)
   })
+
+  it("keeps a closed account in the months it held money, out of the list", async () => {
+    const [courant] = await h.run(Accounts.use((a) => a.list))
+    const before = await h.run(Wealth.use((w) => w.overview))
+    const pea = await h.run(
+      Accounts.use((a) =>
+        a.create({ name: "PEA", kind: "investment", offBudget: true, startingBalance: 400_00, startingDate: `${addMonths(month, -14)}-01` }),
+      ),
+    )
+    await h.run(
+      Transactions.use((t) =>
+        t.create({ accountId: pea, date: `${addMonths(month, -2)}-05`, amount: -400_00, payee: { kind: "transfer", accountId: courant!.id }, categoryId: null }),
+      ),
+    )
+    await h.run(Accounts.use((a) => a.setClosed(pea, true)))
+    const after = await h.run(Wealth.use((w) => w.overview))
+    expect(after.items.some((i) => i.id === pea)).toBe(false)
+    expect(after.netWorth).toBe(before.netWorth + 400_00)
+    expect(after.history.slice(0, 10)).toEqual(before.history.slice(0, 10).map((v) => v + 400_00))
+    expect(after.history[12]).toBe(after.netWorth)
+  })
 })

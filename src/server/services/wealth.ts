@@ -188,23 +188,31 @@ export class Wealth extends Context.Service<
           const [accounts, monthly] = await d1.batch([
             d1
               .prepare(
-                `SELECT a.id, a.name, a.kind, a.off_budget AS offBudget,
+                `SELECT a.id, a.name, a.kind, a.off_budget AS offBudget, a.closed,
                    COALESCE(SUM(CASE WHEN t.date <= ?2 THEN t.amount END), 0) AS balance,
                    COALESCE(SUM(CASE WHEN t.date < ?1 THEN t.amount END), 0) AS opening
                  FROM accounts a LEFT JOIN transactions t ON t.account_id = a.id AND t.parent_id IS NULL
-                 WHERE a.closed = 0 GROUP BY a.id ORDER BY a.off_budget, a.sort_order, a.name COLLATE NOCASE`,
+                 GROUP BY a.id ORDER BY a.off_budget, a.sort_order, a.name COLLATE NOCASE`,
               )
               .bind(since, today),
             d1
               .prepare(
                 `SELECT t.account_id AS accountId, substr(t.date, 1, 7) AS month, SUM(t.amount) AS total
-                 FROM transactions t JOIN accounts a ON a.id = t.account_id
-                 WHERE a.closed = 0 AND t.parent_id IS NULL AND t.date >= ?1 AND t.date <= ?2 GROUP BY 1, 2 ORDER BY 1, 2`,
+                 FROM transactions t
+                 WHERE t.parent_id IS NULL AND t.date >= ?1 AND t.date <= ?2 GROUP BY 1, 2 ORDER BY 1, 2`,
               )
               .bind(since, today),
           ])
           return {
-            accounts: (accounts?.results ?? []) as Array<{ id: string; name: string; kind: string; offBudget: number; balance: number; opening: number }>,
+            accounts: (accounts?.results ?? []) as Array<{
+              id: string
+              name: string
+              kind: string
+              offBudget: number
+              closed: number
+              balance: number
+              opening: number
+            }>,
             monthly: (monthly?.results ?? []) as Array<{ accountId: string; month: Month; total: number }>,
           }
         })
@@ -283,6 +291,8 @@ export class Wealth extends Context.Service<
           if (own) own.push(r)
           else monthlyByAccount.set(r.accountId, [r])
         }
+        // A closed account leaves the list but still counts in the months it held money.
+        const closedHistories: number[][] = []
         for (const account of accountData.accounts) {
           let running = account.opening
           let i = 0
@@ -292,6 +302,10 @@ export class Wealth extends Context.Service<
             while (i < sums.length && sums[i]!.month <= m) running += sums[i++]!.total
             return running
           })
+          if (account.closed) {
+            closedHistories.push(history)
+            continue
+          }
           const type: AssetType = account.kind === "investment" ? "investment" : "cash"
           items.push({
             id: account.id,
@@ -314,7 +328,9 @@ export class Wealth extends Context.Service<
           })
         }
 
-        const history = months.map((_, i) => items.reduce((sum, item) => sum + item.history[i]!, 0))
+        const history = months.map(
+          (_, i) => items.reduce((sum, item) => sum + item.history[i]!, 0) + closedHistories.reduce((sum, h) => sum + h[i]!, 0),
+        )
         const netWorth = items.reduce((sum, item) => sum + item.value, 0)
         const first = history.findIndex((v) => v !== 0)
         const change =
