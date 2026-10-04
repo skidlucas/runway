@@ -211,4 +211,34 @@ describe("Transactions", () => {
     await h.run(Transactions.use((t) => t.update(line!.id, { categoryId: categories[2]! })))
     expect((await lines(id)).results.map((l) => l.amount)).toEqual([-700, -300])
   })
+
+  it("never categorizes a transfer between two budget accounts, but does one leaving the budget", async () => {
+    const categoryOf = async (id: string) =>
+      (await h.d1.prepare("SELECT category_id AS c FROM transactions WHERE id = ?").bind(id).first<{ c: string | null }>())?.c
+    const mirrorOf = async (id: string) =>
+      (await h.d1.prepare("SELECT transfer_id AS m FROM transactions WHERE id = ?").bind(id).first<{ m: string }>())!.m
+    const spent = async () => (await h.run(Budget.use((b) => b.month("2026-10")))).spent + 0
+
+    const before = await spent()
+    const internal = await h.run(
+      Transactions.use((t) => t.create({ accountId: account, date: "2026-10-05", amount: -10_000, payee: { kind: "transfer", accountId: savings } })),
+    )
+    const internalMirror = await mirrorOf(internal)
+    await h.run(Transactions.use((t) => t.setCategory([internal, internalMirror], categories[0]!)))
+    await h.run(Transactions.use((t) => t.update(internal, { categoryId: categories[0]! })))
+    await h.run(Transactions.use((t) => t.update(internalMirror, { categoryId: categories[0]!, notes: "Épargne" })))
+    expect(await categoryOf(internal)).toBeNull()
+    expect(await categoryOf(internalMirror)).toBeNull()
+    expect(await spent()).toBe(before)
+
+    const broker = await h.run(
+      Accounts.use((a) => a.create({ name: "Courtier", kind: "investment", offBudget: true, startingBalance: 0, startingDate: "2026-01-01" })),
+    )
+    const outgoing = await h.run(
+      Transactions.use((t) => t.create({ accountId: account, date: "2026-10-06", amount: -2_000, payee: { kind: "transfer", accountId: broker } })),
+    )
+    await h.run(Transactions.use((t) => t.setCategory([outgoing], categories[0]!)))
+    expect(await categoryOf(outgoing)).toBe(categories[0])
+    expect(await spent()).toBe(before + 2_000)
+  })
 })

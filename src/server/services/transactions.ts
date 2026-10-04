@@ -2,6 +2,7 @@ import { eq, getTableColumns, isNotNull, or, sql } from "drizzle-orm"
 import { Clock, Context, Effect, Layer, type Result } from "effect"
 import { isDay } from "~/domain/dates"
 import { bulkInsertStatements, chunkIds, chunkRows, Db, type DbError, newId } from "../db/client"
+import { IS_INTERNAL_TRANSFER } from "../db/predicates"
 import { accounts, payees, transactions } from "../db/schema"
 import { Invalid, NotFound } from "../errors"
 import { Payees } from "./payees"
@@ -626,7 +627,15 @@ export class Transactions extends Context.Service<
           const values: Partial<typeof transactions.$inferInsert> = {}
           if (patch.date !== undefined) values.date = patch.date
           if (patch.amount !== undefined) values.amount = patch.amount
-          if (patch.categoryId !== undefined && !current.isParent) values.categoryId = patch.categoryId
+          if (patch.categoryId !== undefined && !current.isParent) {
+            // Same rule as `prepare`: a transfer inside the budget drops any category it is given.
+            const internal = patch.categoryId !== null && currentPayee?.transferAccountId
+              ? yield* db.use((_, d1) =>
+                  d1.prepare(`SELECT ${IS_INTERNAL_TRANSFER} AS internal FROM transactions t WHERE t.id = ?`).bind(id).first<{ internal: number }>(),
+                )
+              : null
+            values.categoryId = internal?.internal === 1 ? null : patch.categoryId
+          }
           if (patch.notes !== undefined) values.notes = patch.notes
           if (patch.cleared !== undefined) values.cleared = patch.cleared
           if (current.isParent && patch.amount !== undefined && patch.amount !== current.amount) {
@@ -771,7 +780,8 @@ export class Transactions extends Context.Service<
           chunkIds(ids).map((chunk) =>
             db.d1
               .prepare(
-                `UPDATE transactions SET category_id = ? WHERE is_parent = 0 AND id IN (${chunk.map(() => "?").join(",")})`,
+                `UPDATE transactions AS t SET category_id = ?1
+                 WHERE t.is_parent = 0 AND t.id IN (${chunk.map(() => "?").join(",")}) AND (?1 IS NULL OR NOT ${IS_INTERNAL_TRANSFER})`,
               )
               .bind(categoryId, ...chunk),
           ),
