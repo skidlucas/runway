@@ -1,6 +1,6 @@
 // Net worth: each asset keeps up to three values (purchase, declared, estimated) and the user
-// picks which one counts. Amounts are positive cents; liabilities are subtracted by the caller
-// through `signed`.
+// picks which one counts. Amounts are positive cents; the caller (Wealth.overview) negates
+// liabilities.
 
 import { type Day, lastDay, type Month, monthOf, parseDay } from "./dates"
 import { formatPercent } from "./money"
@@ -181,7 +181,8 @@ export const loanEndMonth = (terms: LoanTerms): string => {
 
 // --- Aggregates --------------------------------------------------------------------
 
-export type AllocationSlice = { bucket: WealthBucket; label: string; value: number; share: number }
+/** `fraction` is the slice's part of the positive buckets' total, from 0 to 1. */
+export type AllocationSlice = { bucket: WealthBucket; label: string; value: number; fraction: number }
 
 /**
  * Net value per bucket, largest first. Shares are computed over the positive buckets only, so a
@@ -193,7 +194,7 @@ export const allocation = (items: ReadonlyArray<{ bucket: WealthBucket; value: n
   const positive = [...totals.values()].filter((v) => v > 0).reduce((a, b) => a + b, 0)
   return [...totals.entries()]
     .filter(([, v]) => v !== 0)
-    .map(([bucket, value]) => ({ bucket, label: BUCKET_LABELS[bucket], value, share: positive > 0 && value > 0 ? value / positive : 0 }))
+    .map(([bucket, value]) => ({ bucket, label: BUCKET_LABELS[bucket], value, fraction: positive > 0 && value > 0 ? value / positive : 0 }))
     .sort((a, b) => b.value - a.value)
 }
 

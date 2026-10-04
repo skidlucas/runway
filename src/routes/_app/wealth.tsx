@@ -225,12 +225,12 @@ function TypeSummary({
 }
 
 function AllocationBar({ slices, className }: { slices: AllocationSlice[]; className?: string }) {
-  const visible = slices.filter((s) => s.share > 0)
+  const visible = slices.filter((s) => s.fraction > 0)
   if (visible.length === 0) return null
   return (
     <div className={cx("flex h-2 gap-[2px] overflow-hidden rounded-[4px]", className)} role="img" aria-label="Répartition du patrimoine">
       {visible.map((s) => (
-        <div key={s.bucket} style={{ width: `${s.share * 100}%`, background: BUCKET_COLOR[s.bucket] }} title={`${s.label} · ${euros(s.value)}`} />
+        <div key={s.bucket} style={{ width: `${s.fraction * 100}%`, background: BUCKET_COLOR[s.bucket] }} title={`${s.label} · ${euros(s.value)}`} />
       ))}
     </div>
   )

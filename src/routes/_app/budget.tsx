@@ -333,7 +333,7 @@ function GroupRow({ group }: { group: BudgetGroupRow }) {
       className={cx(GRID, "h-[34px] items-center border-b border-line-subtle bg-row-group px-5 font-medium text-fg-2")}
     >
       <span className="truncate" title={group.name}>{group.name}</span>
-      <span className="num text-right text-[12px] text-faint">{group.planned ? formatMoney(group.planned) : "—"}</span>
+      <span className="num text-right text-[12px] text-faint">{group.plannedTotal ? formatMoney(group.plannedTotal) : "—"}</span>
       <span className="num text-right text-[12px]">{formatMoney(group.budgeted)}</span>
       <span className="num text-right text-[12px] text-muted">{formatMoney(-group.spent)}</span>
       <span className="num text-right text-[12px]">{formatMoney(group.available)}</span>
@@ -418,7 +418,7 @@ function PlannedStatusNote({ category }: { category: BudgetCategoryRow }) {
     <p className={cx("mt-3 text-[12px]", status === "short" ? "text-warning" : "text-muted")}>
       {status === "short"
         ? `Il manque ${formatMoney(planned.thisMonth - planned.saved - category.budgeted)} pour les échéances de ce mois.`
-        : `Ce mois-ci est couvert. ${formatMoney(planned.toBudget - category.budgeted)} de plus à mettre de côté pour les échéances à venir.`}
+        : `Ce mois-ci est couvert. ${formatMoney(planned.target - category.budgeted)} de plus à mettre de côté pour les échéances à venir.`}
     </p>
   )
 }
@@ -458,9 +458,9 @@ function PlannedCell({ category, month }: { category: BudgetCategoryRow; month: 
             size="sm"
             className="mt-3 w-full"
             loading={save.isPending}
-            onClick={() => save.mutate({ data: { month, categoryId: category.id, amount: planned.toBudget } })}
+            onClick={() => save.mutate({ data: { month, categoryId: category.id, amount: planned.target } })}
           >
-            Budgéter {formatMoney(planned.toBudget)}
+            Budgéter {formatMoney(planned.target)}
           </Button>
         )}
       </Popover>
@@ -495,10 +495,10 @@ function PlannedDetail({ planned }: { planned: PlannedCategory }) {
           <PlannedTotal label={`À mettre de côté (déjà ${formatMoney(Math.max(0, planned.saved - planned.due))})`} value={planned.setAside} />
         ) : null}
         <PlannedTotal label="Prévu ce mois" value={planned.amount} strong />
-        {planned.toBudget < planned.amount ? (
+        {planned.target < planned.amount ? (
           <>
-            <PlannedTotal label="Déjà dans l'enveloppe" value={planned.toBudget - planned.amount} />
-            <PlannedTotal label="À budgéter ce mois" value={planned.toBudget} strong />
+            <PlannedTotal label="Déjà dans l'enveloppe" value={planned.target - planned.amount} />
+            <PlannedTotal label="À budgéter ce mois" value={planned.target} strong />
           </>
         ) : null}
       </div>
@@ -867,7 +867,7 @@ function MobileBudgetDialog({
             Moyenne
           </Button>
           {category.planned && statusOf(category) !== "covered" ? (
-            <Button variant="ghost" onClick={() => setText(amountInput(category.planned?.toBudget ?? 0))}>
+            <Button variant="ghost" onClick={() => setText(amountInput(category.planned?.target ?? 0))}>
               Échéances
             </Button>
           ) : null}

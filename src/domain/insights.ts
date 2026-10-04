@@ -225,14 +225,14 @@ const belowLastMonthFinding = (c: CategoryInsightInput, today: Day): (Finding & 
   if (!current || !previous || previous.toDate < 5000) return null
   const delta = current.toDate - previous.toDate
   if (delta > -2000 || current.toDate > previous.toDate * 0.9) return null
-  const share = c.topPayee && current.toDate > 0 ? c.topPayee.amount / current.toDate : 0
+  const topPayeeFraction = c.topPayee && current.toDate > 0 ? c.topPayee.amount / current.toDate : 0
   return {
     kind: "below_last_month",
     tone: "positive",
     text: `${c.name} : ${euros(current.toDate)} dépensés, ${pct(delta / previous.toDate)} de moins qu'à la même date en ${formatMonthName(addMonths(monthOf(today), -1))}.`,
     context:
-      c.topPayee && share >= 0.3
-        ? `${c.topPayee.name} représente ${pct(share)} du poste`
+      c.topPayee && topPayeeFraction >= 0.3
+        ? `${c.topPayee.name} représente ${pct(topPayeeFraction)} du poste`
         : `${euros(previous.toDate)} au ${parseDay(today).d} ${formatMonthName(addMonths(monthOf(today), -1))}`,
     categoryId: c.id,
     weight: -delta,

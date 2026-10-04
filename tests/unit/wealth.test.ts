@@ -117,7 +117,7 @@ describe("allocation", () => {
     ])
     expect(slices.map((s) => s.bucket)).toEqual(["real_estate", "investments", "cash"])
     expect(slices[0]!.value).toBe(150_200_00)
-    expect(slices.reduce((a, s) => a + s.share, 0)).toBeCloseTo(1)
+    expect(slices.reduce((a, s) => a + s.fraction, 0)).toBeCloseTo(1)
   })
 
   it("keeps crypto apart from the other investments", () => {
@@ -130,8 +130,8 @@ describe("allocation", () => {
       { bucket: "real_estate", value: -10_00 },
       { bucket: "cash", value: 50_00 },
     ])
-    expect(slices.find((s) => s.bucket === "real_estate")?.share).toBe(0)
-    expect(slices.find((s) => s.bucket === "cash")?.share).toBe(1)
+    expect(slices.find((s) => s.bucket === "real_estate")?.fraction).toBe(0)
+    expect(slices.find((s) => s.bucket === "cash")?.fraction).toBe(1)
   })
 })
 

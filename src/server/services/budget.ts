@@ -36,7 +36,8 @@ export type BudgetGroupRow = {
   budgeted: number
   spent: number
   available: number
-  planned: number
+  /** Sum of the categories' `planned.amount`. */
+  plannedTotal: number
   categories: BudgetCategoryRow[]
 }
 
@@ -270,7 +271,7 @@ export class Budget extends Context.Service<
             budgeted: categories.reduce((a, c) => a + c.budgeted, 0),
             spent: categories.reduce((a, c) => a + c.spent, 0),
             available: categories.reduce((a, c) => a + c.available, 0),
-            planned: categories.reduce((a, c) => a + (c.planned?.amount ?? 0), 0),
+            plannedTotal: categories.reduce((a, c) => a + (c.planned?.amount ?? 0), 0),
             categories,
           }
         })
@@ -351,7 +352,7 @@ export class Budget extends Context.Service<
         const amounts = expense.map((c): readonly [string, number] => {
           switch (mode.kind) {
             case "planned":
-              return [c.id, Math.max(months.get(m)?.categories.get(c.id)?.budgeted ?? 0, planned.get(c.id)?.toBudget ?? 0)]
+              return [c.id, Math.max(months.get(m)?.categories.get(c.id)?.budgeted ?? 0, planned.get(c.id)?.target ?? 0)]
             case "zero":
               return [c.id, 0]
             case "copyLastMonth":

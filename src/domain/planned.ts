@@ -48,7 +48,7 @@ export type PlannedCategory = {
   /** Positive cents falling this month, frequent and spaced-out alike. */
   readonly thisMonth: number
   /** `amount` minus what `saved` already covers: what the budget of the month must reach. */
-  readonly toBudget: number
+  readonly target: number
   readonly lines: ReadonlyArray<PlannedLine>
 }
 
@@ -138,7 +138,7 @@ export const plannedByCategory = (
     const setAside = setAsideNeed(spaced, Math.max(0, saved - due))
     const thisMonth = due + spaced.filter((l) => l.monthsLeft === 1).reduce((sum, l) => sum + l.amount, 0)
     const amount = due + setAside
-    planned.set(categoryId, { amount, due, setAside, saved, thisMonth, toBudget: amount - Math.min(due, saved), lines: list })
+    planned.set(categoryId, { amount, due, setAside, saved, thisMonth, target: amount - Math.min(due, saved), lines: list })
   }
   return planned
 }
@@ -150,4 +150,4 @@ export type PlannedStatus = "short" | "upcoming" | "covered"
  * less is set aside than the later schedules need. "covered": both are met.
  */
 export const plannedStatus = (planned: PlannedCategory, budgeted: number): PlannedStatus =>
-  planned.saved + budgeted < planned.thisMonth ? "short" : budgeted < planned.toBudget ? "upcoming" : "covered"
+  planned.saved + budgeted < planned.thisMonth ? "short" : budgeted < planned.target ? "upcoming" : "covered"
