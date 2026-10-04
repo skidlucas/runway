@@ -125,7 +125,7 @@ function BudgetPage() {
             <Link
               to="/accounts/$accountId"
               params={{ accountId: "all" }}
-              search={{ uncategorized: true }}
+              search={{ uncategorized: true, month }}
               className="flex items-center gap-2 border-b border-line bg-warning-soft px-5 py-2 text-warning"
             >
               <AlertTriangle size={14} />

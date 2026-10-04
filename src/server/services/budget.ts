@@ -4,6 +4,7 @@ import { type BudgetCell, type BudgetInputs, type BudgetMonth, computeBudget } f
 import { addMonths, type Day, isMonth, lastDay, type Month } from "~/domain/dates"
 import { type PlannedCategory, plannedByCategory } from "~/domain/planned"
 import { Db, type DbError } from "../db/client"
+import { BUDGET_LINE, UNCATEGORIZED } from "../db/predicates"
 import { Invalid } from "../errors"
 import { Categories, type CategoryGroupDto } from "./categories"
 import { type ScheduleDto, Schedules } from "./schedules"
@@ -100,7 +101,7 @@ export class Budget extends Context.Service<
                 .prepare(
                   `SELECT substr(t.date, 1, 7) AS month, t.category_id AS categoryId, SUM(t.amount) AS total
                    FROM transactions t JOIN accounts a ON a.id = t.account_id
-                   WHERE a.off_budget = 0 AND t.is_parent = 0 AND t.category_id IS NOT NULL AND t.date <= ?
+                   WHERE ${BUDGET_LINE} AND t.category_id IS NOT NULL AND t.date <= ?
                    GROUP BY month, t.category_id`,
                 )
                 .bind(lastDay(until)),
@@ -209,10 +210,7 @@ export class Budget extends Context.Service<
               `SELECT COUNT(*) AS count, COALESCE(SUM(t.amount), 0) AS amount
                FROM transactions t JOIN accounts a ON a.id = t.account_id
                LEFT JOIN payees p ON p.id = t.payee_id
-               LEFT JOIN accounts o ON o.id = p.transfer_account_id
-               WHERE a.off_budget = 0 AND t.is_parent = 0 AND t.category_id IS NULL AND t.starting_balance = 0
-                 AND (p.transfer_account_id IS NULL OR o.off_budget = 1)
-                 AND t.date BETWEEN ? AND ?`,
+               WHERE ${UNCATEGORIZED} AND t.date BETWEEN ? AND ?`,
             )
             .bind(`${m}-01`, lastDay(m))
             .first<{ count: number; amount: number }>(),

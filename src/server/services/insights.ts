@@ -13,6 +13,7 @@ import {
   type PayeeTotal,
 } from "~/domain/insights"
 import { Db, type DbError, newId } from "../db/client"
+import { COUNTS_FOR_BUDGET } from "../db/predicates"
 import { dashboards, type InsightViewConfig, savedViews } from "../db/schema"
 import { type ExternalError, Invalid, NotFound } from "../errors"
 import { normalizeText } from "~/domain/rules"
@@ -63,8 +64,7 @@ const MONTH_OPTIONS = new Set([3, 6, 12, 24])
 const ROLLING_OPTIONS = new Set([0, 3, 6, 12])
 
 // Shared SQL fragments. Amounts are flipped for expenses so every total is positive.
-// Transfers between on-budget accounts carry no category and are excluded; uncategorized
-// non-transfer transactions count towards "all expenses" / "all income" by their sign.
+// Uncategorized lines count towards "all expenses" / "all income" by their sign.
 const BASE_FROM = `FROM transactions t
   JOIN accounts a ON a.id = t.account_id
   LEFT JOIN categories c ON c.id = t.category_id
@@ -72,8 +72,8 @@ const BASE_FROM = `FROM transactions t
 
 const measureSql = (measure: InsightQuery["measure"]) =>
   measure === "income"
-    ? { sign: "t.amount", where: "(c.is_income = 1 OR (t.category_id IS NULL AND t.amount > 0 AND p.transfer_account_id IS NULL))" }
-    : { sign: "-t.amount", where: "(c.is_income = 0 OR (t.category_id IS NULL AND t.amount < 0 AND p.transfer_account_id IS NULL))" }
+    ? { sign: "t.amount", where: "(c.is_income = 1 OR (t.category_id IS NULL AND t.amount > 0))" }
+    : { sign: "-t.amount", where: "(c.is_income = 0 OR (t.category_id IS NULL AND t.amount < 0))" }
 
 const targetSql = (target: InsightQuery["target"]): { where: string; params: string[] } => {
   switch (target.kind) {
@@ -88,7 +88,7 @@ const targetSql = (target: InsightQuery["target"]): { where: string; params: str
   }
 }
 
-const COMMON_WHERE = "a.off_budget = 0 AND t.is_parent = 0 AND t.starting_balance = 0"
+const COMMON_WHERE = `${COUNTS_FOR_BUDGET} AND t.starting_balance = 0`
 
 export class Insights extends Context.Service<
   Insights,

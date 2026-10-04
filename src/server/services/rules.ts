@@ -2,6 +2,7 @@ import { asc, eq, sql } from "drizzle-orm"
 import { Context, Effect, Layer } from "effect"
 import { compileRules, normalizeText, type Rule, type RuleAction, type RuleCondition, type RuleOutcome, type RuleSubject } from "~/domain/rules"
 import { chunkIds, Db, type DbError, newId } from "../db/client"
+import { RULE_CANDIDATE } from "../db/predicates"
 import { rules } from "../db/schema"
 import { Invalid, NotFound } from "../errors"
 
@@ -129,7 +130,7 @@ export class Rules extends Context.Service<
               `SELECT t.id, t.account_id AS accountId, t.amount, t.notes, t.imported_payee AS importedPayee,
                       p.name AS payeeName
                FROM transactions t LEFT JOIN payees p ON p.id = t.payee_id
-               WHERE t.category_id IS NULL AND t.is_parent = 0 AND t.transfer_id IS NULL`,
+               WHERE ${RULE_CANDIDATE}`,
             )
             .all<RuleSubject & { id: string }>()
           return results
@@ -174,8 +175,8 @@ export class Rules extends Context.Service<
             const { results } = await d1
               .prepare(
                 `WITH u AS (
-                   SELECT payee_id, COUNT(*) AS n FROM transactions
-                   WHERE category_id IS NULL AND is_parent = 0 AND payee_id IS NOT NULL GROUP BY payee_id
+                   SELECT t.payee_id, COUNT(*) AS n FROM transactions t
+                   WHERE ${RULE_CANDIDATE} AND t.payee_id IS NOT NULL GROUP BY t.payee_id
                  )
                  SELECT t.payee_id AS payeeId, p.name AS payeeName, t.category_id AS categoryId, COUNT(*) AS n,
                         SUM(COUNT(*)) OVER (PARTITION BY t.payee_id) AS total,

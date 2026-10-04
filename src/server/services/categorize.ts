@@ -2,6 +2,7 @@ import { Context, Effect, Layer } from "effect"
 import { formatMoney } from "~/domain/money"
 import { normalizeText } from "~/domain/rules"
 import { Db, type DbError } from "../db/client"
+import { UNCATEGORIZED } from "../db/predicates"
 import type { ExternalError } from "../errors"
 import { Ai } from "./ai"
 import { Categories } from "./categories"
@@ -51,8 +52,7 @@ export class Categorizer extends Context.Service<
             const statement = d1.prepare(
               `SELECT t.id, t.amount, p.name AS payee, t.imported_payee AS importedPayee, t.notes
                FROM transactions t JOIN accounts a ON a.id = t.account_id LEFT JOIN payees p ON p.id = t.payee_id
-               WHERE t.category_id IS NULL AND t.is_parent = 0 AND a.off_budget = 0 AND t.starting_balance = 0
-                 AND p.transfer_account_id IS NULL ${idFilter}
+               WHERE ${UNCATEGORIZED} ${idFilter}
                ORDER BY t.date DESC LIMIT ${MAX_TRANSACTIONS}`,
             )
             const { results } = await (ids?.length ? statement.bind(JSON.stringify(ids)) : statement).all<Row>()

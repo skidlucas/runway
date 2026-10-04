@@ -101,6 +101,21 @@ describe("Ai with a decision model (Jev path)", () => {
     expect(byTx.get(ids[3]!)?.categoryId).toBe(byName.get("Transport"))
   })
 
+  it("also proposes a category for a transfer leaving the budget, not for one inside it", async () => {
+    const checking = (await h.run(Accounts.use((a) => a.list))).find((a) => a.name === "Courant")!.id
+    const open = (name: string, offBudget: boolean) =>
+      h.run(Accounts.use((a) => a.create({ name, kind: "savings", offBudget, startingBalance: 0, startingDate: `${month}-01` })))
+    const transfer = async (to: string) =>
+      h.run(Transactions.use((t) => t.create({ accountId: checking, date: `${month}-02`, amount: -10_000, payee: { kind: "transfer", accountId: to } })))
+    const leaving = await transfer(await open("Courtier", true))
+    const inside = await transfer(await open("Livret", false))
+    const result = await h.run(Categorizer.use((c) => c.suggest()))
+    expect(result.considered).toBe(5)
+    const suggested = new Set(result.suggestions.map((s) => s.transactionId))
+    expect(suggested.has(leaving)).toBe(true)
+    expect(suggested.has(inside)).toBe(false)
+  })
+
   it("explains that analysis needs a language model", async () => {
     await expect(h.run(Insights.use((s) => s.analysis))).rejects.toThrow(/clé d'API IA/)
   })

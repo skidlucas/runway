@@ -2,7 +2,7 @@ import { eq, getTableColumns, isNotNull, or, sql } from "drizzle-orm"
 import { Clock, Context, Effect, Layer, type Result } from "effect"
 import { isDay } from "~/domain/dates"
 import { bulkInsertStatements, chunkIds, chunkRows, Db, type DbError, newId } from "../db/client"
-import { IS_INTERNAL_TRANSFER } from "../db/predicates"
+import { IS_INTERNAL_TRANSFER, UNCATEGORIZED } from "../db/predicates"
 import { accounts, payees, transactions } from "../db/schema"
 import { Invalid, NotFound } from "../errors"
 import { Payees } from "./payees"
@@ -237,11 +237,7 @@ export class Transactions extends Context.Service<
           where.push("t.category_id = ?")
           params.push(filter.categoryId)
         }
-        if (filter.uncategorized) {
-          where.push(
-            "t.category_id IS NULL AND a.off_budget = 0 AND t.starting_balance = 0 AND (p.transfer_account_id IS NULL OR EXISTS (SELECT 1 FROM accounts o WHERE o.id = p.transfer_account_id AND o.off_budget = 1))",
-          )
-        }
+        if (filter.uncategorized) where.push(UNCATEGORIZED)
         if (filter.payeeId) {
           where.push("t.payee_id = ?")
           params.push(filter.payeeId)

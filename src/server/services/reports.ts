@@ -2,6 +2,7 @@ import { Context, Effect, Layer } from "effect"
 import { addMonths, type Day, type Month, monthRange } from "~/domain/dates"
 import { cumulativeByDay, type MonthValue, REPORT_MONTHS, runningBalances, topWithRest } from "~/domain/reports"
 import { Db, type DbError } from "../db/client"
+import { BUDGET_LINE } from "../db/predicates"
 import { Invalid } from "../errors"
 import { Settings } from "./settings"
 
@@ -36,7 +37,7 @@ export type CategorySpendingReport = {
 
 // Spending and income follow the budget: categorized lines of on-budget accounts. Transfers
 // between budget accounts have no category and starting balances are not income.
-const BUDGET_LINES = `t.is_parent = 0 AND t.starting_balance = 0 AND a.off_budget = 0`
+const BUDGET_LINES = `${BUDGET_LINE} AND t.starting_balance = 0`
 
 export class Reports extends Context.Service<
   Reports,
