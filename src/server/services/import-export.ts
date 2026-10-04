@@ -470,10 +470,20 @@ export class ImportExport extends Context.Service<
                 .prepare(
                   `SELECT account_id AS account, date, amount, payee_id AS payee, imported_id AS importedId, imported_payee AS importedPayee
                    FROM transactions
-                   WHERE parent_id IS NULL AND date BETWEEN ? AND ?
-                     AND account_id IN (SELECT value FROM json_each(?))`,
+                   WHERE parent_id IS NULL AND date BETWEEN ?1 AND ?2
+                     AND account_id IN (SELECT value FROM json_each(?3))
+                   UNION ALL
+                   -- A line the bank has redated since it was imported keeps its bank id.
+                   SELECT account_id, date, amount, payee_id, imported_id, imported_payee FROM transactions
+                   WHERE imported_id IN (SELECT value FROM json_each(?4)) AND parent_id IS NULL
+                     AND date NOT BETWEEN ?1 AND ?2 AND account_id IN (SELECT value FROM json_each(?3))`,
                 )
-                .bind(dates[0], dates[dates.length - 1], JSON.stringify([...new Set(top.map((r) => r.accountId))]))
+                .bind(
+                  dates[0],
+                  dates[dates.length - 1],
+                  JSON.stringify([...new Set(top.map((r) => r.accountId))]),
+                  JSON.stringify(top.flatMap((r) => (r.importedId ? [r.importedId] : []))),
+                )
                 .all<DedupeKey>()
               return results
             })
@@ -655,9 +665,20 @@ export class ImportExport extends Context.Service<
                  t.imported_id AS importedId, t.imported_payee AS importedPayee
                FROM transactions t JOIN accounts a ON a.id = t.account_id
                LEFT JOIN payees p ON p.id = t.payee_id LEFT JOIN accounts pa ON pa.id = p.transfer_account_id
-               WHERE t.parent_id IS NULL AND t.date BETWEEN ? AND ? AND t.account_id IN (SELECT value FROM json_each(?))`,
+               WHERE t.parent_id IS NULL AND t.date BETWEEN ?1 AND ?2 AND t.account_id IN (SELECT value FROM json_each(?3))
+               UNION ALL
+               SELECT t.id, a.name, t.date, t.amount, COALESCE(pa.name, p.name), t.imported_id, t.imported_payee
+               FROM transactions t JOIN accounts a ON a.id = t.account_id
+               LEFT JOIN payees p ON p.id = t.payee_id LEFT JOIN accounts pa ON pa.id = p.transfer_account_id
+               WHERE t.imported_id IN (SELECT value FROM json_each(?4)) AND t.parent_id IS NULL
+                 AND t.date NOT BETWEEN ?1 AND ?2 AND t.account_id IN (SELECT value FROM json_each(?3))`,
             )
-            .bind(dates[0], dates[dates.length - 1], JSON.stringify(accountIds))
+            .bind(
+              dates[0],
+              dates[dates.length - 1],
+              JSON.stringify(accountIds),
+              JSON.stringify(probes.flatMap((p) => (p.importedId ? [p.importedId] : []))),
+            )
             .all<DedupeKey & { id: string }>()
           return results
         })
