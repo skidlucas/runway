@@ -22,14 +22,19 @@ function LoginPage() {
     e.preventDefault()
     setPending(true)
     setError(null)
-    const res = await login({ data: { password } })
-    setPending(false)
-    if (!res.ok) {
-      setError(res.error)
-      return
+    try {
+      const res = await login({ data: { password } })
+      if (!res.ok) {
+        setError(res.error)
+        return
+      }
+      await router.invalidate()
+      await router.navigate({ to: "/budget" })
+    } catch {
+      setError("Connexion impossible. Vérifie ta connexion et réessaie.")
+    } finally {
+      setPending(false)
     }
-    await router.invalidate()
-    await router.navigate({ to: "/budget" })
   }
 
   return (
