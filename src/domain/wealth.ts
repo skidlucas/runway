@@ -16,7 +16,7 @@ export type WealthBucket = "real_estate" | "investments" | "crypto" | "objects" 
 
 export const BUCKET_OF_TYPE: Record<AssetType, WealthBucket> = {
   real_estate: "real_estate",
-  // Mortgages are netted against the property: the design shows "Immobilier net".
+  // Mortgages are netted against the property, so the allocation shows "Immobilier net".
   loan: "real_estate",
   investment: "investments",
   crypto: "crypto",
