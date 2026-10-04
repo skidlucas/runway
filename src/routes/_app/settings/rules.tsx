@@ -391,6 +391,7 @@ function RuleEditor({ rule, onClose }: { rule: RuleDto | null; onClose: () => vo
                     aria-label="Valeur"
                     placeholder={c.field === "amount" ? "0,00" : "Texte"}
                     className={c.field === "amount" ? "num" : ""}
+                    inputMode={c.field === "amount" ? "decimal" : undefined}
                     onChange={(e) => setConditions((cs) => cs.map((x, j) => (j === i ? { ...x, text: e.target.value } : x)))}
                   />
                   {c.op === "between" ? (
@@ -400,6 +401,7 @@ function RuleEditor({ rule, onClose }: { rule: RuleDto | null; onClose: () => vo
                         value={c.text2}
                         aria-label="Valeur max"
                         className="num"
+                        inputMode="decimal"
                         onChange={(e) => setConditions((cs) => cs.map((x, j) => (j === i ? { ...x, text2: e.target.value } : x)))}
                       />
                     </>

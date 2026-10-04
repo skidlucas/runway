@@ -586,6 +586,7 @@ function BudgetInput({
   return (
     <input
       autoFocus
+      inputMode="decimal"
       aria-label={`Budget ${category.name}`}
       aria-invalid={invalid || undefined}
       value={text}
@@ -751,7 +752,7 @@ function MoveMoneyDialog({
     >
       <div className="flex flex-col gap-4 px-5 py-4">
         <Field label="Montant">
-          <Input value={amount} onChange={(e) => setAmount(e.target.value)} className="num" autoFocus />
+          <Input value={amount} onChange={(e) => setAmount(e.target.value)} className="num" inputMode="decimal" autoFocus />
         </Field>
         <Field label={mode === "cover" ? "Prendre dans" : "Vers"} group>
           <div className="flex flex-col gap-2">
