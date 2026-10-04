@@ -3,7 +3,8 @@ import { getRequestHeader } from "@tanstack/react-start/server"
 import { Schema } from "effect"
 import { runApp } from "../runtime"
 import { clientKey, LoginGuard } from "../services/login-guard"
-import { appSession, isAuthed, passwordKey, passwordMatches } from "../session"
+import { authMiddleware } from "../auth"
+import { appSession, currentEpoch, isAuthed, passwordKey, passwordMatches, revokeAllSessions } from "../session"
 
 export const getAuthState = createServerFn({ method: "GET" }).handler(async () => {
   const session = await appSession()
@@ -26,7 +27,7 @@ export const login = createServerFn({ method: "POST" })
     }
     await runApp(LoginGuard.use((g) => g.succeeded(client)))
     const session = await appSession()
-    await session.update({ authed: true, key: await passwordKey() })
+    await session.update({ authed: true, key: await passwordKey(), epoch: await currentEpoch() })
     return { ok: true as const }
   })
 
@@ -35,3 +36,12 @@ export const logout = createServerFn({ method: "POST" }).handler(async () => {
   await session.clear()
   return { ok: true }
 })
+
+export const logoutEverywhere = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
+  .handler(async () => {
+    await revokeAllSessions()
+    const session = await appSession()
+    await session.clear()
+    return { ok: true }
+  })

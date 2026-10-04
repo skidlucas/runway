@@ -1,9 +1,11 @@
 import { useQuery } from "@tanstack/react-query"
 import { createFileRoute, useRouter } from "@tanstack/react-router"
+import * as React from "react"
 import { PageHeader } from "~/components/shell"
 import { ThemeControl } from "~/components/theme"
-import { Button, Chip } from "~/components/ui"
-import { logout } from "~/server/fns/auth"
+import { toastError } from "~/components/toast"
+import { Button, Chip, Dialog } from "~/components/ui"
+import { logout, logoutEverywhere } from "~/server/fns/auth"
 import { q } from "~/lib/queries"
 
 export const Route = createFileRoute("/_app/settings/")({ component: GeneralSettings })
@@ -60,7 +62,54 @@ function GeneralSettings() {
             Se déconnecter
           </Button>
         </Row>
+        <Row title="Tous les appareils" hint="Ferme toutes les sessions ouvertes, y compris celle-ci, par exemple après la perte d'un téléphone.">
+          <LogoutEverywhere />
+        </Row>
       </div>
+    </>
+  )
+}
+
+function LogoutEverywhere() {
+  const [open, setOpen] = React.useState(false)
+  const [busy, setBusy] = React.useState(false)
+  return (
+    <>
+      <Button variant="danger" onClick={() => setOpen(true)}>
+        Se déconnecter de tous les appareils
+      </Button>
+      {open ? (
+        <Dialog
+          open
+          onOpenChange={setOpen}
+          title="Se déconnecter de tous les appareils"
+          description="Chaque appareil devra saisir de nouveau le mot de passe, celui-ci compris."
+          width={420}
+          footer={
+            <>
+              <Button variant="ghost" onClick={() => setOpen(false)}>
+                Annuler
+              </Button>
+              <Button
+                variant="danger"
+                loading={busy}
+                onClick={async () => {
+                  setBusy(true)
+                  try {
+                    await logoutEverywhere()
+                    window.location.href = "/login"
+                  } catch (error) {
+                    toastError(error)
+                    setBusy(false)
+                  }
+                }}
+              >
+                Tout déconnecter
+              </Button>
+            </>
+          }
+        />
+      ) : null}
     </>
   )
 }

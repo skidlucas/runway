@@ -16,6 +16,7 @@ import { Payees } from "./services/payees"
 import { Reports } from "./services/reports"
 import { Rules } from "./services/rules"
 import { Schedules } from "./services/schedules"
+import { SessionEpoch } from "./services/session-epoch"
 import { Settings } from "./services/settings"
 import { Transactions } from "./services/transactions"
 import { Wealth } from "./services/wealth"
@@ -26,7 +27,7 @@ export const makeCoreLayer = (
   ai: AiProviders = noAiProviders,
   market: Layer.Layer<MarketData> = MarketData.layer,
 ) => {
-  const base = Layer.mergeAll(Settings.layer, Ai.layer, LoginGuard.layer, Dashboards.layer).pipe(
+  const base = Layer.mergeAll(Settings.layer, Ai.layer, LoginGuard.layer, SessionEpoch.layer, Dashboards.layer).pipe(
     Layer.provideMerge(Layer.mergeAll(Db.layer(d1), Layer.succeed(AiConfig, ai), market)),
   )
   const leaves = Layer.mergeAll(Categories.layer, Payees.layer, Rules.layer, Reports.layer).pipe(Layer.provideMerge(base))
