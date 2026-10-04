@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
-import { chunkFamilies } from "~/lib/import-client"
-import type { ImportRow } from "~/server/services/import-export"
+import type { BundleTransaction, ImportBundle } from "~/lib/import-bundle"
+import { chunkFamilies, countBundleDuplicates } from "~/lib/import-client"
+import type { DuplicateProbe, ImportRow } from "~/server/services/import-export"
 
 const row = (id: string, date: string, parentId?: string): ImportRow => ({ id, accountId: "a", date, amount: -100, parentId: parentId ?? null })
 
@@ -21,5 +22,48 @@ describe("chunkFamilies", () => {
     const chunks = chunkFamilies(rows, 40)
     expect(chunks.flat().map((r) => r.id).sort()).toEqual(rows.map((r) => r.id).sort())
     expect(chunks.every((c) => c.length > 0)).toBe(true)
+  })
+})
+
+describe("countBundleDuplicates", () => {
+  const tx = (id: string, date: string, parentId: string | null = null): BundleTransaction => ({
+    id,
+    accountId: "acc",
+    date,
+    amount: -100,
+    payeeId: "p",
+    categoryId: null,
+    notes: null,
+    cleared: false,
+    reconciled: false,
+    transferId: null,
+    isParent: false,
+    parentId,
+    importedId: null,
+    importedPayee: null,
+    startingBalance: false,
+  })
+  const bundle = (transactions: BundleTransaction[]) =>
+    ({
+      accounts: [{ id: "acc", name: "Courant" }],
+      payees: [{ id: "p", name: "Boulangerie", transferAccountId: null }],
+      transactions,
+    }) as unknown as ImportBundle
+
+  it("probes the top-level operations by date with account and payee names, and adds up the answers", async () => {
+    const calls: DuplicateProbe[][] = []
+    const total = await countBundleDuplicates(bundle([tx("b", "2026-09-02"), tx("a", "2026-09-01"), tx("c", "2026-09-01", "b")]), async (probes) => {
+      calls.push(probes)
+      return probes.length
+    })
+    expect(total).toBe(2)
+    expect(calls.flat().map((p) => [p.id, p.account, p.payee])).toEqual([
+      ["a", "Courant", "Boulangerie"],
+      ["b", "Courant", "Boulangerie"],
+    ])
+  })
+
+  it("gives up once cancelled", async () => {
+    expect(await countBundleDuplicates(bundle([tx("a", "2026-09-01")]), async () => 1, () => true)).toBeNull()
   })
 })

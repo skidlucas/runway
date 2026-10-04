@@ -6,24 +6,17 @@ import { AccountSelect } from "~/components/pickers"
 import { PageHeader } from "~/components/shell"
 import { toast, toastError } from "~/components/toast"
 import { Button, Checkbox, cx, Dialog, Field, Input, Money, ProgressBar, Segmented, Select, Switch, useConfirm } from "~/components/ui"
-import { formatDayShort } from "~/domain/dates"
+import { compareIso, type Day, formatDayShort } from "~/domain/dates"
 import { count, plural } from "~/domain/text"
-import { parseActual, unzipActual } from "~/lib/actual/parse"
-import { fileOrderStamps, type ImportBundle } from "~/lib/import-bundle"
-import { chunkFamilies, type ImportProgress, runBundleImport } from "~/lib/import-client"
-import {
-  applyCsvMapping,
-  type ParsedBankFile,
-  type CsvMapping,
-  guessCsvMapping,
-  parseCsvText,
-  parseOfx,
-  parseQif,
-} from "~/lib/importers/bank"
+import { operationsCsv } from "~/lib/csv-export"
+import { downloadFile } from "~/lib/download"
+import { actualExportZip, backupJson, type ExportApi, fetchExport } from "~/lib/export"
+import { localToday } from "~/lib/hooks"
+import type { ImportBundle } from "~/lib/import-bundle"
+import { countBundleDuplicates, type ImportProgress, runBankImport, runBundleImport } from "~/lib/import-client"
+import { type PendingImport, readImportFile } from "~/lib/import-file"
+import { applyCsvMapping, type CsvMapping, guessCsvMapping } from "~/lib/importers/bank"
 import { q, useAction } from "~/lib/queries"
-import { backupToBundle, isRunwayBackup, type RunwayBackup } from "~/lib/runway-backup"
-import { csvNumber, csvText } from "~/lib/csv-export"
-import { downloadFile, loadSqlJs } from "~/lib/sqljs"
 import {
   countDuplicates,
   exportMeta,
@@ -34,8 +27,6 @@ import {
   seedDemo,
   wipeAllData,
 } from "~/server/fns/data"
-import type { ExportCursor, ExportTransaction } from "~/server/services/import-export"
-import { amountInput } from "~/domain/money"
 
 export const Route = createFileRoute("/_app/settings/data")({ component: DataSettings })
 
@@ -59,35 +50,14 @@ const importNotes = ({ skipped, approximated }: ImportBundle) =>
       : null,
   ].filter((note) => note !== null)
 
-type Pending =
-  | { kind: "bundle"; fileName: string; bundle: ImportBundle }
-  | { kind: "bank"; fileName: string; format: "csv" | "ofx" | "qif"; rows?: string[][]; parsed?: ParsedBankFile }
-
 function DataSettings() {
-  const [pending, setPending] = React.useState<Pending | null>(null)
+  const [pending, setPending] = React.useState<PendingImport | null>(null)
   const [reading, setReading] = React.useState(false)
 
   const onFile = async (file: File) => {
     setReading(true)
     try {
-      const name = file.name.toLowerCase()
-      if (name.endsWith(".zip")) {
-        const SQL = await loadSqlJs()
-        const bundle = parseActual(SQL, unzipActual(new Uint8Array(await file.arrayBuffer())))
-        setPending({ kind: "bundle", fileName: file.name, bundle })
-      } else if (name.endsWith(".json")) {
-        const json = JSON.parse(await file.text())
-        if (!isRunwayBackup(json)) throw new Error("Ce JSON n'est pas une sauvegarde Runway")
-        setPending({ kind: "bundle", fileName: file.name, bundle: backupToBundle(json) })
-      } else if (name.endsWith(".csv") || name.endsWith(".txt")) {
-        setPending({ kind: "bank", fileName: file.name, format: "csv", rows: parseCsvText(await file.text()) })
-      } else if (name.endsWith(".ofx") || name.endsWith(".qfx")) {
-        setPending({ kind: "bank", fileName: file.name, format: "ofx", parsed: parseOfx(await file.text()) })
-      } else if (name.endsWith(".qif")) {
-        setPending({ kind: "bank", fileName: file.name, format: "qif", parsed: parseQif(await file.text()) })
-      } else {
-        throw new Error("Format non pris en charge : .zip (Actual), .json, .csv, .ofx ou .qif")
-      }
+      setPending(await readImportFile(file))
     } catch (error) {
       toastError(error)
     } finally {
@@ -195,37 +165,13 @@ function BundleImportDialog({ fileName, bundle, onClose }: { fileName: string; b
   const { confirm, dialog: confirmDialog } = useConfirm()
   const topLevel = bundle.transactions.filter((t) => !t.parentId).length
   const months = new Set(bundle.budgets.map((b) => b.month)).size
-  const lastDate = bundle.transactions.reduce((m, t) => (t.date > m ? t.date : m), "")
+  const lastDate = bundle.transactions.reduce((m, t) => (compareIso(t.date, m) > 0 ? t.date : m), "")
 
   React.useEffect(() => {
     let cancelled = false
-    const accountName = new Map(bundle.accounts.map((a) => [a.id, a.name]))
-    const payeeName = new Map(bundle.payees.map((p) => [p.id, p.transferAccountId ? (accountName.get(p.transferAccountId) ?? p.name) : p.name]))
-    const probes = bundle.transactions
-      .filter((t) => !t.parentId)
-      .map((t) => ({
-        account: accountName.get(t.accountId) ?? "",
-        date: t.date,
-        amount: t.amount,
-        payee: t.payeeId ? (payeeName.get(t.payeeId) ?? null) : null,
-        id: t.id,
-        importedId: t.importedId,
-        importedPayee: t.importedPayee,
-      }))
-    ;(async () => {
-      let total = 0
-      // By date, so each call reads a narrow slice of history, and never cutting a day in two,
-      // so a duplicate is never counted by two calls.
-      probes.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0))
-      for (let start = 0; start < probes.length; ) {
-        if (cancelled) return
-        let end = Math.min(start + 10_000, probes.length)
-        while (end < probes.length && probes[end]!.date === probes[end - 1]!.date) end++
-        total += await countDuplicates({ data: { probes: probes.slice(start, end) } })
-        start = end
-      }
-      if (!cancelled) setDuplicates(total)
-    })().catch(() => !cancelled && setDuplicatesFailed(true))
+    countBundleDuplicates(bundle, (probes) => countDuplicates({ data: { probes } }), () => cancelled)
+      .then((total) => total !== null && setDuplicates(total))
+      .catch(() => !cancelled && setDuplicatesFailed(true))
     return () => {
       cancelled = true
     }
@@ -369,7 +315,7 @@ function BundleImportDialog({ fileName, bundle, onClose }: { fileName: string; b
 
 // --- Bank files -----------------------------------------------------------------------
 
-function BankImportDialog({ pending, onClose }: { pending: Extract<Pending, { kind: "bank" }>; onClose: () => void }) {
+function BankImportDialog({ pending, onClose }: { pending: Extract<PendingImport, { kind: "bank" }>; onClose: () => void }) {
   const client = useQueryClient()
   const accounts = useQuery(q.accounts())
   const [chosenAccountId, setAccountId] = React.useState("")
@@ -378,8 +324,7 @@ function BankImportDialog({ pending, onClose }: { pending: Extract<Pending, { ki
   const [mapping, setMapping] = React.useState<CsvMapping | null>(guessed?.mapping ?? null)
   const [applyRules, setApplyRules] = React.useState(true)
   const [running, setRunning] = React.useState(false)
-  const [progress, setProgress] = React.useState<{ done: number; total: number } | null>(null)
-
+  const [progress, setProgress] = React.useState<ImportProgress | null>(null)
 
   const parsed = React.useMemo(() => {
     if (pending.parsed) return pending.parsed
@@ -391,34 +336,9 @@ function BankImportDialog({ pending, onClose }: { pending: Extract<Pending, { ki
     if (!accountId) return
     setRunning(true)
     try {
-      const stamps = fileOrderStamps(parsed.transactions.map((t) => t.date))
-      const rows = parsed.transactions.map((t, i) => ({
-        accountId,
-        date: t.date,
-        amount: t.amount,
-        payeeName: t.payee || null,
-        importedPayee: t.payee || null,
-        notes: t.notes,
-        importedId: t.importedId,
-        cleared: true,
-        createdAt: stamps[i],
-      }))
-      let inserted = 0
-      let duplicates = 0
-      let skipped = 0
-      const chunks = chunkFamilies(rows)
-      setProgress({ done: 0, total: rows.length })
-      let done = 0
-      for (const chunk of chunks) {
-        const r = await importTransactions({ data: { rows: chunk, options: { dedupe: true, applyRules } } })
-        inserted += r.inserted
-        duplicates += r.duplicates
-        skipped += r.skipped
-        done += chunk.length
-        setProgress({ done, total: rows.length })
-      }
+      const result = await runBankImport(parsed, { accountId, applyRules }, (data) => importTransactions({ data }), setProgress)
       await client.invalidateQueries()
-      toast(importedMessage(inserted, duplicates, skipped))
+      toast(importedMessage(result.inserted, result.duplicates, result.skipped))
       onClose()
     } catch (error) {
       toastError(error)
@@ -511,101 +431,49 @@ function BankImportDialog({ pending, onClose }: { pending: Extract<Pending, { ki
 
 // --- Export -------------------------------------------------------------------------
 
-const fetchAll = async () => {
-  const meta = await exportMeta()
-  const transactions: ExportTransaction[] = []
-  for (let cursor: ExportCursor | null = null; ; ) {
-    const page = await exportTransactions({ data: { cursor, limit: 20_000 } })
-    transactions.push(...page)
-    const last = page.at(-1)
-    if (page.length < 20_000 || !last) break
-    cursor = { date: last.date, createdAt: last.createdAt, id: last.id }
-  }
-  return { meta, transactions }
-}
-
-const stamp = () => new Date().toISOString().slice(0, 10)
+const exportApi: ExportApi = { exportMeta: () => exportMeta(), exportTransactions: (data) => exportTransactions({ data }) }
 
 function ExportSection() {
   const [busy, setBusy] = React.useState<string | null>(null)
-  const [last, setLast] = React.useState<string | null>(null)
+  const [last, setLast] = React.useState<Day | null>(null)
   React.useEffect(() => {
     try {
       setLast(localStorage.getItem(LAST_EXPORT_KEY))
     } catch {}
   }, [])
-  const done = () => {
-    const today = stamp()
-    setLast(today)
+
+  const run = async (key: string, write: (today: Day) => Promise<void>) => {
+    setBusy(key)
     try {
-      localStorage.setItem(LAST_EXPORT_KEY, today)
-    } catch {}
+      const today = localToday()
+      await write(today)
+      setLast(today)
+      try {
+        localStorage.setItem(LAST_EXPORT_KEY, today)
+      } catch {}
+    } catch (error) {
+      toastError(error)
+    } finally {
+      setBusy(null)
+    }
   }
 
-  const exportActual = async () => {
-    setBusy("actual")
-    try {
-      const [{ buildActualExport }, SQL, { meta, transactions }, template] = await Promise.all([
-        import("~/lib/actual/export"),
-        loadSqlJs(),
-        fetchAll(),
-        fetch("/actual-template.sqlite").then((r) => r.arrayBuffer()),
-      ])
-      const { zip, skippedRules } = buildActualExport(SQL, new Uint8Array(template), meta, transactions)
-      downloadFile(zip as Uint8Array<ArrayBuffer>, `runway-actual-${stamp()}.zip`, "application/zip")
+  const exportActual = () =>
+    run("actual", async (today) => {
+      const { zip, skippedRules } = await actualExportZip(exportApi)
+      downloadFile(zip, `runway-actual-${today}.zip`, "application/zip")
       toast(skippedRules ? `Export prêt · ${count(skippedRules, "règle")} sur montant non ${plural(skippedRules, "exportée")}` : "Export Actual prêt")
-      done()
-    } catch (error) {
-      toastError(error)
-    } finally {
-      setBusy(null)
-    }
-  }
+    })
 
-  const exportCsv = async () => {
-    setBusy("csv")
-    try {
-      const { meta, transactions } = await fetchAll()
-      const account = new Map(meta.accounts.map((a) => [a.id, a.name]))
-      const payee = new Map(meta.payees.map((p) => [p.id, p.transferAccountId ? `Virement ${account.get(p.transferAccountId) ?? ""}` : p.name]))
-      const category = new Map(meta.categories.map((c) => [c.id, c.name]))
-      const lines = ["Date;Compte;Bénéficiaire;Catégorie;Montant;Note;Pointée"]
-      for (const t of transactions) {
-        if (t.isParent) continue
-        lines.push(
-          [
-            csvText(t.date),
-            csvText(account.get(t.accountId) ?? ""),
-            csvText(t.payeeId ? (payee.get(t.payeeId) ?? "") : ""),
-            csvText(t.categoryId ? (category.get(t.categoryId) ?? "") : ""),
-            csvNumber(amountInput(t.amount)),
-            csvText(t.notes),
-            csvText(t.cleared ? "oui" : "non"),
-          ].join(";"),
-        )
-      }
-      downloadFile("﻿" + lines.join("\n"), `runway-operations-${stamp()}.csv`, "text/csv;charset=utf-8")
-      done()
-    } catch (error) {
-      toastError(error)
-    } finally {
-      setBusy(null)
-    }
-  }
+  const exportCsv = () =>
+    run("csv", async (today) => {
+      downloadFile(operationsCsv(await fetchExport(exportApi)), `runway-operations-${today}.csv`, "text/csv;charset=utf-8")
+    })
 
-  const exportJson = async () => {
-    setBusy("json")
-    try {
-      const { meta, transactions } = await fetchAll()
-      const backup: RunwayBackup = { ...meta, format: "runway-backup", transactions }
-      downloadFile(JSON.stringify(backup), `runway-sauvegarde-${stamp()}.json`, "application/json")
-      done()
-    } catch (error) {
-      toastError(error)
-    } finally {
-      setBusy(null)
-    }
-  }
+  const exportJson = () =>
+    run("json", async (today) => {
+      downloadFile(backupJson(await fetchExport(exportApi)), `runway-sauvegarde-${today}.json`, "application/json")
+    })
 
   const rows = [
     { key: "actual", title: "Format Actual", hint: "Réimportable dans Actual Budget", action: exportActual, primary: true },
