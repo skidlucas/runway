@@ -1,5 +1,5 @@
-import { eq, getTableColumns } from "drizzle-orm"
-import { Clock, Context, Effect, Layer } from "effect"
+import { eq, getTableColumns, isNotNull, or, sql } from "drizzle-orm"
+import { Clock, Context, Effect, Layer, type Result } from "effect"
 import { isDay } from "~/domain/dates"
 import { bulkInsertStatements, chunkIds, chunkRows, Db, type DbError, newId } from "../db/client"
 import { accounts, payees, transactions } from "../db/schema"
@@ -13,7 +13,7 @@ export type TxPayeeInput =
   | { readonly kind: "transfer"; readonly accountId: string }
   | { readonly kind: "none" }
 
-type NewTxRow = typeof transactions.$inferInsert & { createdAt: string }
+export type NewTxRow = typeof transactions.$inferInsert & { createdAt: string }
 
 // Deleted rows go to the trash as JSON, with every column of the table, so that an undo puts
 // back exactly what was there.
@@ -49,6 +49,47 @@ const INSERT_COLUMNS = [
   "starting_balance",
   "created_at",
 ]
+
+const insertValues = (r: NewTxRow): unknown[] => [
+  r.id,
+  r.accountId,
+  r.date,
+  r.amount,
+  r.payeeId ?? null,
+  r.categoryId ?? null,
+  r.notes ?? null,
+  r.cleared ? 1 : 0,
+  r.reconciled ? 1 : 0,
+  r.transferId ?? null,
+  r.isParent ? 1 : 0,
+  r.parentId ?? null,
+  r.importedPayee ?? null,
+  r.scheduleId ?? null,
+  r.importedId ?? null,
+  r.startingBalance ? 1 : 0,
+  r.createdAt,
+]
+
+/**
+ * INSERT statements for prepared rows, through json_each: drizzle's multi-row insert binds every
+ * column of every row and hits D1's 100-parameter limit from the 7th split line. With `guard`, a
+ * row is only written when `guard.where` holds; that SQL reads `guard.of(row)` as `value -> '$[#-1]'`.
+ */
+export const transactionInsertStatements = (
+  d1: D1Database,
+  rows: ReadonlyArray<NewTxRow>,
+  guard?: { readonly where: string; readonly of: (row: NewTxRow) => unknown },
+) =>
+  bulkInsertStatements(
+    d1,
+    "transactions",
+    INSERT_COLUMNS,
+    rows.map((r) => (guard ? [...insertValues(r), guard.of(r)] : insertValues(r))),
+    "insert",
+    guard?.where,
+  )
+
+export type PreparedTx = { readonly id: string; readonly rows: ReadonlyArray<NewTxRow> }
 
 export type SplitInput = { readonly amount: number; readonly categoryId: string | null; readonly notes?: string | null }
 
@@ -163,6 +204,14 @@ export class Transactions extends Context.Service<
     transferPayee(accountId: string): Effect.Effect<string, DbError>
     /** The payee a transaction of `accountId` would get, created on demand for a new name or transfer. */
     resolvePayee(input: TxPayeeInput, accountId: string): Effect.Effect<ResolvedPayee, DbError | Invalid | NotFound>
+    /**
+     * New transactions computed without writing, for a caller that inserts them in its own batch
+     * (`transactionInsertStatements`). Accounts and payees given by id are read once for all the inputs, each
+     * of which succeeds or fails on its own. Inputs carry their category: rules are not run.
+     */
+    prepareMany(
+      inputs: ReadonlyArray<TxInput & { readonly categoryId: string | null }>,
+    ): Effect.Effect<Array<Result.Result<PreparedTx, DbError | Invalid | NotFound>>, DbError>
   }
 >()("runway/server/services/Transactions") {
   static readonly layer = Layer.effect(
@@ -325,7 +374,49 @@ export class Transactions extends Context.Service<
         return created?.id ?? id
       })
 
-      const resolvePayee = Effect.fn("Transactions.resolvePayee")(function* (input: TxPayeeInput, accountId: string) {
+      type Lookup = {
+        readonly account: (id: string) => Effect.Effect<typeof accounts.$inferSelect, DbError | NotFound>
+        readonly payee: (id: string) => Effect.Effect<typeof payees.$inferSelect | undefined, DbError>
+        readonly transferPayee: (accountId: string) => Effect.Effect<string, DbError>
+      }
+      const live: Lookup = {
+        account: findAccount,
+        payee: (id) => db.use((orm) => orm.select().from(payees).where(eq(payees.id, id)).get()),
+        transferPayee,
+      }
+
+      /** Every account and the payees `inputs` refer to, read in one batch. */
+      const preloaded = Effect.fn("Transactions.preloaded")(function* (inputs: ReadonlyArray<TxInput>) {
+        const payeeIds = inputs.flatMap((i) => (i.payee.kind === "id" ? [i.payee.id] : []))
+        const [accountRows, payeeRows] = yield* db.use((orm) =>
+          orm.batch([
+            orm.select().from(accounts),
+            orm
+              .select()
+              .from(payees)
+              .where(or(isNotNull(payees.transferAccountId), sql`${payees.id} IN (SELECT value FROM json_each(${JSON.stringify(payeeIds)}))`)),
+          ]),
+        )
+        const accountsById = new Map(accountRows.map((a) => [a.id, a]))
+        const payeesById = new Map(payeeRows.map((p) => [p.id, p]))
+        const transferPayees = new Map(payeeRows.flatMap((p) => (p.transferAccountId ? [[p.transferAccountId, p.id] as const] : [])))
+        const lookup: Lookup = {
+          account: (id) => {
+            const account = accountsById.get(id)
+            return account ? Effect.succeed(account) : Effect.fail(new NotFound({ entity: "Compte", id }))
+          },
+          payee: (id) => Effect.succeed(payeesById.get(id)),
+          transferPayee: (accountId) => {
+            const known = transferPayees.get(accountId)
+            return known
+              ? Effect.succeed(known)
+              : transferPayee(accountId).pipe(Effect.tap((id) => Effect.sync(() => transferPayees.set(accountId, id))))
+          },
+        }
+        return lookup
+      })
+
+      const resolvePayee = Effect.fn("Transactions.resolvePayee")(function* (input: TxPayeeInput, accountId: string, lookup: Lookup = live) {
         switch (input.kind) {
           case "none":
             return { payeeId: null, payeeName: null, transferAccountId: null } satisfies ResolvedPayee
@@ -336,7 +427,7 @@ export class Transactions extends Context.Service<
             return { payeeId: ids.get(name) ?? null, payeeName: name, transferAccountId: null } satisfies ResolvedPayee
           }
           case "id": {
-            const payee = yield* db.use((orm) => orm.select().from(payees).where(eq(payees.id, input.id)).get())
+            const payee = yield* lookup.payee(input.id)
             if (!payee) return yield* new NotFound({ entity: "Bénéficiaire", id: input.id })
             if (payee.transferAccountId && payee.transferAccountId === accountId) {
               return yield* new Invalid({ message: "Un virement doit viser un autre compte" })
@@ -351,8 +442,8 @@ export class Transactions extends Context.Service<
             if (input.accountId === accountId) {
               return yield* new Invalid({ message: "Un virement doit viser un autre compte" })
             }
-            const target = yield* findAccount(input.accountId)
-            const payeeId = yield* transferPayee(target.id)
+            const target = yield* lookup.account(input.accountId)
+            const payeeId = yield* lookup.transferPayee(target.id)
             return { payeeId, payeeName: target.name, transferAccountId: target.id } satisfies ResolvedPayee
           }
         }
@@ -385,11 +476,12 @@ export class Transactions extends Context.Service<
           startingBalance: boolean
           mirror: { accountId: string; cleared: boolean; reconciled: boolean } | null
         },
+        lookup: Lookup = live,
       ) {
         if (!isDay(input.date)) return yield* new Invalid({ message: "Date invalide" })
         if (!Number.isInteger(input.amount)) return yield* new Invalid({ message: "Montant invalide" })
-        const account = yield* findAccount(input.accountId)
-        const payee = yield* resolvePayee(input.payee, account.id)
+        const account = yield* lookup.account(input.accountId)
+        const payee = yield* resolvePayee(input.payee, account.id, lookup)
         yield* validateSplits(input.amount, input.splits)
         if (payee.transferAccountId && input.splits?.length) {
           return yield* new Invalid({ message: "Un virement ne peut pas être ventilé" })
@@ -400,7 +492,7 @@ export class Transactions extends Context.Service<
         let notes = input.notes ?? null
         let otherAccount: typeof account | null = null
         if (payee.transferAccountId) {
-          otherAccount = yield* findAccount(payee.transferAccountId)
+          otherAccount = yield* lookup.account(payee.transferAccountId)
           // A transfer between two budgeted accounts moves money without spending it.
           if (account.offBudget === otherAccount.offBudget) categoryId = null
         } else if (input.categoryId === undefined && !input.splits?.length) {
@@ -449,7 +541,7 @@ export class Transactions extends Context.Service<
         if (otherAccount) {
           const mirrorId = keep?.mirrorId ?? newId()
           const mirrorStatus = keep?.mirror?.accountId === otherAccount.id ? keep.mirror : null
-          const mirrorPayee = yield* transferPayee(account.id)
+          const mirrorPayee = yield* lookup.transferPayee(account.id)
           rows[0] = { ...rows[0]!, transferId: mirrorId }
           rows.push({
             id: mirrorId,
@@ -469,38 +561,18 @@ export class Transactions extends Context.Service<
         return { id, rows }
       })
 
-      // Through json_each: drizzle's multi-row insert binds every column of every row and hits
-      // D1's 100-parameter limit from the 7th split line.
-      const insertStatements = (rows: ReadonlyArray<NewTxRow>) =>
-        bulkInsertStatements(
-          db.d1,
-          "transactions",
-          INSERT_COLUMNS,
-          rows.map((r) => [
-            r.id,
-            r.accountId,
-            r.date,
-            r.amount,
-            r.payeeId ?? null,
-            r.categoryId ?? null,
-            r.notes ?? null,
-            r.cleared ? 1 : 0,
-            r.reconciled ? 1 : 0,
-            r.transferId ?? null,
-            r.isParent ? 1 : 0,
-            r.parentId ?? null,
-            r.importedPayee ?? null,
-            r.scheduleId ?? null,
-            r.importedId ?? null,
-            r.startingBalance ? 1 : 0,
-            r.createdAt,
-          ]),
-        )
+      const insertStatements = (rows: ReadonlyArray<NewTxRow>) => transactionInsertStatements(db.d1, rows)
 
       const create = Effect.fn("Transactions.create")(function* (input: TxInput) {
         const { id, rows } = yield* prepare(input)
         yield* db.batch(insertStatements(rows))
         return id
+      })
+
+      const prepareMany = Effect.fn("Transactions.prepareMany")(function* (inputs: ReadonlyArray<TxInput>) {
+        if (inputs.length === 0) return []
+        const lookup = yield* preloaded(inputs)
+        return yield* Effect.forEach(inputs, (input) => Effect.result(prepare(input, undefined, lookup)))
       })
 
       /** Deletes transactions with their split lines and transfer mirrors (and the mirrors' lines). */
@@ -705,7 +777,7 @@ export class Transactions extends Context.Service<
           ),
         )
 
-      return Transactions.of({ list, get, create, update, remove, restore, setCleared, setCategory, transferPayee, resolvePayee })
+      return Transactions.of({ list, get, create, update, remove, restore, setCleared, setCategory, transferPayee, resolvePayee, prepareMany })
     }),
   )
 }

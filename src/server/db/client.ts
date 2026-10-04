@@ -46,7 +46,8 @@ export type BulkColumn = { readonly name: string; readonly json?: boolean }
 
 /**
  * Builds INSERT statements that write `rows` (arrays aligned with `columns`) through json_each.
- * `mode` controls conflicts on the primary key.
+ * `mode` controls conflicts on the primary key. `where` (SQL over each JSON row, `value`) keeps
+ * only some rows; it can read values a row carries after its columns.
  */
 export const bulkInsertStatements = (
   d1: D1Database,
@@ -54,11 +55,12 @@ export const bulkInsertStatements = (
   columns: ReadonlyArray<string>,
   rows: ReadonlyArray<ReadonlyArray<unknown>>,
   mode: "insert" | "ignore" | "replace" = "insert",
+  where?: string,
 ): D1PreparedStatement[] => {
   if (rows.length === 0) return []
   const verb = mode === "ignore" ? "INSERT OR IGNORE" : mode === "replace" ? "INSERT OR REPLACE" : "INSERT"
   const select = columns.map((_, i) => `json_extract(value, '$[${i}]')`).join(", ")
-  const sql = `${verb} INTO ${table} (${columns.map((c) => `"${c}"`).join(", ")}) SELECT ${select} FROM json_each(?)`
+  const sql = `${verb} INTO ${table} (${columns.map((c) => `"${c}"`).join(", ")}) SELECT ${select} FROM json_each(?)${where ? ` WHERE ${where}` : ""}`
   return chunkRows(rows).map((chunk) => d1.prepare(sql).bind(JSON.stringify(chunk)))
 }
 

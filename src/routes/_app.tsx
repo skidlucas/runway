@@ -1,34 +1,44 @@
+import { useQueryClient } from "@tanstack/react-query"
 import { createFileRoute, Outlet, redirect } from "@tanstack/react-router"
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { CommandPalette } from "~/components/command-palette"
 import { AppUi, Fab, Sidebar, TabBar } from "~/components/shell"
 import { TransactionEntry } from "~/components/transaction-entry"
 import { q } from "~/lib/queries"
-import { clientTimeZone, localToday, shortcutBlocked } from "~/lib/hooks"
+import { clientTimeZone, shortcutBlocked, useToday } from "~/lib/hooks"
 import { getAuthState } from "~/server/fns/auth"
 import { syncSchedules } from "~/server/fns/planning"
-
-// Due schedules are booked by an explicit POST once a day per tab, not by the data reads:
-// a read (preload on hover, refetch on focus) must not write.
-let schedulesSyncedOn: string | null = null
 
 export const Route = createFileRoute("/_app")({
   beforeLoad: async () => {
     const { authed } = await getAuthState()
     if (!authed) throw redirect({ to: "/login" })
-    const today = localToday()
-    if (schedulesSyncedOn !== today) {
-      schedulesSyncedOn = today
-      await syncSchedules({ data: { timeZone: clientTimeZone() } }).catch(() => {
-        schedulesSyncedOn = null
-      })
-    }
   },
   loader: ({ context }) => context.queryClient.ensureQueryData(q.accounts()),
   component: AppLayout,
 })
 
+// Due schedules are booked by an explicit POST once a day per tab, not by the data reads: a read
+// (preload on hover, refetch on focus) must not write. It runs in the browser after the page
+// shows, so it never delays a navigation; what it books then refreshes the data on screen.
+let schedulesSyncedOn: string | null = null
+
+function useScheduleSync() {
+  const client = useQueryClient()
+  const today = useToday()
+  useEffect(() => {
+    if (schedulesSyncedOn === today) return
+    schedulesSyncedOn = today
+    syncSchedules({ data: { timeZone: clientTimeZone() } })
+      .then(({ posted, matched }) => (posted + matched > 0 ? client.invalidateQueries() : undefined))
+      .catch(() => {
+        schedulesSyncedOn = null
+      })
+  }, [client, today])
+}
+
 function AppLayout() {
+  useScheduleSync()
   const [paletteOpen, setPaletteOpen] = useState(false)
   const [entry, setEntry] = useState<{ open: boolean; accountId?: string; categoryId?: string }>({ open: false })
 

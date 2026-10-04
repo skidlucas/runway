@@ -259,3 +259,78 @@ describe("Schedules", () => {
     }
   })
 })
+
+describe("Schedules sync cost", () => {
+  let h: Harness
+  let account: string
+  let savings: string
+
+  const input = (startDate: string, extra: Partial<ScheduleInput>): ScheduleInput => ({
+    name: null,
+    payee: { kind: "none" },
+    accountId: account,
+    categoryId: null,
+    amount: -1_000,
+    recurrence: { unit: "month", interval: 1 },
+    startDate,
+    autoPost: true,
+    ...extra,
+  })
+  const create = (startDate: string, extra: Partial<ScheduleInput>) => h.run(Schedules.use((s) => s.create(input(startDate, extra))))
+  const nextDate = async (id: string) =>
+    (await h.d1.prepare("SELECT next_date AS d FROM schedules WHERE id = ?").bind(id).first<{ d: string }>())?.d
+
+  beforeAll(async () => {
+    h = await createHarness()
+    const open = (name: string) =>
+      h.run(Accounts.use((a) => a.create({ name, kind: "checking", offBudget: false, startingBalance: 0, startingDate: "2020-01-01" })))
+    account = await open("Courant")
+    savings = await open("Épargne")
+  }, 60_000)
+  afterAll(() => h?.dispose())
+
+  it("books 40 due occurrences and matches payments in a few queries, under the Workers limit", async () => {
+    const weekly = await create(addDays(today, -63), { payee: { kind: "name", name: "Ménage" }, recurrence: { unit: "week", interval: 1 } })
+    const named = await Promise.all(Array.from({ length: 20 }, (_, i) => create(today, { payee: { kind: "name", name: `Fournisseur ${i}` } })))
+    const transfers = await Promise.all(
+      Array.from({ length: 10 }, () => create(today, { payee: { kind: "transfer", accountId: savings }, name: "Épargne mensuelle" })),
+    )
+    const manual = await Promise.all(
+      Array.from({ length: 5 }, (_, i) => create(addDays(today, -1), { payee: { kind: "name", name: `Club ${i}` }, autoPost: false })),
+    )
+    await Promise.all(
+      manual.map((_, i) =>
+        h.run(
+          Transactions.use((t) => t.create({ accountId: account, date: today, amount: -1_000, payee: { kind: "name", name: `Club ${i}` }, categoryId: null })),
+        ),
+      ),
+    )
+
+    const { value, statements } = await h.statementsOf(Schedules.use((s) => s.sync))
+    expect(value).toEqual({ posted: 40, matched: 5 })
+    expect(statements).toBeLessThan(20)
+
+    const count = async (where: string, ...params: string[]) =>
+      (await h.d1.prepare(`SELECT COUNT(*) AS n FROM transactions WHERE ${where}`).bind(...params).first<{ n: number }>())?.n
+    expect(await count("schedule_id = ?", weekly)).toBe(10)
+    expect(await count("account_id = ? AND amount = 1000 AND transfer_id IS NOT NULL", savings)).toBe(10)
+    for (const id of [...named, ...transfers, ...manual]) expect((await nextDate(id))! > today).toBe(true)
+
+    expect(await h.run(Schedules.use((s) => s.sync))).toEqual({ posted: 0, matched: 0 })
+  })
+
+  it("leaves an occurrence due when its transaction cannot be written, and still books the others", async () => {
+    const broken = await create(today, { name: "Panne", payee: { kind: "name", name: "Panne" } })
+    const healthy = await create(today, { name: "Saine", payee: { kind: "name", name: "Saine" } })
+    await h.d1
+      .prepare("CREATE TRIGGER fail_panne BEFORE INSERT ON transactions WHEN NEW.notes = 'Panne' BEGIN SELECT RAISE(ABORT, 'panne'); END")
+      .run()
+    try {
+      expect(await h.run(Schedules.use((s) => s.sync))).toEqual({ posted: 1, matched: 0 })
+      expect(await nextDate(broken)).toBe(today)
+      expect((await nextDate(healthy))! > today).toBe(true)
+    } finally {
+      await h.d1.prepare("DROP TRIGGER fail_panne").run()
+    }
+  })
+})

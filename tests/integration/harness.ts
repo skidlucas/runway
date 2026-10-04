@@ -58,12 +58,33 @@ export const createHarness = async (options: { ai?: AiProviders; market?: Partia
   })
   const d1 = (await mf.getD1Database("DB")) as unknown as D1Database
   await migrate(d1)
+  // Workers cap the queries of one invocation (50 on the free plan), each statement of a batch
+  // included: every statement the application prepares is counted.
+  let statements = 0
+  const counted = new Proxy(d1, {
+    get(target, key) {
+      if (key === "prepare") {
+        return (query: string) => {
+          statements++
+          return target.prepare(query)
+        }
+      }
+      const value = Reflect.get(target, key, target)
+      return typeof value === "function" ? value.bind(target) : value
+    },
+  })
   const runtime = ManagedRuntime.make(
-    makeCoreLayer(d1, options.ai, Layer.succeed(MarketData, MarketData.of({ ...offlineMarket, ...options.market }))),
+    makeCoreLayer(counted, options.ai, Layer.succeed(MarketData, MarketData.of({ ...offlineMarket, ...options.market }))),
   )
   return {
     d1,
     run: <A, E>(effect: Effect.Effect<A, E, Services>): Promise<A> => runtime.runPromise(effect),
+    /** How many D1 statements `effect` runs. */
+    statementsOf: async <A, E>(effect: Effect.Effect<A, E, Services>): Promise<{ value: A; statements: number }> => {
+      const before = statements
+      const value = await runtime.runPromise(effect)
+      return { value, statements: statements - before }
+    },
     /** The typed failure of an effect expected to fail, to assert on its `_tag`. */
     fail: async <A, E>(effect: Effect.Effect<A, E, Services>): Promise<E> => {
       const exit = await runtime.runPromiseExit(effect)
