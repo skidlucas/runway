@@ -48,9 +48,10 @@ export type ButtonProps = React.ButtonHTMLAttributes<HTMLButtonElement> & {
 /** Button styles, also for links that look like buttons (a <button> inside an <a> is invalid). */
 export const buttonClass = ({ variant = "secondary", size = "md" }: Pick<ButtonProps, "variant" | "size"> = {}) =>
   cx(
-    "inline-flex select-none items-center justify-center gap-1.5 whitespace-nowrap rounded-[6px] transition-colors duration-[120ms] disabled:pointer-events-none disabled:opacity-50",
-    size === "sm" && "h-7 px-2.5 text-[12px]",
-    size === "md" && "h-8 px-3",
+    "relative inline-flex select-none items-center justify-center gap-1.5 whitespace-nowrap rounded-[6px] transition-colors duration-[120ms] disabled:pointer-events-none disabled:opacity-50",
+    // On touch screens the tap area grows to 40px without moving the layout.
+    size === "sm" && "h-7 px-2.5 text-[12px] max-md:after:absolute max-md:after:-inset-1.5",
+    size === "md" && "h-8 px-3 max-md:after:absolute max-md:after:-inset-1",
     size === "lg" && "h-11 px-4 text-[15px]",
     buttonVariants[variant],
   )
@@ -84,8 +85,8 @@ export const IconButton = React.forwardRef<
       aria-label={label}
       title={label}
       className={cx(
-        "inline-flex items-center justify-center rounded-[6px] text-muted transition-colors duration-[120ms] hover:bg-hover hover:text-fg disabled:opacity-40",
-        size === "sm" ? "h-6 w-6" : "h-8 w-8",
+        "relative inline-flex items-center justify-center rounded-[6px] text-muted transition-colors duration-[120ms] hover:bg-hover hover:text-fg disabled:opacity-40 max-md:after:absolute",
+        size === "sm" ? "h-6 w-6 max-md:after:-inset-2" : "h-8 w-8 max-md:after:-inset-1",
         className,
       )}
       {...rest}
@@ -443,7 +444,7 @@ export function DateInput({
             <button
               type="button"
               aria-label="Calendrier"
-              className="absolute right-1 top-1/2 inline-flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-[6px] text-faint hover:bg-hover hover:text-fg"
+              className="absolute right-1 top-1/2 inline-flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-[6px] text-faint hover:bg-hover hover:text-fg max-md:after:absolute max-md:after:-inset-2"
             >
               <CalendarDays size={14} />
             </button>

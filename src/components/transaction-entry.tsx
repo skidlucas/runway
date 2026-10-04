@@ -7,7 +7,7 @@ import { useIsMobile, useToday } from "~/lib/hooks"
 import { q, useAction } from "~/lib/queries"
 import { createTransaction } from "~/server/fns/core"
 import { AccountSelect, CategoryPicker, PayeePicker, type PayeeValue } from "./pickers"
-import { Button, cx, DateInput, Dialog, Field, Input, Segmented, Sheet } from "./ui"
+import { Button, cx, DateInput, Dialog, Field, Input, Segmented, Sheet, touchHitArea } from "./ui"
 
 type Kind = "expense" | "income"
 
@@ -258,13 +258,13 @@ function MobileEntry({
   return (
     <div className="flex h-full flex-col pt-[env(safe-area-inset-top)]">
       <div className="flex items-center justify-between px-5 pb-3 pt-4">
-        <button type="button" className="text-muted" onClick={onCancel}>
+        <button type="button" className={cx("text-muted", touchHitArea)} onClick={onCancel}>
           Annuler
         </button>
         <span className="font-semibold">Nouvelle opération</span>
         <button
           type="button"
-          className={cx("font-semibold", canSubmit ? "text-accent" : "text-ghost")}
+          className={cx("font-semibold", touchHitArea, canSubmit ? "text-accent" : "text-ghost")}
           onClick={onSubmit}
           disabled={!canSubmit || pending}
         >

@@ -205,7 +205,7 @@ export function SuggestionChip({ tx, compact }: { tx: TxRow; compact?: boolean }
           e.stopPropagation()
           ctx.dismiss(tx.id)
         }}
-        className="border-l border-dashed border-accent-line px-1 py-0.5 text-faint hover:text-fg"
+        className="self-stretch border-l border-dashed border-accent-line px-1 py-0.5 text-faint hover:text-fg max-md:px-2.5"
       >
         <X size={11} />
       </button>
