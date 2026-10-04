@@ -2,183 +2,36 @@ import { createServerFn } from "@tanstack/react-start"
 import { Schema } from "effect"
 import { authMiddleware } from "../auth"
 import { runApp } from "../runtime"
-import { AssetType, Recurrence, RetainedValue, RuleAction, RuleCondition, RuleOrigin, RulesOp } from "../schemas"
+import { BundleExtras, BundleStructure, Day, DuplicateProbe, IdMaps, ImportRow } from "../schemas"
 import { Demo } from "../services/demo"
 import { ImportExport } from "../services/import-export"
-import { InsightQuery } from "./insights"
-import { DashboardWidget } from "./reports"
-import { AssetSource } from "./wealth"
 
 const v = Schema.toStandardSchemaV1
-const Str = Schema.String
-const NStr = Schema.NullOr(Schema.String)
-const Opt = <S extends Schema.Top>(s: S) => Schema.optional(s)
 
 export const seedDemo = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
   .handler(() => runApp(Demo.use((s) => s.seed)))
 
-const Structure = Schema.Struct({
-  source: Schema.Literals(["actual", "runway"]),
-  name: Str,
-  accounts: Schema.Array(
-    Schema.Struct({
-      id: Str,
-      name: Str,
-      offBudget: Schema.Boolean,
-      closed: Schema.Boolean,
-      kind: Opt(Str),
-      inForecast: Opt(Schema.Boolean),
-      lastReconciledAt: Opt(NStr),
-    }),
-  ),
-  groups: Schema.Array(Schema.Struct({ id: Str, name: Str, isIncome: Schema.Boolean, hidden: Schema.Boolean, sortOrder: Schema.Finite })),
-  categories: Schema.Array(
-    Schema.Struct({ id: Str, groupId: Str, name: Str, isIncome: Schema.Boolean, hidden: Schema.Boolean, sortOrder: Schema.Finite }),
-  ),
-  payees: Schema.Array(Schema.Struct({ id: Str, name: Str, transferAccountId: NStr })),
-  budgets: Schema.Array(Schema.Struct({ month: Str, categoryId: Str, amount: Schema.Int, carryover: Schema.Boolean })),
-  buffered: Schema.Array(Schema.Struct({ month: Str, amount: Schema.Int })),
-  rules: Schema.Array(
-    Schema.Struct({
-      conditionsOp: RulesOp,
-      conditions: Schema.Array(RuleCondition),
-      actions: Schema.Array(RuleAction),
-      enabled: Opt(Schema.Boolean),
-      origin: Opt(RuleOrigin),
-    }),
-  ),
-  schedules: Schema.Array(
-    Schema.Struct({
-      id: Str,
-      name: NStr,
-      payeeId: NStr,
-      accountId: Str,
-      categoryId: NStr,
-      amount: Schema.Int,
-      recurrence: Recurrence,
-      startDate: Str,
-      nextDate: Str,
-      endDate: NStr,
-      autoPost: Schema.Boolean,
-      active: Schema.Boolean,
-    }),
-  ),
-})
-
 // Exported for the tests: a field missing here is silently dropped from what the browser sends.
 export const ImportStructureInput = Schema.Struct({
-  structure: Structure,
+  structure: BundleStructure,
   include: Schema.Struct({ budgets: Schema.Boolean, rules: Schema.Boolean, schedules: Schema.Boolean }),
+})
+export const ImportExtrasInput = Schema.Struct({ extras: BundleExtras, maps: IdMaps })
+export const ImportTransactionsInput = Schema.Struct({
+  rows: Schema.Array(ImportRow),
+  options: Schema.Struct({ dedupe: Schema.Boolean, applyRules: Schema.Boolean }),
 })
 
 export const importStructure = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
   .validator(v(ImportStructureInput))
-  .handler(({ data }) =>
-    runApp(
-      ImportExport.use((s) =>
-        s.importStructure(
-          {
-            ...data.structure,
-            accounts: [...data.structure.accounts],
-            groups: [...data.structure.groups],
-            categories: [...data.structure.categories],
-            payees: [...data.structure.payees],
-            budgets: [...data.structure.budgets],
-            buffered: [...data.structure.buffered],
-            rules: data.structure.rules.map((r) => ({ ...r, conditions: [...r.conditions], actions: [...r.actions] })),
-            schedules: [...data.structure.schedules],
-          },
-          data.include,
-        ),
-      ),
-    ),
-  )
-
-const Extras = Schema.Struct({
-  assets: Schema.Array(
-    Schema.Struct({
-      id: Str,
-      name: Str,
-      type: AssetType,
-      isLiability: Schema.Boolean,
-      subtitle: NStr,
-      purchaseAmount: Schema.NullOr(Schema.Int),
-      purchaseDate: NStr,
-      declaredAmount: Schema.NullOr(Schema.Int),
-      declaredDate: NStr,
-      retained: RetainedValue,
-      share: Opt(Schema.Int),
-      source: AssetSource,
-      notes: NStr,
-      archived: Schema.Boolean,
-      createdAt: Str,
-    }),
-  ),
-  valuations: Schema.Array(
-    Schema.Struct({
-      id: Str,
-      assetId: Str,
-      date: Str,
-      amount: Schema.Int,
-      source: Str,
-      unitPrice: Schema.NullOr(Schema.Finite),
-      asOf: Opt(NStr),
-      automatic: Schema.Boolean,
-    }),
-  ),
-  savedViews: Schema.Array(Schema.Struct({ id: Str, name: Str, config: InsightQuery, sortOrder: Schema.Finite })),
-  dashboards: Opt(Schema.Array(Schema.Struct({ id: Str, name: Str, widgets: Schema.Array(DashboardWidget), sortOrder: Schema.Finite }))),
-})
-const Ids = Schema.Record(Str, Str)
-
-export const ImportExtrasInput = Schema.Struct({ extras: Extras, maps: Schema.Struct({ accounts: Ids, groups: Ids, categories: Ids, payees: Ids }) })
+  .handler(({ data }) => runApp(ImportExport.use((s) => s.importStructure(data.structure, data.include))))
 
 export const importExtras = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
   .validator(v(ImportExtrasInput))
-  .handler(({ data }) =>
-    runApp(
-      ImportExport.use((s) =>
-        s.importExtras(
-          {
-            assets: [...data.extras.assets],
-            valuations: data.extras.valuations.map((v) => ({ ...v, asOf: v.asOf ?? null })),
-            savedViews: [...data.extras.savedViews],
-            dashboards: (data.extras.dashboards ?? []).map((d) => ({ ...d, widgets: [...d.widgets] })),
-          },
-          data.maps,
-        ),
-      ),
-    ),
-  )
-
-const ImportRow = Schema.Struct({
-  id: Opt(NStr),
-  accountId: Str,
-  date: Str,
-  amount: Schema.Int,
-  payeeId: Opt(NStr),
-  payeeName: Opt(NStr),
-  categoryId: Opt(NStr),
-  notes: Opt(NStr),
-  cleared: Opt(Schema.Boolean),
-  reconciled: Opt(Schema.Boolean),
-  transferId: Opt(NStr),
-  isParent: Opt(Schema.Boolean),
-  parentId: Opt(NStr),
-  importedId: Opt(NStr),
-  importedPayee: Opt(NStr),
-  startingBalance: Opt(Schema.Boolean),
-  scheduleId: Opt(NStr),
-  createdAt: Opt(NStr),
-})
-
-export const ImportTransactionsInput = Schema.Struct({
-  rows: Schema.Array(ImportRow),
-  options: Schema.Struct({ dedupe: Schema.Boolean, applyRules: Schema.Boolean }),
-})
+  .handler(({ data }) => runApp(ImportExport.use((s) => s.importExtras(data.extras, data.maps))))
 
 export const importTransactions = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
@@ -191,7 +44,7 @@ export const countDuplicates = createServerFn({ method: "POST" })
     v(
       Schema.Struct({
         probes: Schema.Array(
-          Schema.Struct({ account: Str, date: Str, amount: Schema.Int, payee: NStr, id: Opt(NStr), importedId: Opt(NStr), importedPayee: Opt(NStr) }),
+          DuplicateProbe,
         ),
       }),
     ),
@@ -212,7 +65,7 @@ export const exportTransactions = createServerFn({ method: "GET" })
   .validator(
     v(
       Schema.Struct({
-        cursor: Schema.NullOr(Schema.Struct({ date: Schema.String, createdAt: Schema.String, id: Schema.String })),
+        cursor: Schema.NullOr(Schema.Struct({ date: Day, createdAt: Schema.String, id: Schema.String })),
         limit: Schema.Int,
       }),
     ),

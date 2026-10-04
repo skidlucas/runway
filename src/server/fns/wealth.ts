@@ -2,33 +2,13 @@ import { createServerFn } from "@tanstack/react-start"
 import { Schema } from "effect"
 import { authMiddleware } from "../auth"
 import { runApp } from "../runtime"
-import { AssetType, Ids, Name, Notes, RetainedValue, SearchText } from "../schemas"
+import { AssetType, Day, Id, Ids, Name, Notes, RetainedValue, SearchText, ValuationSource } from "../schemas"
 import { MarketData } from "../services/market-data"
 import { Wealth } from "../services/wealth"
 
 const v = Schema.toStandardSchemaV1
 
-const DatedAmount = Schema.NullOr(Schema.Struct({ amount: Schema.Int, date: Schema.NullOr(Schema.String) }))
-
-export const AssetSource = Schema.Union([
-  Schema.Struct({ kind: Schema.Literal("manual") }),
-  Schema.Struct({ kind: Schema.Literal("crypto"), coinId: Schema.String, quantity: Schema.Finite, label: Schema.optional(Schema.String) }),
-  Schema.Struct({ kind: Schema.Literal("stock"), symbol: Schema.String, quantity: Schema.Finite, label: Schema.optional(Schema.String) }),
-  Schema.Struct({
-    kind: Schema.Literal("real_estate"),
-    inseeCode: Schema.String,
-    surface: Schema.Finite,
-    propertyType: Schema.Literals(["apartment", "house"]),
-    label: Schema.optional(Schema.String),
-  }),
-  Schema.Struct({
-    kind: Schema.Literal("loan"),
-    principal: Schema.Int,
-    annualRatePct: Schema.Finite,
-    months: Schema.Int,
-    startDate: Schema.String,
-  }),
-])
+const DatedAmount = Schema.NullOr(Schema.Struct({ amount: Schema.Int, date: Schema.NullOr(Day) }))
 
 const AssetInput = Schema.Struct({
   name: Name,
@@ -38,7 +18,7 @@ const AssetInput = Schema.Struct({
   declared: DatedAmount,
   retained: RetainedValue,
   share: Schema.Int,
-  source: AssetSource,
+  source: ValuationSource,
   notes: Schema.NullOr(Notes),
 })
 
@@ -57,17 +37,17 @@ export const createAsset = createServerFn({ method: "POST" })
 
 export const updateAsset = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
-  .validator(v(Schema.Struct({ id: Schema.String, input: AssetInput })))
+  .validator(v(Schema.Struct({ id: Id, input: AssetInput })))
   .handler(({ data }) => runApp(Wealth.use((w) => w.update(data.id, data.input))))
 
 export const deleteAsset = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
-  .validator(v(Schema.Struct({ id: Schema.String })))
+  .validator(v(Schema.Struct({ id: Id })))
   .handler(({ data }) => runApp(Wealth.use((w) => w.remove(data.id))))
 
 export const addAssetValuation = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
-  .validator(v(Schema.Struct({ assetId: Schema.String, date: Schema.String, amount: Schema.Int })))
+  .validator(v(Schema.Struct({ assetId: Id, date: Day, amount: Schema.Int })))
   .handler(({ data }) => runApp(Wealth.use((w) => w.addValuation(data))))
 
 export const refreshValuations = createServerFn({ method: "POST" })

@@ -8,7 +8,7 @@ import { type BundleExtras, type BundleStructure, type IdMaps, orderStamps } fro
 import { bulkInsertStatements, chunkRows, Db, type DbError, newId } from "../db/client"
 import * as schema from "../db/schema"
 import { Invalid, type NotFound } from "../errors"
-import { AccountKind } from "../schemas"
+import { AccountKind, DuplicateProbe as DuplicateProbeSchema, ImportRow as ImportRowSchema } from "../schemas"
 import { DEFAULT_WIDGETS, MAIN_DASHBOARD_ID, MAX_WIDGETS, validWidget } from "./dashboards"
 import { Payees } from "./payees"
 import { ruleInputError, Rules } from "./rules"
@@ -16,29 +16,7 @@ import { Settings } from "./settings"
 import { type NewTxRow, transactionInsertStatements } from "./transactions"
 import { sourceProblem } from "./wealth"
 
-export type ImportRow = {
-  id?: string | null
-  accountId: string
-  date: string
-  amount: number
-  payeeId?: string | null
-  /** Used by bank files (CSV, OFX, QIF): resolved or created by name on the server. */
-  payeeName?: string | null
-  categoryId?: string | null
-  notes?: string | null
-  cleared?: boolean
-  reconciled?: boolean
-  transferId?: string | null
-  isParent?: boolean
-  parentId?: string | null
-  importedId?: string | null
-  importedPayee?: string | null
-  startingBalance?: boolean
-  /** Dropped when no such schedule exists. */
-  scheduleId?: string | null
-  /** Orders the operations of a same day: newest stamp first in the register. */
-  createdAt?: string | null
-}
+export type ImportRow = typeof ImportRowSchema.Type
 
 export type ImportOptions = {
   /** Skip rows that match an existing transaction (same account, date, amount and payee). */
@@ -50,15 +28,7 @@ export type ImportOptions = {
 /** `skipped`: rows left out because their account does not exist (deleted meanwhile). */
 export type ImportResult = { inserted: number; duplicates: number; skipped: number }
 
-export type DuplicateProbe = {
-  account: string
-  date: string
-  amount: number
-  payee: string | null
-  id?: string | null
-  importedId?: string | null
-  importedPayee?: string | null
-}
+export type DuplicateProbe = typeof DuplicateProbeSchema.Type
 
 export type ExportMeta = {
   version: 1

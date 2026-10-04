@@ -1,30 +1,8 @@
-import type { Recurrence } from "~/domain/recurrence"
-import type { RuleAction, RuleCondition, RuleConditionsOp } from "~/domain/rules"
-import type { ExportMeta } from "~/server/services/import-export"
+import type { BundleExtras as BundleExtrasSchema, BundleStructure as BundleStructureSchema, IdMaps as IdMapsSchema } from "~/server/schemas"
 
 // Source-agnostic description of data to import. Ids are the source ids: they are
 // kept when free, which makes re-importing the same file idempotent.
 
-type BundleAccount = {
-  id: string
-  name: string
-  offBudget: boolean
-  closed: boolean
-  kind?: string
-  /** Runway backups only. */
-  inForecast?: boolean
-  lastReconciledAt?: string | null
-}
-type BundleGroup = { id: string; name: string; isIncome: boolean; hidden: boolean; sortOrder: number }
-type BundleCategory = {
-  id: string
-  groupId: string
-  name: string
-  isIncome: boolean
-  hidden: boolean
-  sortOrder: number
-}
-type BundlePayee = { id: string; name: string; transferAccountId: string | null }
 export type BundleTransaction = {
   id: string
   accountId: string
@@ -46,62 +24,22 @@ export type BundleTransaction = {
   /** Orders the operations of a same day; the server stamps them itself when absent. */
   createdAt?: string | null
 }
-type BundleBudget = { month: string; categoryId: string; amount: number; carryover: boolean }
-export type BundleRule = {
-  conditionsOp: RuleConditionsOp
-  conditions: RuleCondition[]
-  /** Payee and category ids in actions are source ids. */
-  actions: RuleAction[]
-  /** Runway backups only; imported rules are enabled otherwise. */
-  enabled?: boolean
-  /** Runway backups only; marked "imported" otherwise. */
-  origin?: "manual" | "suggested" | "imported"
-}
-export type BundleSchedule = {
-  id: string
-  name: string | null
-  payeeId: string | null
-  accountId: string
-  categoryId: string | null
-  amount: number
-  recurrence: Recurrence
-  startDate: string
-  nextDate: string
-  endDate: string | null
-  autoPost: boolean
-  active: boolean
-}
 
-export type ImportBundle = {
-  source: "actual" | "runway"
-  name: string
-  accounts: BundleAccount[]
-  groups: BundleGroup[]
-  categories: BundleCategory[]
-  payees: BundlePayee[]
+/** Structure part of a bundle: everything except transactions, sent in one request. */
+export type BundleStructure = typeof BundleStructureSchema.Type
+export type BundleRule = BundleStructure["rules"][number]
+export type BundleSchedule = BundleStructure["schedules"][number]
+export type BundleExtras = typeof BundleExtrasSchema.Type
+export type IdMaps = typeof IdMapsSchema.Type
+
+export type ImportBundle = BundleStructure & {
   transactions: BundleTransaction[]
-  budgets: BundleBudget[]
-  buffered: Array<{ month: string; amount: number }>
-  rules: BundleRule[]
-  schedules: BundleSchedule[]
   /** Runway backups only: wealth, saved insight views and dashboards, restored after the structure. */
   extras?: BundleExtras
   /** Things that exist in the source but cannot be represented, for the preview. */
   skipped: { rules: number; schedules: number; transactions: number; budgets: number }
   /** Things imported in a simpler form than in the source, for the preview. */
   approximated: { schedules: number }
-}
-
-/** Structure part of a bundle: everything except transactions, sent in one request. */
-export type BundleStructure = Omit<ImportBundle, "transactions" | "skipped" | "approximated" | "extras">
-
-export type BundleExtras = Pick<ExportMeta, "assets" | "valuations" | "savedViews" | "dashboards">
-
-export type IdMaps = {
-  accounts: Record<string, string>
-  groups: Record<string, string>
-  categories: Record<string, string>
-  payees: Record<string, string>
 }
 
 /**

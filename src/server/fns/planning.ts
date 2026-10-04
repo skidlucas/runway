@@ -29,7 +29,7 @@ export const getForecast = createServerFn({ method: "GET" })
     v(
       Schema.Struct({
         month: Schema.optional(Month),
-        accountId: Schema.optional(Schema.String),
+        accountId: Schema.optional(Id),
       }),
     ),
   )
@@ -70,19 +70,19 @@ export const createSchedule = createServerFn({ method: "POST" })
 
 export const updateSchedule = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
-  .validator(v(Schema.Struct({ id: Schema.String, input: ScheduleInput, active: Schema.optional(Schema.Boolean) })))
+  .validator(v(Schema.Struct({ id: Id, input: ScheduleInput, active: Schema.optional(Schema.Boolean) })))
   .handler(({ data }) =>
     runApp(Schedules.use((s) => s.update(data.id, { ...data.input, ...(data.active === undefined ? {} : { active: data.active }) }))),
   )
 
 export const deleteSchedule = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
-  .validator(v(Schema.Struct({ id: Schema.String })))
+  .validator(v(Schema.Struct({ id: Id })))
   .handler(({ data }) => runApp(Schedules.use((s) => s.remove(data.id))))
 
 export const skipSchedule = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
-  .validator(v(Schema.Struct({ id: Schema.String })))
+  .validator(v(Schema.Struct({ id: Id })))
   .handler(({ data }) => runApp(Schedules.use((s) => s.skip(data.id))))
 
 export const postSchedule = createServerFn({ method: "POST" })

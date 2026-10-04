@@ -1,6 +1,7 @@
 import { Schema } from "effect"
 import { ACCOUNT_KINDS } from "~/domain/accounts"
 import { isDay, isMonth } from "~/domain/dates"
+import { INSIGHT_MEASURES, INSIGHT_MONTHS, INSIGHT_ROLLING, INSIGHT_TARGET_KINDS } from "~/domain/insights"
 import { RECURRENCE_UNITS } from "~/domain/recurrence"
 import { RULE_CONDITION_FIELDS, RULE_CONDITION_OPS, RULE_CONDITIONS_OPS, RULE_ORIGINS } from "~/domain/rules"
 import { ASSET_TYPES, RETAINED_KINDS } from "~/domain/wealth"
@@ -50,3 +51,202 @@ export const RuleOrigin = Schema.Literals(RULE_ORIGINS)
 export const AccountKind = Schema.Literals(ACCOUNT_KINDS)
 export const AssetType = Schema.Literals(ASSET_TYPES)
 export const RetainedValue = Schema.Literals(RETAINED_KINDS)
+
+export const ValuationSource = Schema.Union([
+  Schema.Struct({ kind: Schema.Literal("manual") }),
+  // `label` is the display name picked in the search ("Bitcoin (BTC)", "Lyon 7e Arrondissement").
+  Schema.Struct({ kind: Schema.Literal("crypto"), coinId: Schema.String, quantity: Schema.Finite, label: Schema.optional(Schema.String) }),
+  Schema.Struct({ kind: Schema.Literal("stock"), symbol: Schema.String, quantity: Schema.Finite, label: Schema.optional(Schema.String) }),
+  Schema.Struct({
+    kind: Schema.Literal("real_estate"),
+    inseeCode: Schema.String,
+    surface: Schema.Finite,
+    propertyType: Schema.Literals(["apartment", "house"]),
+    label: Schema.optional(Schema.String),
+  }),
+  Schema.Struct({
+    kind: Schema.Literal("loan"),
+    principal: Schema.Int,
+    annualRatePct: Schema.Finite,
+    months: Schema.Int,
+    startDate: Day,
+  }),
+])
+
+export const InsightQuery = Schema.Struct({
+  measure: Schema.Literals(INSIGHT_MEASURES),
+  target: Schema.Union([
+    Schema.Struct({ kind: Schema.Literal("all") }),
+    Schema.Struct({ kind: Schema.Literals(INSIGHT_TARGET_KINDS), id: Schema.String }),
+  ]),
+  months: Schema.Literals(INSIGHT_MONTHS),
+  rolling: Schema.Literals(INSIGHT_ROLLING),
+})
+
+export const DashboardWidget = Schema.Struct({
+  id: Schema.String,
+  kind: Schema.Literals([
+    "net_worth",
+    "wealth",
+    "cash_flow",
+    "spending_comparison",
+    "category_spending",
+    "account_balances",
+    "upcoming",
+    "insight_view",
+  ]),
+  /** Columns taken on the 3-column desktop grid. */
+  size: Schema.Literals([1, 2, 3]),
+  /** Period of the time-based widgets (net worth, cash flow, category spending). */
+  months: Schema.optional(Schema.Int),
+  /** Horizon of the `upcoming` widget. */
+  days: Schema.optional(Schema.Int),
+  /** Saved insights view shown by an `insight_view` widget. */
+  viewId: Schema.optional(Schema.String),
+})
+
+// --- Imports (Actual files, bank files, runway backups) ----------------------------
+// Ids are the source's ids. Months and dates the import skips row by row (budgets, schedules)
+// stay plain strings: one bad row must not reject a whole file.
+
+const NullableString = Schema.NullOr(Schema.String)
+
+export const BundleStructure = Schema.Struct({
+  source: Schema.Literals(["actual", "runway"]),
+  name: Schema.String,
+  accounts: Schema.Array(
+    Schema.Struct({
+      id: Schema.String,
+      name: Schema.String,
+      offBudget: Schema.Boolean,
+      closed: Schema.Boolean,
+      kind: Schema.optional(Schema.String),
+      /** Runway backups only. */
+      inForecast: Schema.optional(Schema.Boolean),
+      lastReconciledAt: Schema.optional(NullableString),
+    }),
+  ),
+  groups: Schema.Array(
+    Schema.Struct({ id: Schema.String, name: Schema.String, isIncome: Schema.Boolean, hidden: Schema.Boolean, sortOrder: Schema.Finite }),
+  ),
+  categories: Schema.Array(
+    Schema.Struct({
+      id: Schema.String,
+      groupId: Schema.String,
+      name: Schema.String,
+      isIncome: Schema.Boolean,
+      hidden: Schema.Boolean,
+      sortOrder: Schema.Finite,
+    }),
+  ),
+  payees: Schema.Array(Schema.Struct({ id: Schema.String, name: Schema.String, transferAccountId: NullableString })),
+  budgets: Schema.Array(Schema.Struct({ month: Schema.String, categoryId: Schema.String, amount: Schema.Int, carryover: Schema.Boolean })),
+  buffered: Schema.Array(Schema.Struct({ month: Schema.String, amount: Schema.Int })),
+  rules: Schema.Array(
+    Schema.Struct({
+      conditionsOp: RulesOp,
+      conditions: Schema.Array(RuleCondition),
+      /** Payee and category ids in actions are source ids. */
+      actions: Schema.Array(RuleAction),
+      /** Runway backups only; imported rules are enabled otherwise. */
+      enabled: Schema.optional(Schema.Boolean),
+      /** Runway backups only; marked "imported" otherwise. */
+      origin: Schema.optional(RuleOrigin),
+    }),
+  ),
+  schedules: Schema.Array(
+    Schema.Struct({
+      id: Schema.String,
+      name: NullableString,
+      payeeId: NullableString,
+      accountId: Schema.String,
+      categoryId: NullableString,
+      amount: Schema.Int,
+      recurrence: Recurrence,
+      startDate: Schema.String,
+      nextDate: Schema.String,
+      endDate: NullableString,
+      autoPost: Schema.Boolean,
+      active: Schema.Boolean,
+    }),
+  ),
+})
+
+/** Runway backups only: wealth, saved insight views and dashboards, restored after the structure. */
+export const BundleExtras = Schema.Struct({
+  assets: Schema.Array(
+    Schema.Struct({
+      id: Schema.String,
+      name: Schema.String,
+      type: AssetType,
+      isLiability: Schema.Boolean,
+      subtitle: NullableString,
+      purchaseAmount: Schema.NullOr(Schema.Int),
+      purchaseDate: Schema.NullOr(Day),
+      declaredAmount: Schema.NullOr(Schema.Int),
+      declaredDate: Schema.NullOr(Day),
+      retained: RetainedValue,
+      /** Missing from backups made before shared ownership existed. */
+      share: Schema.optional(Schema.Int),
+      source: ValuationSource,
+      notes: NullableString,
+      archived: Schema.Boolean,
+      createdAt: Schema.String,
+    }),
+  ),
+  valuations: Schema.Array(
+    Schema.Struct({
+      id: Schema.String,
+      assetId: Schema.String,
+      date: Day,
+      amount: Schema.Int,
+      source: Schema.String,
+      unitPrice: Schema.NullOr(Schema.Finite),
+      asOf: Schema.optional(NullableString),
+      automatic: Schema.Boolean,
+    }),
+  ),
+  savedViews: Schema.Array(Schema.Struct({ id: Schema.String, name: Schema.String, config: InsightQuery, sortOrder: Schema.Finite })),
+  /** Missing from backups made before dashboards existed. */
+  dashboards: Schema.optional(
+    Schema.Array(Schema.Struct({ id: Schema.String, name: Schema.String, widgets: Schema.Array(DashboardWidget), sortOrder: Schema.Finite })),
+  ),
+})
+
+const SourceToNewIds = Schema.Record(Schema.String, Schema.String)
+
+export const IdMaps = Schema.Struct({ accounts: SourceToNewIds, groups: SourceToNewIds, categories: SourceToNewIds, payees: SourceToNewIds })
+
+export const ImportRow = Schema.Struct({
+  id: Schema.optional(NullableString),
+  accountId: Schema.String,
+  date: Day,
+  amount: Schema.Int,
+  payeeId: Schema.optional(NullableString),
+  /** Used by bank files (CSV, OFX, QIF): resolved or created by name on the server. */
+  payeeName: Schema.optional(NullableString),
+  categoryId: Schema.optional(NullableString),
+  notes: Schema.optional(NullableString),
+  cleared: Schema.optional(Schema.Boolean),
+  reconciled: Schema.optional(Schema.Boolean),
+  transferId: Schema.optional(NullableString),
+  isParent: Schema.optional(Schema.Boolean),
+  parentId: Schema.optional(NullableString),
+  importedId: Schema.optional(NullableString),
+  importedPayee: Schema.optional(NullableString),
+  startingBalance: Schema.optional(Schema.Boolean),
+  /** Dropped when no such schedule exists. */
+  scheduleId: Schema.optional(NullableString),
+  /** Orders the operations of a same day: newest stamp first in the register. */
+  createdAt: Schema.optional(NullableString),
+})
+
+export const DuplicateProbe = Schema.Struct({
+  account: Schema.String,
+  date: Day,
+  amount: Schema.Int,
+  payee: NullableString,
+  id: Schema.optional(NullableString),
+  importedId: Schema.optional(NullableString),
+  importedPayee: Schema.optional(NullableString),
+})

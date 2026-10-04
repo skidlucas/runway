@@ -1,9 +1,9 @@
 import { sql } from "drizzle-orm"
 import { ACCOUNT_KINDS } from "../../domain/accounts"
-import type { InsightMeasure, InsightMonths, InsightRolling, InsightTargetKind } from "../../domain/insights"
 import type { Recurrence } from "../../domain/recurrence"
 import { RULE_CONDITIONS_OPS, RULE_ORIGINS, type RuleAction, type RuleCondition } from "../../domain/rules"
 import { ASSET_TYPES, RETAINED_KINDS } from "../../domain/wealth"
+import type { DashboardWidget as DashboardWidgetSchema, InsightQuery, ValuationSource as ValuationSourceSchema } from "../schemas"
 import { index, integer, primaryKey, real, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core"
 
 // Amounts are integer cents everywhere. Dates are ISO strings: `YYYY-MM-DD` for days, `YYYY-MM` for months.
@@ -165,13 +165,7 @@ export const schedules = sqliteTable(
   (t) => [index("schedules_next_idx").on(t.nextDate)],
 )
 
-export type ValuationSource =
-  | { kind: "manual" }
-  // `label` is the display name picked in the search ("Bitcoin (BTC)", "Lyon 7e Arrondissement").
-  | { kind: "crypto"; coinId: string; quantity: number; label?: string }
-  | { kind: "stock"; symbol: string; quantity: number; label?: string }
-  | { kind: "real_estate"; inseeCode: string; surface: number; propertyType: "apartment" | "house"; label?: string }
-  | { kind: "loan"; principal: number; annualRatePct: number; months: number; startDate: string }
+export type ValuationSource = typeof ValuationSourceSchema.Type
 
 export const assets = sqliteTable("assets", {
   id: text("id").primaryKey(),
@@ -214,12 +208,7 @@ export const assetValuations = sqliteTable(
   (t) => [index("asset_valuations_asset_date_idx").on(t.assetId, t.date)],
 )
 
-export type InsightViewConfig = {
-  measure: InsightMeasure
-  target: { kind: "all" } | { kind: InsightTargetKind; id: string }
-  months: InsightMonths
-  rolling: InsightRolling
-}
+export type InsightViewConfig = typeof InsightQuery.Type
 
 export const savedViews = sqliteTable("saved_views", {
   id: text("id").primaryKey(),
@@ -228,28 +217,8 @@ export const savedViews = sqliteTable("saved_views", {
   sortOrder: real("sort_order").notNull().default(0),
 })
 
-export type DashboardWidgetKind =
-  | "net_worth"
-  | "wealth"
-  | "cash_flow"
-  | "spending_comparison"
-  | "category_spending"
-  | "account_balances"
-  | "upcoming"
-  | "insight_view"
-
-export type DashboardWidget = {
-  id: string
-  kind: DashboardWidgetKind
-  /** Columns taken on the 3-column desktop grid. */
-  size: 1 | 2 | 3
-  /** Period of the time-based widgets (net worth, cash flow, category spending). */
-  months?: number
-  /** Horizon of the `upcoming` widget. */
-  days?: number
-  /** Saved insights view shown by an `insight_view` widget. */
-  viewId?: string
-}
+export type DashboardWidget = typeof DashboardWidgetSchema.Type
+export type DashboardWidgetKind = DashboardWidget["kind"]
 
 export const dashboards = sqliteTable("dashboards", {
   id: text("id").primaryKey(),

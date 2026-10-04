@@ -393,7 +393,7 @@ export class Wealth extends Context.Service<
         if (name === "") return fail("Le nom est obligatoire.")
         for (const v of [input.purchase, input.declared]) {
           if (v && (!Number.isInteger(v.amount) || v.amount < 0)) return fail("Les montants doivent être positifs.")
-          if (v?.date && !isDay(v.date)) return fail("Date invalide.")
+          if (v && v.date !== null && !isDay(v.date)) return fail("Date invalide.")
         }
         if (!isShare(input.share)) return fail("La part détenue doit être comprise entre 0 et 100 %.")
         const problem = sourceProblem(input.type, input.source)

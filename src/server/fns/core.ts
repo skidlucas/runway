@@ -186,17 +186,17 @@ export const listTransactions = createServerFn({ method: "GET" })
   .validator(
     v(
       Schema.Struct({
-        accountId: Schema.optional(Schema.String),
-        categoryId: Schema.optional(Schema.String),
-        payeeId: Schema.optional(Schema.String),
-        month: Schema.optional(Schema.String),
-        from: Schema.optional(Schema.String),
-        to: Schema.optional(Schema.String),
+        accountId: Schema.optional(Id),
+        categoryId: Schema.optional(Id),
+        payeeId: Schema.optional(Id),
+        month: Schema.optional(Month),
+        from: Schema.optional(Day),
+        to: Schema.optional(Day),
         search: Schema.optional(SearchText),
         uncategorized: Schema.optional(Schema.Boolean),
         limit: Schema.optional(Schema.Int),
         after: Schema.optional(
-          Schema.Struct({ date: Schema.String, createdAt: Schema.String, id: Schema.String, balance: Schema.NullOr(Schema.Int) }),
+          Schema.Struct({ date: Day, createdAt: Schema.String, id: Id, balance: Schema.NullOr(Schema.Int) }),
         ),
       }),
     ),
@@ -247,7 +247,7 @@ export const deleteTransactions = createServerFn({ method: "POST" })
 
 export const restoreTransactions = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
-  .validator(v(Schema.Struct({ undoId: Schema.String })))
+  .validator(v(Schema.Struct({ undoId: Id })))
   .handler(({ data }) => runApp(Transactions.use((s) => s.restore(data.undoId))))
 
 export const setTransactionsCleared = createServerFn({ method: "POST" })

@@ -1,24 +1,13 @@
 import { createServerFn } from "@tanstack/react-start"
 import { Effect, Schema } from "effect"
-import { INSIGHT_MEASURES, INSIGHT_MONTHS, INSIGHT_ROLLING, INSIGHT_TARGET_KINDS } from "~/domain/insights"
 import { authMiddleware } from "../auth"
 import { runApp } from "../runtime"
-import { Ids, Name, Notes } from "../schemas"
+import { Id, Ids, InsightQuery, Name, Notes } from "../schemas"
 import { Ai } from "../services/ai"
 import { Categorizer } from "../services/categorize"
 import { Insights } from "../services/insights"
 
 const v = Schema.toStandardSchemaV1
-
-export const InsightQuery = Schema.Struct({
-  measure: Schema.Literals(INSIGHT_MEASURES),
-  target: Schema.Union([
-    Schema.Struct({ kind: Schema.Literal("all") }),
-    Schema.Struct({ kind: Schema.Literals(INSIGHT_TARGET_KINDS), id: Schema.String }),
-  ]),
-  months: Schema.Literals(INSIGHT_MONTHS),
-  rolling: Schema.Literals(INSIGHT_ROLLING),
-})
 
 export const getInsightView = createServerFn({ method: "GET" })
   .middleware([authMiddleware])
@@ -49,7 +38,7 @@ export const saveView = createServerFn({ method: "POST" })
 
 export const deleteView = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
-  .validator(v(Schema.Struct({ id: Schema.String })))
+  .validator(v(Schema.Struct({ id: Id })))
   .handler(({ data }) => runApp(Insights.use((s) => s.deleteView(data.id))))
 
 export const getAiStatus = createServerFn({ method: "GET" })
