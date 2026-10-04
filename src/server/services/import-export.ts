@@ -11,7 +11,7 @@ import { Invalid, type NotFound } from "../errors"
 import { AccountKind, DuplicateProbe as DuplicateProbeSchema, ImportRow as ImportRowSchema, Recurrence } from "../schemas"
 import { DEFAULT_WIDGETS, MAIN_DASHBOARD_ID, MAX_WIDGETS, validWidget } from "./dashboards"
 import { Payees } from "./payees"
-import { Rules } from "./rules"
+import { type RuleDto, Rules } from "./rules"
 import { Settings } from "./settings"
 import { type NewTxRow, transactionInsertStatements } from "./transactions"
 import { sourceProblem } from "./wealth"
@@ -95,6 +95,273 @@ const duplicateMatcher = (existing: Iterable<DedupeKey>) => {
   }
 }
 
+type Existing = {
+  accounts: ReadonlyArray<typeof schema.accounts.$inferSelect>
+  groups: ReadonlyArray<typeof schema.categoryGroups.$inferSelect>
+  categories: ReadonlyArray<typeof schema.categories.$inferSelect>
+  payees: ReadonlyArray<typeof schema.payees.$inferSelect>
+  schedules: ReadonlyArray<{ id: string }>
+}
+
+type SourceToNewIds = Record<string, string>
+
+const bool = (b: boolean | null | undefined) => (b ? 1 : 0)
+
+/** Keeps a source id unless a row of this budget (or of this import) already uses it. */
+const idAllocator = (existing: Existing) => {
+  const used = new Set([
+    ...existing.accounts.map((a) => a.id),
+    ...existing.groups.map((g) => g.id),
+    ...existing.categories.map((c) => c.id),
+    ...existing.payees.map((p) => p.id),
+  ])
+  return (sourceId: string) => {
+    const id = used.has(sourceId) ? newId() : sourceId
+    used.add(id)
+    return id
+  }
+}
+
+/** Accounts: matched by name. */
+const planAccounts = (d1: D1Database, structure: BundleStructure, existing: Existing, allocateId: (id: string) => string) => {
+  const accountMap: SourceToNewIds = {}
+  const accountByName = new Map(existing.accounts.map((a) => [normalizeText(a.name), a.id]))
+  const newAccounts: unknown[][] = []
+  let order = existing.accounts.length
+  for (const a of structure.accounts) {
+    const found = accountByName.get(normalizeText(a.name))
+    if (found) {
+      accountMap[a.id] = found
+      continue
+    }
+    const id = allocateId(a.id)
+    accountMap[a.id] = id
+    accountByName.set(normalizeText(a.name), id)
+    const kind = isAccountKind(a.kind) ? a.kind : a.offBudget ? "savings" : "checking"
+    newAccounts.push([id, a.name, kind, bool(a.offBudget), bool(a.closed), bool(a.inForecast ?? !a.offBudget), ++order, a.lastReconciledAt ?? null])
+  }
+  const writes = bulkInsertStatements(
+    d1,
+    "accounts",
+    ["id", "name", "kind", "off_budget", "closed", "in_forecast", "sort_order", "last_reconciled_at"],
+    newAccounts,
+  )
+  return { accountMap, writes }
+}
+
+/** Groups and categories: matched by name (categories within their group first). */
+const planCategories = (d1: D1Database, structure: BundleStructure, existing: Existing, allocateId: (id: string) => string) => {
+  const groupMap: SourceToNewIds = {}
+  const groupByName = new Map(existing.groups.map((g) => [`${g.isIncome}|${normalizeText(g.name)}`, g.id]))
+  const newGroups: unknown[][] = []
+  for (const g of structure.groups) {
+    const key = `${g.isIncome}|${normalizeText(g.name)}`
+    const found = groupByName.get(key)
+    if (found) {
+      groupMap[g.id] = found
+      continue
+    }
+    const id = allocateId(g.id)
+    groupMap[g.id] = id
+    groupByName.set(key, id)
+    newGroups.push([id, g.name, bool(g.isIncome), bool(g.hidden), g.sortOrder + existing.groups.length])
+  }
+
+  const categoryMap: SourceToNewIds = {}
+  const catKey = (groupId: string, name: string) => `${groupId}|${normalizeText(name)}`
+  const catByGroup = new Map(existing.categories.map((c) => [catKey(c.groupId, c.name), c.id]))
+  const catByName = new Map(existing.categories.map((c) => [`${c.isIncome}|${normalizeText(c.name)}`, c.id]))
+  const newCats: unknown[][] = []
+  for (const c of structure.categories) {
+    const groupId = groupMap[c.groupId]
+    if (!groupId) continue
+    const found = catByGroup.get(catKey(groupId, c.name)) ?? catByName.get(`${c.isIncome}|${normalizeText(c.name)}`)
+    if (found) {
+      categoryMap[c.id] = found
+      continue
+    }
+    const id = allocateId(c.id)
+    categoryMap[c.id] = id
+    catByGroup.set(catKey(groupId, c.name), id)
+    newCats.push([id, groupId, c.name, bool(c.isIncome), bool(c.hidden), c.sortOrder])
+  }
+  const writes = [
+    ...bulkInsertStatements(d1, "category_groups", ["id", "name", "is_income", "hidden", "sort_order"], newGroups),
+    ...bulkInsertStatements(d1, "categories", ["id", "group_id", "name", "is_income", "hidden", "sort_order"], newCats),
+  ]
+  return { groupMap, categoryMap, writes }
+}
+
+/** Payees: transfer payees map to the transfer payee of the mapped account, the others match by name. */
+const planPayees = (
+  d1: D1Database,
+  structure: BundleStructure,
+  existing: Existing,
+  accountMap: SourceToNewIds,
+  allocateId: (id: string) => string,
+) => {
+  const payeeMap: SourceToNewIds = {}
+  const transferPayees = new Map(existing.payees.flatMap((p) => (p.transferAccountId ? [[p.transferAccountId, p.id] as const] : [])))
+  const accountNames = new Map([...existing.accounts.map((a) => [a.id, a.name] as const), ...structure.accounts.map((a) => [accountMap[a.id]!, a.name] as const)])
+  const newTransferPayees: unknown[][] = []
+  for (const p of structure.payees) {
+    const accountId = p.transferAccountId ? accountMap[p.transferAccountId] : undefined
+    if (!accountId) continue
+    let id = transferPayees.get(accountId)
+    if (!id) {
+      id = newId()
+      transferPayees.set(accountId, id)
+      newTransferPayees.push([id, accountNames.get(accountId) ?? "Virement", accountId])
+    }
+    payeeMap[p.id] = id
+  }
+  const payeeByName = new Map(existing.payees.filter((p) => !p.transferAccountId).map((p) => [normalizeText(p.name), p.id]))
+  const newPayees: Array<[string, string]> = []
+  for (const p of structure.payees) {
+    if (p.transferAccountId) continue
+    const key = normalizeText(p.name)
+    if (key === "") continue
+    const found = payeeByName.get(key)
+    if (found) {
+      payeeMap[p.id] = found
+      continue
+    }
+    const id = allocateId(p.id)
+    payeeMap[p.id] = id
+    payeeByName.set(key, id)
+    newPayees.push([id, p.name.trim()])
+  }
+  const writes = [
+    ...bulkInsertStatements(d1, "payees", ["id", "name", "transfer_account_id"], newTransferPayees),
+    ...bulkInsertStatements(d1, "payees", ["id", "name"], newPayees),
+  ]
+  return { payeeMap, writes }
+}
+
+/** Budgeted amounts and buffered income overwrite the same months already there. */
+const budgetWrites = (d1: D1Database, structure: BundleStructure, categoryMap: SourceToNewIds): D1PreparedStatement[] => {
+  const budgetRows = structure.budgets.flatMap((b) =>
+    categoryMap[b.categoryId] && isMonth(b.month) ? [[b.month, categoryMap[b.categoryId]!, b.amount, b.carryover ? 1 : 0]] : [],
+  )
+  const buffered = structure.buffered.filter((b) => isMonth(b.month)).map((b) => [b.month, b.amount])
+  return [
+    ...chunkRows(budgetRows).map((chunk) =>
+      d1
+        .prepare(
+          `INSERT INTO budgets (month, category_id, amount, carryover)
+           SELECT json_extract(value, '$[0]'), json_extract(value, '$[1]'), json_extract(value, '$[2]'), json_extract(value, '$[3]')
+           FROM json_each(?) WHERE true
+           ON CONFLICT(month, category_id) DO UPDATE SET amount = excluded.amount, carryover = excluded.carryover`,
+        )
+        .bind(JSON.stringify(chunk)),
+    ),
+    ...chunkRows(buffered).map((chunk) =>
+      d1
+        .prepare(
+          `INSERT INTO budget_months (month, buffered)
+           SELECT json_extract(value, '$[0]'), json_extract(value, '$[1]') FROM json_each(?) WHERE true
+           ON CONFLICT(month) DO UPDATE SET buffered = excluded.buffered`,
+        )
+        .bind(JSON.stringify(chunk)),
+    ),
+  ]
+}
+
+/** Rules with their ids translated, after the ones already there; an identical rule is not added twice. */
+const ruleWrites = (d1: D1Database, structure: BundleStructure, current: ReadonlyArray<RuleDto>, maps: IdMaps): D1PreparedStatement[] => {
+  const seen = new Set(current.map((r) => JSON.stringify([r.conditionsOp, r.conditions, r.actions])))
+  let sortOrder = current.reduce((max, r) => Math.max(max, r.sortOrder), 0)
+  const newRules: unknown[][] = []
+  for (const rule of structure.rules) {
+    const actions = rule.actions.flatMap((a): RuleAction[] => {
+      if (a.type === "set_category") return maps.categories[a.categoryId] ? [{ ...a, categoryId: maps.categories[a.categoryId]! }] : []
+      if (a.type === "set_payee") return maps.payees[a.payeeId] ? [{ ...a, payeeId: maps.payees[a.payeeId]! }] : []
+      return [a]
+    })
+    const conditions = rule.conditions.map((c) =>
+      c.field === "account" && typeof c.value === "string" ? { ...c, value: maps.accounts[c.value] ?? c.value } : c,
+    )
+    const key = JSON.stringify([rule.conditionsOp, conditions, actions])
+    // A rule Runway cannot run (empty condition, broken regex) is left behind rather than failing the import.
+    if (seen.has(key) || ruleProblem({ conditions, actions })) continue
+    seen.add(key)
+    newRules.push([
+      newId(),
+      rule.conditionsOp,
+      JSON.stringify(conditions),
+      JSON.stringify(actions),
+      bool(rule.enabled ?? true),
+      rule.origin ?? "imported",
+      ++sortOrder,
+    ])
+  }
+  return bulkInsertStatements(d1, "rules", ["id", "conditions_op", "conditions", "actions", "enabled", "origin", "sort_order"], newRules)
+}
+
+/** Schedules keep their ids; one already there, or with an unreadable rhythm or date, is skipped. */
+const scheduleWrites = (d1: D1Database, structure: BundleStructure, existing: Existing, maps: IdMaps): D1PreparedStatement[] => {
+  const known = new Set(existing.schedules.map((s) => s.id))
+  const newSchedules = structure.schedules.flatMap((s) => {
+    const accountId = maps.accounts[s.accountId]
+    if (!accountId || known.has(s.id) || !isRecurrence(s.recurrence) || !isDay(s.startDate) || !isDay(s.nextDate)) return []
+    known.add(s.id)
+    return [
+      [
+        s.id,
+        s.name,
+        s.payeeId ? (maps.payees[s.payeeId] ?? null) : null,
+        accountId,
+        s.categoryId ? (maps.categories[s.categoryId] ?? null) : null,
+        s.amount,
+        JSON.stringify(s.recurrence),
+        s.startDate,
+        s.endDate,
+        s.nextDate,
+        bool(s.autoPost),
+        bool(s.active),
+      ],
+    ]
+  })
+  return bulkInsertStatements(
+    d1,
+    "schedules",
+    ["id", "name", "payee_id", "account_id", "category_id", "amount", "recurrence", "start_date", "end_date", "next_date", "auto_post", "active"],
+    newSchedules,
+  )
+}
+
+type ResolvedImportRow = Omit<ImportRow, "id" | "payeeId" | "categoryId" | "notes"> & {
+  id: string
+  payeeId: string | null
+  categoryId: string | null
+  notes?: string | null | undefined
+}
+
+const toNewRows = (rows: ReadonlyArray<ResolvedImportRow>, knownSchedules: ReadonlySet<string>): NewTxRow[] => {
+  const fallback = orderStamps(rows.map((_, i) => i))
+  return rows.map(
+    (r, i): NewTxRow => ({
+      id: r.id,
+      accountId: r.accountId,
+      date: r.date,
+      amount: r.amount,
+      payeeId: r.payeeId ?? null,
+      categoryId: r.isParent ? null : (r.categoryId ?? null),
+      notes: r.notes ?? null,
+      cleared: r.cleared ?? false,
+      reconciled: r.reconciled ?? false,
+      transferId: r.transferId ?? null,
+      isParent: r.isParent ?? false,
+      parentId: r.parentId ?? null,
+      importedId: r.importedId ?? null,
+      importedPayee: r.importedPayee ?? null,
+      startingBalance: r.startingBalance ?? false,
+      scheduleId: r.scheduleId && knownSchedules.has(r.scheduleId) ? r.scheduleId : null,
+      createdAt: r.createdAt && STAMP.test(r.createdAt) ? r.createdAt : fallback[i]!,
+    }),
+  )
+}
+
 export class ImportExport extends Context.Service<
   ImportExport,
   {
@@ -120,286 +387,74 @@ export class ImportExport extends Context.Service<
       const payeesService = yield* Payees
       const rulesService = yield* Rules
 
+      const loadExisting = db
+        .use((orm) =>
+          orm.batch([
+            orm.select().from(schema.accounts),
+            orm.select().from(schema.categoryGroups),
+            orm.select().from(schema.categories),
+            orm.select().from(schema.payees),
+            orm.select({ id: schema.schedules.id }).from(schema.schedules),
+          ]),
+        )
+        .pipe(Effect.map(([accounts, groups, categories, payees, schedules]): Existing => ({ accounts, groups, categories, payees, schedules })))
+
       const importStructure = Effect.fn("ImportExport.importStructure")(function* (
         structure: BundleStructure,
         include: { budgets: boolean; rules: boolean; schedules: boolean },
       ) {
-        const existing = yield* db
-          .use((orm) =>
-            orm.batch([
-              orm.select().from(schema.accounts),
-              orm.select().from(schema.categoryGroups),
-              orm.select().from(schema.categories),
-              orm.select().from(schema.payees),
-              orm.select({ id: schema.schedules.id }).from(schema.schedules),
-            ]),
-          )
-          .pipe(Effect.map(([accounts, groups, categories, payees, schedules]) => ({ accounts, groups, categories, payees, schedules })))
-        const usedIds = new Set([
-          ...existing.accounts.map((a) => a.id),
-          ...existing.groups.map((g) => g.id),
-          ...existing.categories.map((c) => c.id),
-          ...existing.payees.map((p) => p.id),
-        ])
-        const claim = (id: string) => {
-          const chosen = usedIds.has(id) ? newId() : id
-          usedIds.add(chosen)
-          return chosen
-        }
+        const existing = yield* loadExisting
+        const allocateId = idAllocator(existing)
 
         // Everything is computed in memory first, then written in one batch: one round trip
         // whatever the number of categories, payees or rules, and nothing half-imported on failure.
-        const writes: D1PreparedStatement[] = []
-        const bool = (b: boolean | null | undefined) => (b ? 1 : 0)
+        const accounts = planAccounts(db.d1, structure, existing, allocateId)
+        const categories = planCategories(db.d1, structure, existing, allocateId)
+        const payees = planPayees(db.d1, structure, existing, accounts.accountMap, allocateId)
+        const maps: IdMaps = { accounts: accounts.accountMap, groups: categories.groupMap, categories: categories.categoryMap, payees: payees.payeeMap }
 
-        // Accounts: matched by name.
-        const accountMap: Record<string, string> = {}
-        const accountByName = new Map(existing.accounts.map((a) => [normalizeText(a.name), a.id]))
-        const newAccounts: unknown[][] = []
-        let order = existing.accounts.length
-        for (const a of structure.accounts) {
-          const found = accountByName.get(normalizeText(a.name))
-          if (found) {
-            accountMap[a.id] = found
-            continue
-          }
-          const id = claim(a.id)
-          accountMap[a.id] = id
-          accountByName.set(normalizeText(a.name), id)
-          const kind = isAccountKind(a.kind) ? a.kind : a.offBudget ? "savings" : "checking"
-          newAccounts.push([
-            id,
-            a.name,
-            kind,
-            bool(a.offBudget),
-            bool(a.closed),
-            bool(a.inForecast ?? !a.offBudget),
-            ++order,
-            a.lastReconciledAt ?? null,
-          ])
-        }
-        writes.push(
-          ...bulkInsertStatements(
-            db.d1,
-            "accounts",
-            ["id", "name", "kind", "off_budget", "closed", "in_forecast", "sort_order", "last_reconciled_at"],
-            newAccounts,
-          ),
-        )
-
-        // Groups and categories: matched by name (categories within their group first).
-        const groupMap: Record<string, string> = {}
-        const groupByName = new Map(existing.groups.map((g) => [`${g.isIncome}|${normalizeText(g.name)}`, g.id]))
-        const newGroups: unknown[][] = []
-        for (const g of structure.groups) {
-          const key = `${g.isIncome}|${normalizeText(g.name)}`
-          const found = groupByName.get(key)
-          if (found) {
-            groupMap[g.id] = found
-            continue
-          }
-          const id = claim(g.id)
-          groupMap[g.id] = id
-          groupByName.set(key, id)
-          newGroups.push([id, g.name, bool(g.isIncome), bool(g.hidden), g.sortOrder + existing.groups.length])
-        }
-        writes.push(...bulkInsertStatements(db.d1, "category_groups", ["id", "name", "is_income", "hidden", "sort_order"], newGroups))
-
-        const categoryMap: Record<string, string> = {}
-        const catKey = (groupId: string, name: string) => `${groupId}|${normalizeText(name)}`
-        const catByGroup = new Map(existing.categories.map((c) => [catKey(c.groupId, c.name), c.id]))
-        const catByName = new Map(existing.categories.map((c) => [`${c.isIncome}|${normalizeText(c.name)}`, c.id]))
-        const newCats: unknown[][] = []
-        for (const c of structure.categories) {
-          const groupId = groupMap[c.groupId]
-          if (!groupId) continue
-          const found = catByGroup.get(catKey(groupId, c.name)) ?? catByName.get(`${c.isIncome}|${normalizeText(c.name)}`)
-          if (found) {
-            categoryMap[c.id] = found
-            continue
-          }
-          const id = claim(c.id)
-          categoryMap[c.id] = id
-          catByGroup.set(catKey(groupId, c.name), id)
-          newCats.push([id, groupId, c.name, bool(c.isIncome), bool(c.hidden), c.sortOrder])
-        }
-        writes.push(...bulkInsertStatements(db.d1, "categories", ["id", "group_id", "name", "is_income", "hidden", "sort_order"], newCats))
-
-        // Payees: transfer payees map to the transfer payee of the mapped account.
-        const payeeMap: Record<string, string> = {}
-        const transferPayees = new Map(existing.payees.flatMap((p) => (p.transferAccountId ? [[p.transferAccountId, p.id] as const] : [])))
-        const accountNames = new Map([...existing.accounts.map((a) => [a.id, a.name] as const), ...structure.accounts.map((a) => [accountMap[a.id]!, a.name] as const)])
-        const newTransferPayees: unknown[][] = []
-        for (const p of structure.payees) {
-          const accountId = p.transferAccountId ? accountMap[p.transferAccountId] : undefined
-          if (!accountId) continue
-          let id = transferPayees.get(accountId)
-          if (!id) {
-            id = newId()
-            transferPayees.set(accountId, id)
-            newTransferPayees.push([id, accountNames.get(accountId) ?? "Virement", accountId])
-          }
-          payeeMap[p.id] = id
-        }
-        const payeeByName = new Map(
-          existing.payees.filter((p) => !p.transferAccountId).map((p) => [normalizeText(p.name), p.id]),
-        )
-        const newPayees: Array<[string, string]> = []
-        for (const p of structure.payees) {
-          if (p.transferAccountId) continue
-          const key = normalizeText(p.name)
-          if (key === "") continue
-          const found = payeeByName.get(key)
-          if (found) {
-            payeeMap[p.id] = found
-            continue
-          }
-          const id = claim(p.id)
-          payeeMap[p.id] = id
-          payeeByName.set(key, id)
-          newPayees.push([id, p.name.trim()])
-        }
-        writes.push(
-          ...bulkInsertStatements(db.d1, "payees", ["id", "name", "transfer_account_id"], newTransferPayees),
-          ...bulkInsertStatements(db.d1, "payees", ["id", "name"], newPayees),
-        )
-
-        if (include.budgets) {
-          const budgetRows = structure.budgets.flatMap((b) =>
-            categoryMap[b.categoryId] && isMonth(b.month) ? [[b.month, categoryMap[b.categoryId]!, b.amount, b.carryover ? 1 : 0]] : [],
-          )
-          for (const chunk of chunkRows(budgetRows)) {
-            writes.push(
-              db.d1
-                .prepare(
-                  `INSERT INTO budgets (month, category_id, amount, carryover)
-                   SELECT json_extract(value, '$[0]'), json_extract(value, '$[1]'), json_extract(value, '$[2]'), json_extract(value, '$[3]')
-                   FROM json_each(?) WHERE true
-                   ON CONFLICT(month, category_id) DO UPDATE SET amount = excluded.amount, carryover = excluded.carryover`,
-                )
-                .bind(JSON.stringify(chunk)),
-            )
-          }
-          const buffered = structure.buffered.filter((b) => isMonth(b.month)).map((b) => [b.month, b.amount])
-          for (const chunk of chunkRows(buffered)) {
-            writes.push(
-              db.d1
-                .prepare(
-                  `INSERT INTO budget_months (month, buffered)
-                   SELECT json_extract(value, '$[0]'), json_extract(value, '$[1]') FROM json_each(?) WHERE true
-                   ON CONFLICT(month) DO UPDATE SET buffered = excluded.buffered`,
-                )
-                .bind(JSON.stringify(chunk)),
-            )
-          }
-        }
-
-        if (include.rules) {
-          const current = yield* rulesService.list
-          const seen = new Set(current.map((r) => JSON.stringify([r.conditionsOp, r.conditions, r.actions])))
-          let sortOrder = current.reduce((max, r) => Math.max(max, r.sortOrder), 0)
-          const newRules: unknown[][] = []
-          for (const rule of structure.rules) {
-            const actions = rule.actions.flatMap((a): RuleAction[] => {
-              if (a.type === "set_category") return categoryMap[a.categoryId] ? [{ ...a, categoryId: categoryMap[a.categoryId]! }] : []
-              if (a.type === "set_payee") return payeeMap[a.payeeId] ? [{ ...a, payeeId: payeeMap[a.payeeId]! }] : []
-              return [a]
-            })
-            const conditions = rule.conditions.map((c) =>
-              c.field === "account" && typeof c.value === "string" ? { ...c, value: accountMap[c.value] ?? c.value } : c,
-            )
-            const key = JSON.stringify([rule.conditionsOp, conditions, actions])
-            // A rule Runway cannot run (empty condition, broken regex) is left behind rather than failing the import.
-            if (seen.has(key) || ruleProblem({ conditions, actions })) continue
-            seen.add(key)
-            newRules.push([
-              newId(),
-              rule.conditionsOp,
-              JSON.stringify(conditions),
-              JSON.stringify(actions),
-              bool(rule.enabled ?? true),
-              rule.origin ?? "imported",
-              ++sortOrder,
-            ])
-          }
-          writes.push(
-            ...bulkInsertStatements(db.d1, "rules", ["id", "conditions_op", "conditions", "actions", "enabled", "origin", "sort_order"], newRules),
-          )
-        }
-
-        if (include.schedules) {
-          const known = new Set(existing.schedules.map((s) => s.id))
-          const newSchedules = structure.schedules.flatMap((s) => {
-            const accountId = accountMap[s.accountId]
-            if (!accountId || known.has(s.id) || !isRecurrence(s.recurrence) || !isDay(s.startDate) || !isDay(s.nextDate)) return []
-            known.add(s.id)
-            return [
-              [
-                s.id,
-                s.name,
-                s.payeeId ? (payeeMap[s.payeeId] ?? null) : null,
-                accountId,
-                s.categoryId ? (categoryMap[s.categoryId] ?? null) : null,
-                s.amount,
-                JSON.stringify(s.recurrence),
-                s.startDate,
-                s.endDate,
-                s.nextDate,
-                bool(s.autoPost),
-                bool(s.active),
-              ],
-            ]
-          })
-          writes.push(
-            ...bulkInsertStatements(
-              db.d1,
-              "schedules",
-              ["id", "name", "payee_id", "account_id", "category_id", "amount", "recurrence", "start_date", "end_date", "next_date", "auto_post", "active"],
-              newSchedules,
-            ),
-          )
-        }
-
-        yield* db.batch(writes)
+        yield* db.batch([
+          ...accounts.writes,
+          ...categories.writes,
+          ...payees.writes,
+          ...(include.budgets ? budgetWrites(db.d1, structure, maps.categories) : []),
+          ...(include.rules ? ruleWrites(db.d1, structure, yield* rulesService.list, maps) : []),
+          ...(include.schedules ? scheduleWrites(db.d1, structure, existing, maps) : []),
+        ])
 
         // Actual's "Starting Balances" becomes the category for new accounts' opening balances.
         const starting = structure.categories.find((c) => c.isIncome && /starting balance|solde(s)? initia/i.test(c.name))
-        if (starting && categoryMap[starting.id] && !(yield* settings.get("startingBalanceCategoryId"))) {
-          yield* settings.set("startingBalanceCategoryId", categoryMap[starting.id]!)
+        if (starting && maps.categories[starting.id] && !(yield* settings.get("startingBalanceCategoryId"))) {
+          yield* settings.set("startingBalanceCategoryId", maps.categories[starting.id]!)
         }
 
-        return { accounts: accountMap, groups: groupMap, categories: categoryMap, payees: payeeMap }
+        return maps
       })
 
-      const importTransactions = Effect.fn("ImportExport.importTransactions")(function* (
-        input: ReadonlyArray<ImportRow>,
-        options: ImportOptions,
-      ) {
-        if (input.length === 0) return { inserted: 0, duplicates: 0, skipped: 0 }
-        for (const r of input) {
-          if (!isDay(r.date) || !Number.isInteger(r.amount)) {
-            return yield* new Invalid({ message: `Ligne invalide (${r.date} · ${r.amount})` })
-          }
-        }
-        const ids = (r: D1Result | undefined) => new Set(((r?.results ?? []) as Array<{ id: string }>).map((x) => x.id))
+      const idsOf = (r: D1Result | undefined) => new Set(((r?.results ?? []) as Array<{ id: string }>).map((x) => x.id))
+
+      /** Drops references to rows that no longer exist, and finds or creates payees given by name. */
+      const resolveReferences = Effect.fn("ImportExport.resolveReferences")(function* (input: ReadonlyArray<ImportRow>) {
         const known = yield* db
           .use((_, d1) =>
             d1.batch([d1.prepare("SELECT id FROM accounts"), d1.prepare("SELECT id FROM categories"), d1.prepare("SELECT id FROM payees")]),
           )
-          .pipe(Effect.map(([accs, cats, pays]) => ({ accounts: ids(accs), categories: ids(cats), payees: ids(pays) })))
+          .pipe(Effect.map(([accs, cats, pays]) => ({ accounts: idsOf(accs), categories: idsOf(cats), payees: idsOf(pays) })))
         const named = input.filter((r) => !r.payeeId && r.payeeName?.trim()).map((r) => r.payeeName!.trim())
         const resolved = named.length ? yield* payeesService.resolveNames(named) : new Map<string, string>()
-
         const rows = input
           .filter((r) => known.accounts.has(r.accountId))
-          .map((r) => ({
+          .map((r): ResolvedImportRow => ({
             ...r,
             id: r.id ?? newId(),
             payeeId: r.payeeId && known.payees.has(r.payeeId) ? r.payeeId : r.payeeName ? (resolved.get(r.payeeName.trim()) ?? null) : null,
             categoryId: r.categoryId && known.categories.has(r.categoryId) ? r.categoryId : null,
           }))
+        return { known, rows }
+      })
 
-        // Duplicates: rows whose id already exists, then `duplicateMatcher`.
+      /** Rows whose id already exists, then (with `dedupe`) rows `duplicateMatcher` recognizes. */
+      const findDuplicates = Effect.fn("ImportExport.findDuplicates")(function* (rows: ReadonlyArray<ResolvedImportRow>, dedupe: boolean) {
         let duplicates = 0
         const skip = new Set<string>()
         const lookups = chunkRows(rows.map((r) => r.id)).map((chunk) =>
@@ -413,104 +468,106 @@ export class ImportExport extends Context.Service<
             if (!r.parentId) duplicates++
           }
         }
-        if (options.dedupe) {
-          const top = rows.filter((r) => !r.parentId && !skip.has(r.id))
-          if (top.length > 0) {
-            const dates = top.map((r) => r.date).sort()
-            const existing = yield* db.use(async (_, d1) => {
-              const { results } = await d1
-                .prepare(
-                  `SELECT account_id AS account, date, amount, payee_id AS payee, imported_id AS importedId, imported_payee AS importedPayee
-                   FROM transactions
-                   WHERE parent_id IS NULL AND date BETWEEN ?1 AND ?2
-                     AND account_id IN (SELECT value FROM json_each(?3))
-                   UNION ALL
-                   -- A line the bank has redated since it was imported keeps its bank id.
-                   SELECT account_id, date, amount, payee_id, imported_id, imported_payee FROM transactions
-                   WHERE imported_id IN (SELECT value FROM json_each(?4)) AND parent_id IS NULL
-                     AND date NOT BETWEEN ?1 AND ?2 AND account_id IN (SELECT value FROM json_each(?3))`,
-                )
-                .bind(
-                  dates[0],
-                  dates[dates.length - 1],
-                  JSON.stringify([...new Set(top.map((r) => r.accountId))]),
-                  JSON.stringify(top.flatMap((r) => (r.importedId ? [r.importedId] : []))),
-                )
-                .all<DedupeKey>()
-              return results
-            })
-            const isDuplicate = duplicateMatcher(existing)
-            for (const r of top) {
-              if (isDuplicate({ ...r, account: r.accountId, payee: r.payeeId ?? null })) {
-                skip.add(r.id)
-                duplicates++
-              }
+        const top = dedupe ? rows.filter((r) => !r.parentId && !skip.has(r.id)) : []
+        if (top.length > 0) {
+          const dates = top.map((r) => r.date).sort()
+          const existing = yield* db.use(async (_, d1) => {
+            const { results } = await d1
+              .prepare(
+                `SELECT account_id AS account, date, amount, payee_id AS payee, imported_id AS importedId, imported_payee AS importedPayee
+                 FROM transactions
+                 WHERE parent_id IS NULL AND date BETWEEN ?1 AND ?2
+                   AND account_id IN (SELECT value FROM json_each(?3))
+                 UNION ALL
+                 -- A line the bank has redated since it was imported keeps its bank id.
+                 SELECT account_id, date, amount, payee_id, imported_id, imported_payee FROM transactions
+                 WHERE imported_id IN (SELECT value FROM json_each(?4)) AND parent_id IS NULL
+                   AND date NOT BETWEEN ?1 AND ?2 AND account_id IN (SELECT value FROM json_each(?3))`,
+              )
+              .bind(
+                dates[0],
+                dates[dates.length - 1],
+                JSON.stringify([...new Set(top.map((r) => r.accountId))]),
+                JSON.stringify(top.flatMap((r) => (r.importedId ? [r.importedId] : []))),
+              )
+              .all<DedupeKey>()
+            return results
+          })
+          const isDuplicate = duplicateMatcher(existing)
+          for (const r of top) {
+            if (isDuplicate({ ...r, account: r.accountId, payee: r.payeeId ?? null })) {
+              skip.add(r.id)
+              duplicates++
             }
           }
         }
-        const kept = rows.filter((r) => !skip.has(r.id) && !(r.parentId && skip.has(r.parentId)))
-        const scheduleIds = [...new Set(kept.flatMap((r) => (r.scheduleId ? [r.scheduleId] : [])))]
-        const schedules =
-          scheduleIds.length === 0
-            ? new Set<string>()
-            : yield* db
-                .use((_, d1) =>
-                  d1.batch(
-                    chunkRows(scheduleIds).map((chunk) =>
-                      d1.prepare("SELECT id FROM schedules WHERE id IN (SELECT value FROM json_each(?))").bind(JSON.stringify(chunk)),
-                    ),
-                  ),
-                )
-                .pipe(Effect.map((results) => new Set(results.flatMap((r) => [...ids(r)]))))
+        return { skip, duplicates }
+      })
 
-        if (options.applyRules) {
-          const match = yield* rulesService.matcher
-          const names = yield* db
-            .use((_, d1) => d1.prepare("SELECT id, name, transfer_account_id AS t FROM payees").all<{ id: string; name: string; t: string | null }>())
-            .pipe(Effect.map(({ results }) => new Map(results.map((p) => [p.id, p]))))
-          const pending: typeof kept = []
-          for (const r of kept) {
-            if (r.categoryId || r.isParent || r.transferId || (r.payeeId && names.get(r.payeeId)?.t)) continue
-            const subject: RuleSubject = {
-              payeeName: r.payeeId ? (names.get(r.payeeId)?.name ?? null) : null,
-              importedPayee: r.importedPayee ?? null,
-              notes: r.notes ?? null,
-              amount: r.amount,
-              accountId: r.accountId,
-            }
-            const out = match(subject)
-            if (out.categoryId && known.categories.has(out.categoryId)) r.categoryId = out.categoryId
-            if (out.payeeId && known.payees.has(out.payeeId)) r.payeeId = out.payeeId
-            if (out.notes && !r.notes) r.notes = out.notes
-            if (!r.categoryId && r.payeeId) pending.push(r)
-          }
-          const usual = yield* payeesService.suggestCategories(pending.map((r) => r.payeeId!))
-          for (const r of pending) r.categoryId = usual.get(r.payeeId!) ?? null
-        }
+      /** The schedules the rows point at that still exist. */
+      const existingSchedules = (rows: ReadonlyArray<ResolvedImportRow>) => {
+        const scheduleIds = [...new Set(rows.flatMap((r) => (r.scheduleId ? [r.scheduleId] : [])))]
+        if (scheduleIds.length === 0) return Effect.succeed(new Set<string>())
+        return db
+          .use((_, d1) =>
+            d1.batch(
+              chunkRows(scheduleIds).map((chunk) =>
+                d1.prepare("SELECT id FROM schedules WHERE id IN (SELECT value FROM json_each(?))").bind(JSON.stringify(chunk)),
+              ),
+            ),
+          )
+          .pipe(Effect.map((results) => new Set(results.flatMap((r) => [...idsOf(r)]))))
+      }
 
-        const fallback = orderStamps(kept.map((_, i) => i))
-        const newRows = kept.map(
-          (r, i): NewTxRow => ({
-            id: r.id,
-            accountId: r.accountId,
-            date: r.date,
-            amount: r.amount,
-            payeeId: r.payeeId ?? null,
-            categoryId: r.isParent ? null : (r.categoryId ?? null),
-            notes: r.notes ?? null,
-            cleared: r.cleared ?? false,
-            reconciled: r.reconciled ?? false,
-            transferId: r.transferId ?? null,
-            isParent: r.isParent ?? false,
-            parentId: r.parentId ?? null,
-            importedId: r.importedId ?? null,
+      /** Categorizes the uncategorized rows in place: rules first, then the payee's usual category. */
+      const categorize = Effect.fn("ImportExport.categorize")(function* (
+        rows: ReadonlyArray<ResolvedImportRow>,
+        known: { categories: ReadonlySet<string>; payees: ReadonlySet<string> },
+      ) {
+        const match = yield* rulesService.matcher
+        const payeesById = yield* db
+          .use((_, d1) =>
+            d1
+              .prepare("SELECT id, name, transfer_account_id AS transferAccountId FROM payees")
+              .all<{ id: string; name: string; transferAccountId: string | null }>(),
+          )
+          .pipe(Effect.map(({ results }) => new Map(results.map((p) => [p.id, p]))))
+        const pending: ResolvedImportRow[] = []
+        for (const r of rows) {
+          if (r.categoryId || r.isParent || r.transferId || (r.payeeId && payeesById.get(r.payeeId)?.transferAccountId)) continue
+          const subject: RuleSubject = {
+            payeeName: r.payeeId ? (payeesById.get(r.payeeId)?.name ?? null) : null,
             importedPayee: r.importedPayee ?? null,
-            startingBalance: r.startingBalance ?? false,
-            scheduleId: r.scheduleId && schedules.has(r.scheduleId) ? r.scheduleId : null,
-            createdAt: r.createdAt && STAMP.test(r.createdAt) ? r.createdAt : fallback[i]!,
-          }),
-        )
-        yield* db.batch(transactionInsertStatements(db.d1, newRows, { mode: "ignore" }))
+            notes: r.notes ?? null,
+            amount: r.amount,
+            accountId: r.accountId,
+          }
+          const out = match(subject)
+          if (out.categoryId && known.categories.has(out.categoryId)) r.categoryId = out.categoryId
+          if (out.payeeId && known.payees.has(out.payeeId)) r.payeeId = out.payeeId
+          if (out.notes && !r.notes) r.notes = out.notes
+          if (!r.categoryId && r.payeeId) pending.push(r)
+        }
+        const usual = yield* payeesService.suggestCategories(pending.map((r) => r.payeeId!))
+        for (const r of pending) r.categoryId = usual.get(r.payeeId!) ?? null
+      })
+
+      const importTransactions = Effect.fn("ImportExport.importTransactions")(function* (
+        input: ReadonlyArray<ImportRow>,
+        options: ImportOptions,
+      ) {
+        if (input.length === 0) return { inserted: 0, duplicates: 0, skipped: 0 }
+        for (const r of input) {
+          if (!isDay(r.date) || !Number.isInteger(r.amount)) {
+            return yield* new Invalid({ message: `Ligne invalide (${r.date} · ${r.amount})` })
+          }
+        }
+        const { known, rows } = yield* resolveReferences(input)
+        const { skip, duplicates } = yield* findDuplicates(rows, options.dedupe)
+        const kept = rows.filter((r) => !skip.has(r.id) && !(r.parentId && skip.has(r.parentId)))
+        const schedules = yield* existingSchedules(kept)
+        if (options.applyRules) yield* categorize(kept, known)
+        yield* db.batch(transactionInsertStatements(db.d1, toNewRows(kept, schedules), { mode: "ignore" }))
         const skipped = input.filter((r) => !r.parentId && !known.accounts.has(r.accountId)).length
         return { inserted: kept.filter((r) => !r.parentId).length, duplicates, skipped }
       })
