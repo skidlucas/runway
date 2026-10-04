@@ -13,3 +13,8 @@ playwright-report
 e2e/.auth
 # Personal Actual exports dropped at the root for manual testing
 /*.zip
+.dev.vars*
+!.dev.vars.example
+.DS_Store
+.claude/settings.local.json
+coverage
