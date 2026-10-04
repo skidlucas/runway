@@ -2,6 +2,7 @@
 import type { QueryClient } from "@tanstack/react-query"
 import { createRootRouteWithContext, HeadContent, Outlet, Scripts } from "@tanstack/react-router"
 import type * as React from "react"
+import { useThemeSync } from "~/components/theme"
 import { Toaster } from "~/components/toast"
 import appCss from "~/styles/app.css?url"
 
@@ -25,8 +26,13 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
     ],
   }),
   shellComponent: RootDocument,
-  component: () => <Outlet />,
+  component: RootComponent,
 })
+
+function RootComponent() {
+  useThemeSync()
+  return <Outlet />
+}
 
 function RootDocument({ children }: { children: React.ReactNode }) {
   return (
