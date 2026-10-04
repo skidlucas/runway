@@ -8,7 +8,6 @@ import { Db, type DbError, newId } from "../db/client"
 import { schedules } from "../db/schema"
 import { Invalid, NotFound } from "../errors"
 import { Recurrence as RecurrenceSchema } from "../schemas"
-import { Payees } from "./payees"
 import { Settings } from "./settings"
 import { type TxPayeeInput, Transactions } from "./transactions"
 
@@ -145,7 +144,6 @@ export class Schedules extends Context.Service<
       const db = yield* Db
       const settings = yield* Settings
       const transactionsService = yield* Transactions
-      const payeesService = yield* Payees
 
       const timing = (row: Pick<Row, "startDate" | "endDate" | "recurrence">) => ({
         startDate: row.startDate,
@@ -227,27 +225,8 @@ export class Schedules extends Context.Service<
         return Effect.void
       }
 
-      const resolvePayeeId = Effect.fn("Schedules.resolvePayeeId")(function* (payee: TxPayeeInput, accountId: string) {
-        switch (payee.kind) {
-          case "none":
-            return null
-          case "id": {
-            const found = yield* db.use((_, d1) =>
-              d1.prepare("SELECT transfer_account_id AS t FROM payees WHERE id = ?").bind(payee.id).first<{ t: string | null }>(),
-            )
-            if (!found) return yield* new NotFound({ entity: "Bénéficiaire", id: payee.id })
-            if (found.t === accountId) return yield* new Invalid({ message: "Un virement doit viser un autre compte" })
-            return payee.id
-          }
-          case "name": {
-            const ids = yield* payeesService.resolveNames([payee.name])
-            return ids.get(payee.name) ?? null
-          }
-          case "transfer":
-            if (payee.accountId === accountId) return yield* new Invalid({ message: "Un virement doit viser un autre compte" })
-            return yield* transactionsService.transferPayee(payee.accountId)
-        }
-      })
+      const resolvePayeeId = (payee: TxPayeeInput, accountId: string) =>
+        transactionsService.resolvePayee(payee, accountId).pipe(Effect.map((p) => p.payeeId))
 
       const create = Effect.fn("Schedules.create")(function* (input: ScheduleInput) {
         yield* validate(input)

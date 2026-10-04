@@ -77,6 +77,8 @@ export type TxPatch = {
   readonly splits?: ReadonlyArray<SplitInput> | null
 }
 
+export type ResolvedPayee = { payeeId: string | null; payeeName: string | null; transferAccountId: string | null }
+
 export type TxRow = {
   id: string
   accountId: string
@@ -159,6 +161,8 @@ export class Transactions extends Context.Service<
     setCategory(ids: ReadonlyArray<string>, categoryId: string | null): Effect.Effect<void, DbError>
     /** Payee id that represents "transfer to/from" an account, created on demand. */
     transferPayee(accountId: string): Effect.Effect<string, DbError>
+    /** The payee a transaction of `accountId` would get, created on demand for a new name or transfer. */
+    resolvePayee(input: TxPayeeInput, accountId: string): Effect.Effect<ResolvedPayee, DbError | Invalid | NotFound>
   }
 >()("runway/server/services/Transactions") {
   static readonly layer = Layer.effect(
@@ -320,8 +324,6 @@ export class Transactions extends Context.Service<
         )
         return created?.id ?? id
       })
-
-      type ResolvedPayee = { payeeId: string | null; payeeName: string | null; transferAccountId: string | null }
 
       const resolvePayee = Effect.fn("Transactions.resolvePayee")(function* (input: TxPayeeInput, accountId: string) {
         switch (input.kind) {
@@ -703,7 +705,7 @@ export class Transactions extends Context.Service<
           ),
         )
 
-      return Transactions.of({ list, get, create, update, remove, restore, setCleared, setCategory, transferPayee })
+      return Transactions.of({ list, get, create, update, remove, restore, setCleared, setCategory, transferPayee, resolvePayee })
     }),
   )
 }

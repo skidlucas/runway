@@ -121,6 +121,13 @@ describe("Schedules", () => {
     expect(await booked(broken)).toEqual([])
   })
 
+  it("refuses a transfer to an account that does not exist", async () => {
+    expect(await h.fail(Schedules.use((s) => s.create(monthly(today, { payee: { kind: "transfer", accountId: "nope" } }))))).toMatchObject({
+      _tag: "NotFound",
+      entity: "Compte",
+    })
+  })
+
   it("counts transfer schedules in the forecast only when money leaves or enters it", async () => {
     const savings = await h.run(
       Accounts.use((a) => a.create({ name: "Livret A", kind: "savings", offBudget: false, startingBalance: 0, startingDate: "2020-01-01" })),
