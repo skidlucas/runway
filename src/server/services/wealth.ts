@@ -111,6 +111,9 @@ type ValuationRow = {
 }
 
 const HISTORY_MONTHS = 12
+// CoinGecko's public API answers 429 beyond a few calls a minute: the yearly histories of new
+// coins are fetched one at a time, a few per refresh, and the next refreshes fetch the rest.
+const COIN_HISTORIES_PER_REFRESH = 3
 const STALE_MANUAL_DAYS = 183
 const DVF_REFRESH_DAYS = 30
 
@@ -126,6 +129,15 @@ const isAutomatic = (source: ValuationSource) => source.kind === "crypto" || sou
 const refreshDue = (source: ValuationSource, lastAutomatic: Day | null, today: Day) =>
   isAutomatic(source) &&
   (lastAutomatic === null || (source.kind === "real_estate" ? diffDays(lastAutomatic, today) >= DVF_REFRESH_DAYS : lastAutomatic < today))
+
+/**
+ * Past month-ends are still to be priced while no automatic value predates this month, unless the
+ * asset was bought this month. A history that failed or was postponed is retried next refresh.
+ */
+const lacksHistory = (asset: { purchaseDate: string | null }, firstAutomatic: Day | null, today: Day) => {
+  const monthStart = `${monthOf(today)}-01`
+  return (firstAutomatic === null || firstAutomatic >= monthStart) && (asset.purchaseDate === null || asset.purchaseDate < monthStart)
+}
 
 /** Why an asset's valuation source cannot be used, or null. Also guards restored backups. */
 export const sourceProblem = (type: string, s: ValuationSource): string | null => {
@@ -193,6 +205,14 @@ export class Wealth extends Context.Service<
             .all<{ assetId: string; date: Day }>(),
         )
         .pipe(Effect.map(({ results }) => new Map(results.map((r) => [r.assetId, r.date]))))
+
+      const automaticSpans = db
+        .use((_, d1) =>
+          d1
+            .prepare("SELECT asset_id AS assetId, MIN(date) AS first, MAX(date) AS last FROM asset_valuations WHERE automatic = 1 GROUP BY asset_id")
+            .all<{ assetId: string; first: Day; last: Day }>(),
+        )
+        .pipe(Effect.map(({ results }) => new Map(results.map((r) => [r.assetId, r]))))
 
       // Balances stop at today like the accounts pages; the monthly sums only cover the window.
       const accountRows = (since: Day, today: Day) =>
@@ -421,10 +441,10 @@ export class Wealth extends Context.Service<
         const keys = [...new Set(fresh.flatMap((a) => keyOf(a.source) ?? []))]
         const histories = new Map(
           yield* Effect.forEach(
-            keys,
+            keys.filter((key) => !key.startsWith("crypto|")),
             (key) => {
               const [kind, id, type] = key.split("|") as [string, string, "apartment" | "house"]
-              const fetch = kind === "crypto" ? market.cryptoHistory(id) : kind === "stock" ? market.quoteHistory(id) : market.dvfHistory(id, type)
+              const fetch = kind === "stock" ? market.quoteHistory(id) : market.dvfHistory(id, type)
               return fetch.pipe(
                 Effect.option,
                 Effect.map((o) => [key, o._tag === "Some" ? o.value : []] as const),
@@ -433,11 +453,17 @@ export class Wealth extends Context.Service<
             { concurrency: 4 },
           ),
         )
+        for (const key of keys.filter((k) => k.startsWith("crypto|")).slice(0, COIN_HISTORIES_PER_REFRESH)) {
+          const history = yield* market.cryptoHistory(key.slice("crypto|".length)).pipe(Effect.result)
+          if (history._tag === "Success") histories.set(key, history.success)
+          else if (history.failure.rateLimited) break
+        }
         for (const asset of fresh) {
           const s = asset.source
           const key = keyOf(s)
           if (!key || s.kind === "manual" || s.kind === "loan") continue
-          const points = histories.get(key) ?? []
+          const points = histories.get(key)
+          if (!points) continue
           const factor = s.kind === "real_estate" ? s.surface : s.quantity
           const source = s.kind === "crypto" ? "coingecko" : s.kind === "stock" ? "yahoo" : "dvf"
           for (const day of monthEnds) {
@@ -451,10 +477,10 @@ export class Wealth extends Context.Service<
 
       const refresh = Effect.fn("Wealth.refresh")(function* (options: { ids?: ReadonlyArray<string> } = {}) {
         const today = yield* settings.today
-        const [rows, lastAuto] = yield* Effect.all([loadAssets, lastAutomaticDates], { concurrency: "unbounded" })
+        const [rows, spans] = yield* Effect.all([loadAssets, automaticSpans], { concurrency: "unbounded" })
         const wanted = options.ids ? new Set(options.ids) : null
         const due = rows.filter((a) =>
-          wanted ? wanted.has(a.id) && isAutomatic(a.source) : refreshDue(a.source, lastAuto.get(a.id) ?? null, today),
+          wanted ? wanted.has(a.id) && isAutomatic(a.source) : refreshDue(a.source, spans.get(a.id)?.last ?? null, today),
         )
         const failures: RefreshResult["failures"] = []
         const estimates: Array<{ assetId: string; amount: number; source: string; unitPrice: number; asOf?: Month }> = []
@@ -509,7 +535,7 @@ export class Wealth extends Context.Service<
         }
 
         const backfill = yield* backfillHistory(
-          due.filter((a) => !lastAuto.has(a.id) && estimates.some((e) => e.assetId === a.id)),
+          due.filter((a) => lacksHistory(a, spans.get(a.id)?.first ?? null, today) && estimates.some((e) => e.assetId === a.id)),
           today,
         )
 

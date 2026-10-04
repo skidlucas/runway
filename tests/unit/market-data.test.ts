@@ -128,6 +128,12 @@ describe("Unexpected responses", () => {
 })
 
 describe("requests", () => {
+  it("report a 429 as rate limited, with a message the user can act on", async () => {
+    const market = makeLiveMarketData((async () => new Response("slow down", { status: 429 })) as typeof fetch)
+    const error = await run(Effect.flip(market.cryptoPrices(["bitcoin"])))
+    expect(error).toMatchObject({ rateLimited: true, message: "CoinGecko limite les requêtes, réessaie dans une minute." })
+  })
+
   it("abort the fetch when the effect is interrupted", async () => {
     let received: AbortSignal | undefined
     const hanging = ((_: RequestInfo | URL, init?: RequestInit) => {

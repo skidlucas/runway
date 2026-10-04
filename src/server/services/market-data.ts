@@ -43,6 +43,8 @@ export class MarketData extends Context.Service<
 const DVF_MONTHLY = "https://tabular-api.data.gouv.fr/api/resources/03fba98d-885b-43c0-8986-d299cabc29da/data/"
 const MIN_DVF_SALES = 5
 
+class TooManyRequests extends Error {}
+
 export const makeLiveMarketData = (fetchFn: typeof fetch): MarketData["Service"] => {
   // Responses are decoded against the fields we read: an API that changes shape yields an
   // ExternalError (the asset keeps its last value), never a crash.
@@ -54,11 +56,14 @@ export const makeLiveMarketData = (fetchFn: typeof fetch): MarketData["Service"]
           headers: { accept: "application/json", "user-agent": "Mozilla/5.0 (compatible; runway-budget)" },
           signal: AbortSignal.any([signal, AbortSignal.timeout(10_000)]),
         })
+        if (response.status === 429) throw new TooManyRequests()
         if (!response.ok) throw new Error(`HTTP ${response.status}`)
         return (await response.json()) as unknown
       },
       catch: (cause) =>
-        new ExternalError({ service, message: `${service} injoignable (${cause instanceof Error ? cause.message : String(cause)})`, cause }),
+        cause instanceof TooManyRequests
+          ? new ExternalError({ service, message: `${service} limite les requêtes, réessaie dans une minute.`, rateLimited: true, cause })
+          : new ExternalError({ service, message: `${service} injoignable (${cause instanceof Error ? cause.message : String(cause)})`, cause }),
     }).pipe(
       Effect.flatMap((body) => Schema.decodeUnknownEffect(schema)(body)),
       Effect.mapError((error) =>

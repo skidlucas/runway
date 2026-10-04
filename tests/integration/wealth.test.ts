@@ -288,3 +288,76 @@ describe("Wealth creation", () => {
     }
   })
 })
+
+describe("Coin histories", () => {
+  const coins = ["bitcoin", "ethereum", "solana", "cardano", "polkadot"]
+  const setup = async (history: (id: string) => Effect.Effect<Array<{ date: string; price: number }>, ExternalError>) => {
+    let priced = false
+    const h = await createHarness({
+      market: {
+        cryptoPrices: (ids) => Effect.succeed(new Map(priced ? ids.map((id) => [id, 100]) : [])),
+        cryptoHistory: history,
+      },
+    })
+    const ids: string[] = []
+    for (const coinId of coins) {
+      ids.push(
+        await h.run(
+          Wealth.use((w) =>
+            w.create(manual({ name: coinId, type: "crypto", purchase: null, declared: null, retained: "estimated", source: { kind: "crypto", coinId, quantity: 1 } })),
+          ),
+        ),
+      )
+    }
+    priced = true
+    return { h, refresh: () => h.run(Wealth.use((w) => w.refresh({ ids }))) }
+  }
+  const yearOf = (price: number) => Array.from({ length: 366 }, (_, i) => ({ date: addDays(today, i - 365), price }))
+
+  it("fetches a few yearly histories per refresh, one at a time, and the rest on the next refreshes", async () => {
+    const fetched: string[] = []
+    let inFlight = 0
+    let maxInFlight = 0
+    const { h, refresh } = await setup((id) =>
+      Effect.gen(function* () {
+        inFlight++
+        maxInFlight = Math.max(maxInFlight, inFlight)
+        yield* Effect.sleep("5 millis")
+        inFlight--
+        fetched.push(id)
+        return yearOf(100)
+      }),
+    )
+    try {
+      expect((await refresh()).updated).toBe(5)
+      expect(fetched).toHaveLength(3)
+      expect(maxInFlight).toBe(1)
+      await refresh()
+      expect(fetched.toSorted()).toEqual(coins.toSorted())
+      await refresh()
+      expect(fetched).toHaveLength(5)
+      const { results } = await h.d1
+        .prepare("SELECT COUNT(DISTINCT asset_id) AS n FROM asset_valuations WHERE date < ?")
+        .bind(`${month}-01`)
+        .all<{ n: number }>()
+      expect(results[0]!.n).toBe(5)
+    } finally {
+      await h.dispose()
+    }
+  })
+
+  it("stops asking CoinGecko for histories once it answers 429, and still saves today's prices", async () => {
+    let calls = 0
+    const { h, refresh } = await setup(() => {
+      calls++
+      return Effect.fail(new ExternalError({ service: "CoinGecko", message: "CoinGecko limite les requêtes, réessaie dans une minute.", rateLimited: true }))
+    })
+    try {
+      const result = await refresh()
+      expect(calls).toBe(1)
+      expect(result).toEqual({ updated: 5, failures: [] })
+    } finally {
+      await h.dispose()
+    }
+  })
+})

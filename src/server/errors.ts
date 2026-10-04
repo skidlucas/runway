@@ -17,6 +17,7 @@ export class Invalid extends Schema.TaggedError<Invalid>()("Invalid", {
 export class ExternalError extends Schema.TaggedError<ExternalError>()("ExternalError", {
   service: Schema.String,
   message: Schema.String,
+  rateLimited: Schema.optional(Schema.Boolean),
   cause: Schema.optional(Schema.Defect()),
 }) {}
 
