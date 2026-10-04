@@ -122,8 +122,8 @@ function DesktopForecast({ f }: { f: ForecastDto }) {
         <span className="font-medium">Solde projeté jour par jour</span>
         <span className="flex gap-3.5 text-[12px] text-muted">
           <Legend color="var(--text-2)" label="Réel" />
-          <Legend color="oklch(0.62 0.17 275 / 0.55)" label="Projeté" />
-          <Legend color="oklch(0.62 0.17 275 / 0.85)" label="Échéance" />
+          <Legend color="var(--forecast-projected)" label="Projeté" />
+          <Legend color="var(--forecast-scheduled)" label="Échéance" />
         </span>
       </div>
       <DailyChart f={f} />
@@ -156,8 +156,8 @@ const dayColor = (d: ForecastDay) =>
     : d.kind !== "future"
       ? "var(--text-2)"
       : d.hasSchedule
-        ? "oklch(0.62 0.17 275 / 0.85)"
-        : "oklch(0.62 0.17 275 / 0.45)"
+        ? "var(--forecast-scheduled)"
+        : "var(--forecast-projected)"
 
 function DailyChart({ f }: { f: ForecastDto }) {
   const definition = React.useMemo(() => {

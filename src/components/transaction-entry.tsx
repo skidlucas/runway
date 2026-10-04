@@ -282,7 +282,7 @@ function MobileEntry({
       />
       <div className="num px-5 pb-6 pt-8 text-center text-[52px] font-medium tracking-[-0.03em]" aria-live="polite">
         {draft.amount || "0"}
-        <span className="text-[#a3a7ae]"> €</span>
+        <span className="text-faint"> €</span>
       </div>
       <div className="mx-5 flex flex-col rounded-[10px] border border-line">
         <div className="flex items-center justify-between gap-3 border-b border-line px-3.5 py-[13px]">

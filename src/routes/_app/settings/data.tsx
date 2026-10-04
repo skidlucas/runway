@@ -123,7 +123,7 @@ function DropZone({ onFile, busy }: { onFile: (f: File) => void; busy: boolean }
       }}
       className={cx(
         "flex h-[120px] flex-col items-center justify-center gap-1.5 rounded-[10px] border border-dashed transition-colors",
-        over ? "border-accent bg-accent-soft" : "border-[rgba(127,127,127,0.35)] bg-subtle hover:bg-hover",
+        over ? "border-accent bg-accent-soft" : "border-line-strong bg-subtle hover:bg-hover",
       )}
     >
       <span className="flex items-center gap-2 font-medium">

@@ -524,7 +524,7 @@ function CashFlowWidget({ months }: { months: number }) {
           <span className="num">{formatMoney(r.income)}</span>
         </span>
         <span className="flex items-center gap-1.5">
-          <span className="h-2 w-2 rounded-[2px] bg-[var(--bar-inactive)]" />
+          <span className="h-2 w-2 rounded-[2px] bg-bar" />
           <span className="text-muted">Dépenses</span>
           <span className="num">{formatMoney(r.expenses)}</span>
         </span>

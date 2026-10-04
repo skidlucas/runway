@@ -552,10 +552,10 @@ function MobileInsights({ v, findings }: { v: InsightViewDto; findings: Finding[
   return (
     <div className="flex flex-col pb-8">
       <div className="px-5 pb-3.5 text-[13px] text-muted">{capitalize(formatMonthName(v.month))}</div>
-      <div className="mx-5 flex flex-col gap-1.5 rounded-[12px] bg-[var(--highlight-card)] p-4 text-[var(--highlight-card-text)]">
-        <span className="text-[12px] text-[#8a8f98]">{v.label} · ce mois</span>
+      <div className="mx-5 flex flex-col gap-1.5 rounded-[12px] bg-highlight p-4 text-highlight-fg">
+        <span className="text-[12px] text-highlight-muted">{v.label} · ce mois</span>
         <Money value={v.current} className="text-[28px]" />
-        <span className="text-[13px] text-[#c3c6cc]">
+        <span className="text-[13px] text-highlight-fg-2">
           Projection {formatMoney(v.projection)}
           {vsAverage !== null && Math.abs(vsAverage) >= 0.01
             ? `, soit ${Math.round(Math.abs(vsAverage) * 100)} % ${vsAverage > 0 ? "au-dessus" : "en dessous"} de ta moyenne sur ${v.query.rolling} mois.`

@@ -58,8 +58,14 @@
   --chart-4: oklch(0.7 0.12 220);
   --chart-5: #8a8f98;
   --chart-6: oklch(0.7 0.15 340);
+  /* A dark card in both themes. */
   --highlight-card: #17181b;
   --highlight-card-text: #e6e7ea;
+  --highlight-card-text-2: #c3c6cc;
+  --highlight-card-muted: #8a8f98;
+  /* Forecast bars of the days to come: plain, or with a schedule due. */
+  --forecast-projected: color-mix(in oklch, var(--accent) 45%, transparent);
+  --forecast-scheduled: color-mix(in oklch, var(--accent) 85%, transparent);
   --key-bg: rgba(255, 255, 255, 0.06);
   --overlay: rgba(5, 6, 8, 0.6);
   --shadow-modal: 0 30px 80px rgba(0, 0, 0, 0.5);
@@ -152,6 +158,10 @@
   --color-chart-5: var(--chart-5);
   --color-chart-6: var(--chart-6);
   --color-overlay: var(--overlay);
+  --color-highlight: var(--highlight-card);
+  --color-highlight-fg: var(--highlight-card-text);
+  --color-highlight-fg-2: var(--highlight-card-text-2);
+  --color-highlight-muted: var(--highlight-card-muted);
   --ease-crisp: cubic-bezier(0.2, 0, 0, 1);
 }
 
