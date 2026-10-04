@@ -539,9 +539,13 @@ export class Wealth extends Context.Service<
         const input = yield* validate(raw)
         const id = newId()
         yield* db.use((orm) => orm.insert(assets).values({ id, ...columns(input) }))
-        // Best effort: the asset exists even when the source is unreachable right now (refresh
-        // reports source failures in its result; only a database error fails it).
-        if (isAutomatic(input.source)) yield* refresh({ ids: [id] })
+        // Best effort: once the asset is inserted, nothing may fail the creation, or a retry would
+        // add it a second time. The wealth page fetches the missing estimate on its next refresh.
+        if (isAutomatic(input.source)) {
+          yield* refresh({ ids: [id] }).pipe(
+            Effect.catchCause((cause) => Effect.logWarning("Première estimation impossible", { id, cause })),
+          )
+        }
         return id
       })
 

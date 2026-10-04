@@ -267,3 +267,24 @@ describe("Wealth", () => {
     expect(after.closed[0]!.history[0]).toBe(400_00)
   })
 })
+
+describe("Wealth creation", () => {
+  it("keeps the new asset, and only one, when its first estimate fails", async () => {
+    const h = await createHarness({ market: { cryptoPrices: () => Effect.die(new Error("Connexion perdue")) } })
+    try {
+      const crypto = manual({
+        name: "Bitcoin",
+        type: "crypto",
+        purchase: null,
+        declared: null,
+        retained: "estimated",
+        source: { kind: "crypto", coinId: "bitcoin", quantity: 1 },
+      })
+      const id = await h.run(Wealth.use((w) => w.create(crypto)))
+      const { results } = await h.d1.prepare("SELECT id FROM assets").all<{ id: string }>()
+      expect(results).toEqual([{ id }])
+    } finally {
+      await h.dispose()
+    }
+  })
+})
