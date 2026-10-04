@@ -53,10 +53,10 @@ export function Sidebar() {
   return (
     <aside className="sticky top-0 flex h-dvh flex-col gap-[18px] overflow-y-auto border-r border-line bg-sidebar px-2.5 py-3.5 max-[1100px]:items-center max-[1100px]:px-2">
       <div className="flex items-center gap-2 px-2 py-1 max-[1100px]:px-0">
-        <Link to="/budget" className="max-[1100px]:hidden" aria-label="runway">
+        <Link to="/budget" activeOptions={{ exact: true }} className="max-[1100px]:hidden" aria-label="runway">
           <Logo />
         </Link>
-        <Link to="/budget" className="hidden text-[16px] font-semibold max-[1100px]:block" aria-label="runway">
+        <Link to="/budget" activeOptions={{ exact: true }} className="hidden text-[16px] font-semibold max-[1100px]:block" aria-label="runway">
           r<span className="ml-px inline-block h-[3px] w-[5px] rounded-[1px] bg-[var(--logo-dash)]" />
         </Link>
         <button
@@ -98,7 +98,7 @@ function AssetTypeSection({ path }: { path: string }) {
   return (
     <div className="flex flex-col gap-px max-[1100px]:hidden">
       <div className="flex items-center justify-between px-2 py-1">
-        <Link to="/wealth" className="text-[11px] font-medium text-faint hover:text-fg-3">
+        <Link to="/wealth" activeOptions={{ exact: true }} className="text-[11px] font-medium text-faint hover:text-fg-3">
           Biens
         </Link>
         <Link to="/wealth" search={{ new: true }} className="text-faint hover:text-fg" aria-label="Ajouter un bien">
@@ -157,7 +157,7 @@ function AccountSection({
   return (
     <div className="flex flex-col gap-px max-[1100px]:hidden">
       <div className="flex items-center justify-between px-2 py-1">
-        <Link to="/accounts" className="text-[11px] font-medium text-faint hover:text-fg-3">
+        <Link to="/accounts" activeOptions={{ exact: true }} className="text-[11px] font-medium text-faint hover:text-fg-3">
           {title}
         </Link>
         {title === "Comptes" ? (

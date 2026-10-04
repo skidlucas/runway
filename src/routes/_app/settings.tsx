@@ -26,6 +26,7 @@ function SettingsLayout() {
             <Link
               key={item.to}
               to={item.to}
+              activeOptions={{ exact: "exact" in item }}
               className={cx(
                 "whitespace-nowrap rounded-[6px] px-2 py-1.5",
                 active ? "bg-active font-medium text-fg" : "text-fg-3 hover:bg-hover hover:text-fg",
