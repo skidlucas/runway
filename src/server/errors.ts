@@ -19,3 +19,13 @@ export class ExternalError extends Schema.TaggedError<ExternalError>()("External
   message: Schema.String,
   cause: Schema.optional(Schema.Defect()),
 }) {}
+
+/**
+ * An error thrown out of a server function. Its message reaches the client, its stack would too
+ * (server functions serialize own properties), so the stack is dropped: it only shows server paths.
+ */
+export const clientError = (message: string) => {
+  const error = new Error(message)
+  delete error.stack
+  return error
+}

@@ -1,7 +1,7 @@
 import { env } from "./env"
 import { Cause, type Effect, Exit, type Layer, ManagedRuntime, Option } from "effect"
 import { makeAppLayer } from "./app-layer"
-import { ExternalError, Invalid, NotFound } from "./errors"
+import { clientError, ExternalError, Invalid, NotFound } from "./errors"
 
 type AppServices = Layer.Success<ReturnType<typeof makeAppLayer>>
 
@@ -28,8 +28,8 @@ export const runApp = async <A, E>(effect: Effect.Effect<A, E, AppServices>): Pr
     // The user only sees a French summary: the provider's own error (revoked key, rate limit,
     // HTTP status) has to reach the Workers logs.
     if (error.value instanceof ExternalError) console.warn(`[${error.value.service}] ${error.value.message}`, error.value.cause)
-    throw new Error(error.value.message)
+    throw clientError(error.value.message)
   }
   console.error(Cause.pretty(exit.cause))
-  throw new Error("Une erreur inattendue est survenue")
+  throw clientError("Une erreur inattendue est survenue")
 }
