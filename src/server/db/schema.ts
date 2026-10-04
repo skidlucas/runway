@@ -274,6 +274,14 @@ export const settings = sqliteTable("settings", {
   value: text("value", { mode: "json" }).notNull(),
 })
 
+// Login attempts per client (`ip:<address>`) plus one `global` row. Times are epoch milliseconds.
+export const loginAttempts = sqliteTable("login_attempts", {
+  key: text("key").primaryKey(),
+  attempts: integer("attempts").notNull(),
+  windowStart: integer("window_start").notNull(),
+  lockedUntil: integer("locked_until").notNull(),
+})
+
 // Cached AI output so a page load never waits on (or pays for) a model call twice.
 export const aiCache = sqliteTable("ai_cache", {
   key: text("key").primaryKey(),

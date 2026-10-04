@@ -1,7 +1,8 @@
 import { createServerFn } from "@tanstack/react-start"
+import { getRequestHeader } from "@tanstack/react-start/server"
 import { Schema } from "effect"
 import { runApp } from "../runtime"
-import { LoginGuard } from "../services/login-guard"
+import { clientKey, LoginGuard } from "../services/login-guard"
 import { appSession, isAuthed, passwordKey, passwordMatches } from "../session"
 
 export const getAuthState = createServerFn({ method: "GET" }).handler(async () => {
@@ -12,7 +13,8 @@ export const getAuthState = createServerFn({ method: "GET" }).handler(async () =
 export const login = createServerFn({ method: "POST" })
   .validator(Schema.toStandardSchemaV1(Schema.Struct({ password: Schema.String })))
   .handler(async ({ data }) => {
-    const lockedUntil = await runApp(LoginGuard.use((g) => g.attempt(Date.now())))
+    const client = clientKey(getRequestHeader("cf-connecting-ip"))
+    const lockedUntil = await runApp(LoginGuard.use((g) => g.attempt(client, Date.now())))
     if (lockedUntil !== null) {
       const minutes = Math.max(1, Math.ceil((lockedUntil - Date.now()) / 60_000))
       return { ok: false as const, error: `Trop d'essais. Réessaie dans ${minutes} min.` }
@@ -22,7 +24,7 @@ export const login = createServerFn({ method: "POST" })
       await new Promise((r) => setTimeout(r, 400))
       return { ok: false as const, error: "Mot de passe incorrect" }
     }
-    await runApp(LoginGuard.use((g) => g.succeeded))
+    await runApp(LoginGuard.use((g) => g.succeeded(client)))
     const session = await appSession()
     await session.update({ authed: true, key: await passwordKey() })
     return { ok: true as const }
