@@ -244,19 +244,21 @@ export class Budget extends Context.Service<
         const groups: BudgetGroupRow[] = tree.map((g) => {
           const categories = g.categories.map((c): BudgetCategoryRow => {
             const cell = current.categories.get(c.id)
+            // Activity is signed like the account (spending is negative); rows show it as a positive
+            // amount spent, or received for an income category.
+            const toShown = c.isIncome ? 1 : -1
             const history = previous.map((p) => p?.categories.get(c.id)?.activity ?? 0)
-            const average3 = Math.round(-history.reduce((a, b) => a + b, 0) / 3)
             const row = {
               id: c.id,
               name: c.name,
               hidden: c.hidden,
               isIncome: c.isIncome,
               budgeted: cell?.budgeted ?? 0,
-              spent: c.isIncome ? (cell?.activity ?? 0) : -(cell?.activity ?? 0),
+              spent: toShown * (cell?.activity ?? 0),
               available: cell?.available ?? 0,
               carryIn: cell?.carryIn ?? 0,
               carryover: cell?.carryover ?? false,
-              average3: c.isIncome ? -average3 : average3,
+              average3: Math.round((toShown * history.reduce((a, b) => a + b, 0)) / 3),
               lastMonthBudgeted: previous[0]?.categories.get(c.id)?.budgeted ?? 0,
               planned: c.isIncome ? null : (planned.get(c.id) ?? null),
             }

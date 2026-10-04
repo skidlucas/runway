@@ -344,3 +344,40 @@ describe("Age of money", () => {
     expect(await h.run(Budget.use((s) => s.ageOfMoney("2026-01")))).toBeNull()
   })
 })
+
+describe("Budget amounts shown per category", () => {
+  let h: Harness
+  let food: string
+  let salary: string
+  const row = async (id: string) =>
+    (await h.run(Budget.use((s) => s.month("2026-04")))).groups.flatMap((g) => g.categories).find((x) => x.id === id)!
+
+  beforeAll(async () => {
+    h = await createHarness()
+    await h.run(Categories.use((s) => s.createStarterSet))
+    const tree = await h.run(Categories.use((s) => s.tree))
+    food = tree.find((g) => !g.isIncome)!.categories[0]!.id
+    salary = tree.find((g) => g.isIncome)!.categories[0]!.id
+    const accountId = await h.run(
+      Accounts.use((s) => s.create({ name: "Courant", kind: "checking", offBudget: false, startingBalance: 0, startingDate: "2026-01-01" })),
+    )
+    const add = (date: string, amount: number, categoryId: string) =>
+      h.run(Transactions.use((s) => s.create({ accountId, date, amount, payee: { kind: "name", name: "Tiers" }, categoryId })))
+    await add("2026-01-10", -1_000, food)
+    await add("2026-02-10", -2_000, food)
+    await add("2026-03-10", -4_000, food)
+    await add("2026-04-10", -500, food)
+    await add("2026-01-28", 300_000, salary)
+    await add("2026-03-28", 300_001, salary)
+    await add("2026-04-28", 310_000, salary)
+  }, 60_000)
+  afterAll(() => h?.dispose())
+
+  it("shows spending as a positive amount spent, with the average of the 3 previous months", async () => {
+    expect(await row(food)).toMatchObject({ spent: 500, average3: 2_333 })
+  })
+
+  it("shows income as a positive amount received", async () => {
+    expect(await row(salary)).toMatchObject({ spent: 310_000, average3: 200_000 })
+  })
+})
