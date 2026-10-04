@@ -63,6 +63,18 @@ describe("Transactions", () => {
     expect(await spentIn("2026-09")).toBe(septemberBefore + 1_000)
   })
 
+  it("keeps a transfer's other side in step when its amount or date is edited", async () => {
+    const id = await h.run(
+      Transactions.use((t) => t.create({ accountId: account, date: "2026-09-12", amount: -4_000, payee: { kind: "transfer", accountId: savings } })),
+    )
+    await h.run(Transactions.use((t) => t.update(id, { amount: -4_500, date: "2026-09-13", notes: "Épargne" })))
+    const mirror = await h.d1
+      .prepare("SELECT m.amount, m.date, m.notes FROM transactions t JOIN transactions m ON m.id = t.transfer_id WHERE t.id = ?")
+      .bind(id)
+      .first<{ amount: number; date: string; notes: string | null }>()
+    expect(mirror).toEqual({ amount: 4_500, date: "2026-09-13", notes: null })
+  })
+
   it("rewrites a transaction in place when it becomes a transfer", async () => {
     const id = await h.run(
       Transactions.use((t) => t.create({ accountId: account, date: "2026-09-10", amount: -5_000, payee: { kind: "name", name: "Virement perso" } })),

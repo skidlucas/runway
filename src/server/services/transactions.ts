@@ -274,13 +274,13 @@ export class Transactions extends Context.Service<
         const search = filter.search?.trim()
         if (search) {
           const like = `%${search.replace(/[%_]/g, "")}%`
-          const cents = Number(search.replace(",", ".").replace(/[^\d.-]/g, ""))
-          const amountClause = Number.isFinite(cents) && /\d/.test(search) ? " OR ABS(t.amount) = ?" : ""
+          const typedEuros = Number(search.replace(",", ".").replace(/[^\d.-]/g, ""))
+          const amountClause = Number.isFinite(typedEuros) && /\d/.test(search) ? " OR ABS(t.amount) = ?" : ""
           where.push(
             `(COALESCE(pa.name, p.name) LIKE ? OR t.notes LIKE ? OR t.imported_payee LIKE ? OR c.name LIKE ?${amountClause})`,
           )
           params.push(like, like, like, like)
-          if (amountClause) params.push(Math.round(Math.abs(cents) * 100))
+          if (amountClause) params.push(Math.round(Math.abs(typedEuros) * 100))
         }
         const withBalance =
           filter.accountId !== undefined &&
@@ -489,7 +489,7 @@ export class Transactions extends Context.Service<
        * bank id (re-import dedupe), opening-balance flag and, for the other side of a transfer that
        * stays on the same account, its status and its own bank id, bank label and notes.
        */
-      const prepare = Effect.fn("Transactions.prepare")(function* (
+      const buildRows = Effect.fn("Transactions.buildRows")(function* (
         input: TxInput,
         keep?: {
           id: string
@@ -597,7 +597,7 @@ export class Transactions extends Context.Service<
       const insertStatements = (rows: ReadonlyArray<NewTxRow>) => transactionInsertStatements(db.d1, rows)
 
       const create = Effect.fn("Transactions.create")(function* (input: TxInput) {
-        const { id, rows } = yield* prepare(input)
+        const { id, rows } = yield* buildRows(input)
         yield* db.batch(insertStatements(rows))
         return id
       })
@@ -605,7 +605,7 @@ export class Transactions extends Context.Service<
       const prepareMany = Effect.fn("Transactions.prepareMany")(function* (inputs: ReadonlyArray<TxInput>) {
         if (inputs.length === 0) return []
         const lookup = yield* preloaded(inputs)
-        return yield* Effect.forEach(inputs, (input) => Effect.result(prepare(input, undefined, lookup)))
+        return yield* Effect.forEach(inputs, (input) => Effect.result(buildRows(input, undefined, lookup)))
       })
 
       /** Deletes transactions with their split lines and transfer mirrors (and the mirrors' lines). */
@@ -621,78 +621,63 @@ export class Transactions extends Context.Service<
           ]
         })
 
-      const update = Effect.fn("Transactions.update")(function* (id: string, patch: TxPatch) {
-        const current = yield* db.use((orm) => orm.select().from(transactions).where(eq(transactions.id, id)).get())
-        if (!current) return yield* new NotFound({ entity: "Opération", id })
-        if (current.parentId) {
-          // A split line follows its parent's date, payee and account, and its amount must keep the
-          // lines summing to the parent's total: only the parent's editor can change those.
-          if (patch.amount !== undefined || patch.date !== undefined || patch.payee !== undefined || patch.accountId !== undefined || patch.splits !== undefined) {
-            return yield* new Invalid({ message: "Modifie l'opération ventilée pour changer cette ligne" })
-          }
-          const values: Partial<typeof transactions.$inferInsert> = {}
-          if (patch.categoryId !== undefined) values.categoryId = patch.categoryId
-          if (patch.notes !== undefined) values.notes = patch.notes
-          if (Object.keys(values).length) {
-            yield* db.use((orm) => orm.update(transactions).set(values).where(eq(transactions.id, id)))
-          }
-          return
-        }
-        if (patch.date !== undefined && !isDay(patch.date)) return yield* new Invalid({ message: "Date invalide" })
+      type Stored = typeof transactions.$inferSelect
 
+      /** A split line follows its parent's date, payee and account: only its category and notes change. */
+      const updateSplitLine = Effect.fn("Transactions.updateSplitLine")(function* (id: string, patch: TxPatch) {
+        // Its amount must keep the lines summing to the parent's total: only the parent's editor can change those.
+        if (patch.amount !== undefined || patch.date !== undefined || patch.payee !== undefined || patch.accountId !== undefined || patch.splits !== undefined) {
+          return yield* new Invalid({ message: "Modifie l'opération ventilée pour changer cette ligne" })
+        }
+        const values: Partial<typeof transactions.$inferInsert> = {}
+        if (patch.categoryId !== undefined) values.categoryId = patch.categoryId
+        if (patch.notes !== undefined) values.notes = patch.notes
+        if (Object.keys(values).length) {
+          yield* db.use((orm) => orm.update(transactions).set(values).where(eq(transactions.id, id)))
+        }
+      })
+
+      /** Date, amount, category, notes or status: the rows stay, with their split lines and transfer mirror kept in step. */
+      const updateInPlace = Effect.fn("Transactions.updateInPlace")(function* (current: Stored, isTransfer: boolean, patch: TxPatch) {
+        const id = current.id
+        if (current.isParent && patch.amount !== undefined && patch.amount !== current.amount) {
+          return yield* new Invalid({ message: "Modifie les lignes de la ventilation pour changer le total" })
+        }
+        const values: Partial<typeof transactions.$inferInsert> = {}
+        if (patch.date !== undefined) values.date = patch.date
+        if (patch.amount !== undefined) values.amount = patch.amount
+        if (patch.categoryId !== undefined && !current.isParent) {
+          // Same rule as `buildRows`: a transfer inside the budget drops any category it is given.
+          const internal = patch.categoryId !== null && isTransfer
+            ? yield* db.use((_, d1) =>
+                d1.prepare(`SELECT ${IS_INTERNAL_TRANSFER} AS internal FROM transactions t WHERE t.id = ?`).bind(id).first<{ internal: number }>(),
+              )
+            : null
+          values.categoryId = internal?.internal === 1 ? null : patch.categoryId
+        }
+        if (patch.notes !== undefined) values.notes = patch.notes
+        if (patch.cleared !== undefined) values.cleared = patch.cleared
+        const targets = [
+          { where: eq(transactions.id, id), values },
+          // Split lines are counted by the budget on their own date: they must move with the parent.
+          ...(current.isParent ? [{ where: eq(transactions.parentId, id), values: { date: patch.date, cleared: patch.cleared } }] : []),
+          ...(current.transferId
+            ? [{ where: eq(transactions.id, current.transferId), values: { amount: patch.amount === undefined ? undefined : -patch.amount, date: patch.date } }]
+            : []),
+        ]
+        const updates = targets.flatMap(({ where, values }) => {
+          const defined = Object.fromEntries(Object.entries(values).filter(([, v]) => v !== undefined))
+          return Object.keys(defined).length ? [db.orm.update(transactions).set(defined).where(where)] : []
+        })
+        const [first, ...rest] = updates
+        if (first) yield* db.use((orm) => orm.batch([first, ...rest]))
+      })
+
+      /** A new payee kind, account or splits: the transaction is rebuilt under the same ids. */
+      const rewrite = Effect.fn("Transactions.rewrite")(function* (current: Stored, payeeInput: TxPayeeInput, patch: TxPatch) {
+        const id = current.id
         const accountId = patch.accountId ?? current.accountId
         const amount = patch.amount ?? current.amount
-        const currentPayee = current.payeeId
-          ? yield* db.use((orm) => orm.select().from(payees).where(eq(payees.id, current.payeeId!)).get())
-          : undefined
-        const payeeInput: TxPayeeInput =
-          patch.payee ??
-          (currentPayee?.transferAccountId
-            ? { kind: "transfer", accountId: currentPayee.transferAccountId }
-            : current.payeeId
-              ? { kind: "id", id: current.payeeId }
-              : { kind: "none" })
-
-        const structural = patch.payee !== undefined || patch.accountId !== undefined || patch.splits !== undefined
-
-        if (!structural) {
-          const values: Partial<typeof transactions.$inferInsert> = {}
-          if (patch.date !== undefined) values.date = patch.date
-          if (patch.amount !== undefined) values.amount = patch.amount
-          if (patch.categoryId !== undefined && !current.isParent) {
-            // Same rule as `prepare`: a transfer inside the budget drops any category it is given.
-            const internal = patch.categoryId !== null && currentPayee?.transferAccountId
-              ? yield* db.use((_, d1) =>
-                  d1.prepare(`SELECT ${IS_INTERNAL_TRANSFER} AS internal FROM transactions t WHERE t.id = ?`).bind(id).first<{ internal: number }>(),
-                )
-              : null
-            values.categoryId = internal?.internal === 1 ? null : patch.categoryId
-          }
-          if (patch.notes !== undefined) values.notes = patch.notes
-          if (patch.cleared !== undefined) values.cleared = patch.cleared
-          if (current.isParent && patch.amount !== undefined && patch.amount !== current.amount) {
-            return yield* new Invalid({ message: "Modifie les lignes de la ventilation pour changer le total" })
-          }
-          const updates = [
-            { where: eq(transactions.id, id), values },
-            // Split lines are counted by the budget on their own date: they must move with the parent.
-            {
-              where: eq(transactions.parentId, id),
-              values: current.isParent ? { date: patch.date, cleared: patch.cleared } : {},
-            },
-            {
-              where: eq(transactions.id, current.transferId ?? ""),
-              values: current.transferId ? { amount: patch.amount === undefined ? undefined : -patch.amount, date: patch.date } : {},
-            },
-          ].flatMap(({ where, values }) => {
-            const defined = Object.fromEntries(Object.entries(values).filter(([, v]) => v !== undefined))
-            return Object.keys(defined).length ? [db.orm.update(transactions).set(defined).where(where)] : []
-          })
-          const [first, ...rest] = updates
-          if (first) yield* db.use((orm) => orm.batch([first, ...rest]))
-          return
-        }
-
         // Structural edits (payee kind, account, splits, transfer amounts) are rewritten as
         // delete + create under the same id so mirrors and children stay consistent.
         const [existingChildren, mirror] = yield* Effect.all(
@@ -725,7 +710,7 @@ export class Transactions extends Context.Service<
         }
         // Same ids and creation time, deleted and rewritten in one batch: links and open views stay
         // valid, and a failure leaves the original untouched.
-        const { rows } = yield* prepare(input, {
+        const { rows } = yield* buildRows(input, {
           id,
           mirrorId: current.transferId,
           createdAt: current.createdAt,
@@ -744,6 +729,28 @@ export class Transactions extends Context.Service<
             : null,
         })
         yield* db.batch([...deleteStatements([id]), ...insertStatements(rows)])
+      })
+
+      const update = Effect.fn("Transactions.update")(function* (id: string, patch: TxPatch) {
+        const current = yield* db.use((orm) => orm.select().from(transactions).where(eq(transactions.id, id)).get())
+        if (!current) return yield* new NotFound({ entity: "Opération", id })
+        if (current.parentId) return yield* updateSplitLine(id, patch)
+        if (patch.date !== undefined && !isDay(patch.date)) return yield* new Invalid({ message: "Date invalide" })
+
+        const currentPayee = current.payeeId
+          ? yield* db.use((orm) => orm.select().from(payees).where(eq(payees.id, current.payeeId!)).get())
+          : undefined
+        const structural = patch.payee !== undefined || patch.accountId !== undefined || patch.splits !== undefined
+        if (!structural) return yield* updateInPlace(current, Boolean(currentPayee?.transferAccountId), patch)
+
+        const payeeInput: TxPayeeInput =
+          patch.payee ??
+          (currentPayee?.transferAccountId
+            ? { kind: "transfer", accountId: currentPayee.transferAccountId }
+            : current.payeeId
+              ? { kind: "id", id: current.payeeId }
+              : { kind: "none" })
+        return yield* rewrite(current, payeeInput, patch)
       })
 
       const remove = Effect.fn("Transactions.remove")(function* (ids: ReadonlyArray<string>) {
