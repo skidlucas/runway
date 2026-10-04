@@ -139,6 +139,21 @@ describe("computeFindings", () => {
     expect(plain(findings[0]?.context)).toBe("Budget 120 € · dépassement probable le 17 oct.")
   })
 
+  it("compares with the average without a budget, and says when the budget is already spent", () => {
+    const sixMonths = (total: number, toDate: number) =>
+      (["2026-04", "2026-05", "2026-06", "2026-07", "2026-08", "2026-09"] as const).map((m): [string, number, number] => [m, total, toDate])
+    const findingOf = (c: CategoryInsightInput) =>
+      computeFindings({ today: "2026-10-10", categories: [c], topPayees: [], monthTotal: 0, newRecurring: [] })[0]
+
+    const unbudgeted = findingOf(category({ history: hist([...sixMonths(10_000, 4000), ["2026-10", 9000, 9000]]) }))
+    expect(plain(unbudgeted?.text)).toBe("Restaurants : au rythme actuel, 150 € fin octobre, 50 % au-dessus de ta moyenne 6 mois.")
+    expect(plain(unbudgeted?.context)).toBe("Pas de budget · moyenne 6 mois 100 €")
+
+    const spent = findingOf(category({ budgeted: 5000, history: hist([...sixMonths(20_000, 18_000), ["2026-10", 6000, 6000, 5000]]) }))
+    expect(plain(spent?.text)).toBe("Restaurants : au rythme actuel, 80 € fin octobre, 60 % au-dessus du budget.")
+    expect(plain(spent?.context)).toBe("Budget 50 € · déjà dépassé de 10 €")
+  })
+
   it("skips pace-based findings in the first days of the month", () => {
     const overspending = category({
       budgeted: 12_000,

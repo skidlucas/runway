@@ -96,6 +96,9 @@ export type InsightView = {
   readonly periodAverage: number
 }
 
+/** A projection within 2 % of its reference is noise, not an alert. */
+const PROJECTION_ALERT_RATIO = 1.02
+
 /**
  * `totals` must cover the `months` visible months plus `rolling` months before them,
  * oldest first, ending with the current month.
@@ -140,7 +143,7 @@ export const computeView = (input: {
     average,
     projection,
     budget,
-    projectionAlert: reference !== null && reference > 0 && projection > reference * 1.02,
+    projectionAlert: reference !== null && reference > 0 && projection > reference * PROJECTION_ALERT_RATIO,
     periodTotal: sum(bars.map((b) => b.value)),
     periodAverage: Math.round(mean(complete.map((b) => b.value))),
   }
@@ -180,58 +183,77 @@ export type Finding = {
   readonly payeeId?: string
 }
 
+// A finding needs both a relative and an absolute gap (in cents): a small category must not
+// raise alerts over a few euros, nor a large one over a rounding.
+const OVER_BUDGET = { ratio: 1.05, minCents: 10_00 }
+const OVER_AVERAGE = { ratio: 1.15, minCents: 20_00 }
+const BELOW_LAST_MONTH = { minPreviousCents: 50_00, minDropCents: 20_00, maxRatio: 0.9 }
+const OVERSPENT_MONTH = { ratio: 1.05, minCents: 5_00 }
+/** Overspent months in a row before the streak is worth a finding. */
+const MIN_STREAK = 2
+/** From this fraction of a category's spending, its top payee is named in the context. */
+const TOP_PAYEE_MENTION = 0.3
+/** Months of history behind the "moyenne 6 mois", and the fewest that make an average. */
+const AVERAGE_MONTHS = 6
+const MIN_AVERAGE_MONTHS = 3
+/** Amounts from 1 000 € on are shown without cents. */
+const WHOLE_EUROS_FROM = 1_000_00
+
 const pct = (ratio: number) => `${Math.round(Math.abs(ratio) * 100)} %`
-const euros = (cents: number) => formatMoney(cents, { decimals: cents % 100 === 0 || Math.abs(cents) >= 100_000 ? 0 : 2 })
+const euros = (cents: number) => formatMoney(cents, { decimals: cents % 100 === 0 || Math.abs(cents) >= WHOLE_EUROS_FROM ? 0 : 2 })
+
+const exceeds = (amount: number, reference: number, gap: { ratio: number; minCents: number }) =>
+  amount > reference * gap.ratio && amount - reference >= gap.minCents
 
 const projectionFinding = (c: CategoryInsightInput, today: Day): (Finding & { weight: number }) | null => {
   const current = c.history[c.history.length - 1]
   if (!current || current.toDate <= 0) return null
   const past = c.history.slice(0, -1)
   const firstData = past.findIndex((h) => h.count > 0)
-  const recent = firstData < 0 ? [] : past.slice(Math.max(firstData, past.length - 6))
+  const recent = firstData < 0 ? [] : past.slice(Math.max(firstData, past.length - AVERAGE_MONTHS))
   const projection = projectMonthEnd(current, recent, today)
-  const average6 = recent.length >= 3 ? Math.round(mean(recent.map((h) => h.total))) : null
-  const overBudget = c.budgeted > 0 && projection > c.budgeted * 1.05 && projection - c.budgeted >= 1000
-  const overAverage = average6 !== null && average6 > 0 && projection > average6 * 1.15 && projection - average6 >= 2000
+  const average = recent.length >= MIN_AVERAGE_MONTHS ? Math.round(mean(recent.map((h) => h.total))) : null
+  const hasBudget = c.budgeted > 0
   // With a budget, the budget is the reference: spending above habits but within budget is fine.
-  if (c.budgeted > 0 ? !overBudget : !overAverage) return null
-  const monthName = formatMonthName(monthOf(today))
-  const comparison =
-    average6 !== null && average6 > 0 && projection > average6
-      ? `, ${pct(projection / average6 - 1)} au-dessus de ta moyenne 6 mois`
-      : c.budgeted > 0
-        ? `, ${pct(projection / c.budgeted - 1)} au-dessus du budget`
-        : ""
-  const overrun = projectedOverrunDay(current.toDate, projection, c.budgeted, today)
-  const context =
-    c.budgeted > 0
-      ? current.toDate >= c.budgeted
-        ? `Budget ${euros(c.budgeted)} · déjà dépassé de ${euros(current.toDate - c.budgeted)}`
-        : `Budget ${euros(c.budgeted)}${overrun ? ` · dépassement probable le ${formatDayShort(overrun)}` : ""}`
-      : `Pas de budget · moyenne 6 mois ${euros(average6 ?? 0)}`
+  const alarming = hasBudget ? exceeds(projection, c.budgeted, OVER_BUDGET) : average !== null && average > 0 && exceeds(projection, average, OVER_AVERAGE)
+  if (!alarming) return null
   return {
     kind: "projection",
     tone: "negative",
-    text: `${c.name} : au rythme actuel, ${euros(projection)} fin ${monthName}${comparison}.`,
-    context,
+    text: `${c.name} : au rythme actuel, ${euros(projection)} fin ${formatMonthName(monthOf(today))}${projectionComparison(projection, average, c.budgeted)}.`,
+    context: projectionContext(current.toDate, projection, average, c.budgeted, today),
     categoryId: c.id,
-    weight: projection - (c.budgeted > 0 ? c.budgeted : (average6 ?? 0)),
+    weight: projection - (hasBudget ? c.budgeted : (average ?? 0)),
   }
+}
+
+/** How far above the habits (preferably) or the budget the projection lands, "" when neither applies. */
+const projectionComparison = (projection: number, average: number | null, budgeted: number): string => {
+  if (average !== null && average > 0 && projection > average) return `, ${pct(projection / average - 1)} au-dessus de ta moyenne 6 mois`
+  if (budgeted > 0) return `, ${pct(projection / budgeted - 1)} au-dessus du budget`
+  return ""
+}
+
+const projectionContext = (spent: number, projection: number, average: number | null, budgeted: number, today: Day): string => {
+  if (budgeted <= 0) return `Pas de budget · moyenne 6 mois ${euros(average ?? 0)}`
+  if (spent >= budgeted) return `Budget ${euros(budgeted)} · déjà dépassé de ${euros(spent - budgeted)}`
+  const overrun = projectedOverrunDay(spent, projection, budgeted, today)
+  return `Budget ${euros(budgeted)}${overrun ? ` · dépassement probable le ${formatDayShort(overrun)}` : ""}`
 }
 
 const belowLastMonthFinding = (c: CategoryInsightInput, today: Day): (Finding & { weight: number }) | null => {
   const current = c.history[c.history.length - 1]
   const previous = c.history[c.history.length - 2]
-  if (!current || !previous || previous.toDate < 5000) return null
+  if (!current || !previous || previous.toDate < BELOW_LAST_MONTH.minPreviousCents) return null
   const delta = current.toDate - previous.toDate
-  if (delta > -2000 || current.toDate > previous.toDate * 0.9) return null
+  if (delta > -BELOW_LAST_MONTH.minDropCents || current.toDate > previous.toDate * BELOW_LAST_MONTH.maxRatio) return null
   const topPayeeFraction = c.topPayee && current.toDate > 0 ? c.topPayee.amount / current.toDate : 0
   return {
     kind: "below_last_month",
     tone: "positive",
     text: `${c.name} : ${euros(current.toDate)} dépensés, ${pct(delta / previous.toDate)} de moins qu'à la même date en ${formatMonthName(addMonths(monthOf(today), -1))}.`,
     context:
-      c.topPayee && topPayeeFraction >= 0.3
+      c.topPayee && topPayeeFraction >= TOP_PAYEE_MENTION
         ? `${c.topPayee.name} représente ${pct(topPayeeFraction)} du poste`
         : `${euros(previous.toDate)} au ${parseDay(today).d} ${formatMonthName(addMonths(monthOf(today), -1))}`,
     categoryId: c.id,
@@ -243,14 +265,14 @@ const streakFinding = (c: CategoryInsightInput): (Finding & { weight: number }) 
   const months = c.history
   const current = months[months.length - 1]
   if (!current) return null
-  const overspent = (m: (typeof months)[number]) => m.budgeted > 0 && m.total > m.budgeted * 1.05 && m.total - m.budgeted >= 500
+  const overspent = (m: (typeof months)[number]) => m.budgeted > 0 && exceeds(m.total, m.budgeted, OVERSPENT_MONTH)
   let streak = 0
   for (let i = months.length - 2; i >= 0; i--) {
     const m = months[i]
     if (!m || !overspent(m)) break
     streak++
   }
-  if (streak < 2) return null
+  if (streak < MIN_STREAK) return null
   const ongoing = overspent(current)
   const last12 = months.slice(-13, -1)
   const average = Math.round(mean(last12.map((m) => m.total)))
@@ -289,7 +311,7 @@ export const computeFindings = (input: {
   const { today, categories, topPayees, newRecurring } = input
   const limit = input.limitPerKind ?? 2
   const strip = ({ weight: _, ...f }: Finding & { weight: number }): Finding => f
-  const top = (list: Array<(Finding & { weight: number }) | null>) =>
+  const heaviest = (list: Array<(Finding & { weight: number }) | null>) =>
     list
       .filter((f): f is Finding & { weight: number } => f !== null)
       .sort((a, b) => b.weight - a.weight)
@@ -297,10 +319,10 @@ export const computeFindings = (input: {
       .map(strip)
 
   const early = parseDay(today).d <= EARLY_MONTH_DAYS
-  const projections = early ? [] : top(categories.map((c) => projectionFinding(c, today)))
+  const projections = early ? [] : heaviest(categories.map((c) => projectionFinding(c, today)))
   const flagged = new Set(projections.map((f) => f.categoryId))
-  const streaks = top(categories.filter((c) => !flagged.has(c.id)).map(streakFinding))
-  const below = early ? [] : top(categories.map((c) => belowLastMonthFinding(c, today)))
+  const streaks = heaviest(categories.filter((c) => !flagged.has(c.id)).map(streakFinding))
+  const below = early ? [] : heaviest(categories.map((c) => belowLastMonthFinding(c, today)))
 
   const recurring: Finding[] = newRecurring.slice(0, limit).map((r) => ({
     kind: "new_recurring",
