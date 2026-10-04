@@ -23,9 +23,26 @@ export type ForecastScope = {
 export type UpcomingDto = { today: Day; until: Day; items: UpcomingItem[] }
 
 // Either one account (bound as ?1), or the accounts that count as "money available now". Two
-// separate statements rather than an OR, so that one account reads through its own index.
+// spellings of the condition rather than one with an OR, so that one account reads through its
+// own index.
 const scopeOf = (accountId: string | null, column: "a.id" | "t.account_id") =>
   accountId === null ? "(a.in_forecast = 1 AND a.closed = 0 AND a.off_budget = 0)" : `${column} = ?1`
+
+type BookedRow = { date: Day; amount: number; categoryId: string | null; name: string }
+
+/** Operations already entered in the scope, dated after `after` and up to `until`. */
+const bookedAfter = (d1: D1Database, accountId: string | null, after: Day, until: Day) =>
+  d1
+    .prepare(
+      `SELECT t.date, t.amount, t.category_id AS categoryId, COALESCE(pa.name, p.name, 'Opération') AS name
+       FROM transactions t JOIN accounts a ON a.id = t.account_id
+       LEFT JOIN payees p ON p.id = t.payee_id LEFT JOIN accounts pa ON pa.id = p.transfer_account_id
+       WHERE ${scopeOf(accountId, "t.account_id")} AND t.parent_id IS NULL AND t.date > ?2 AND t.date <= ?3`,
+    )
+    .bind(accountId, after, until)
+
+const bookedItems = (rows: ReadonlyArray<BookedRow>): UpcomingItem[] =>
+  rows.map((t) => ({ ...t, source: "transaction" as const, scheduleId: null, overdue: false }))
 
 /**
  * Turns schedule occurrences into money moving in or out of the scoped accounts. A transfer
@@ -95,12 +112,7 @@ export class ForecastService extends Context.Service<
                  WHERE ${scopeOf(accountId, "t.account_id")} AND t.parent_id IS NULL AND t.date BETWEEN ?2 AND ?3
                  GROUP BY t.date ORDER BY t.date`,
               ).bind(accountId, start, end),
-              d1.prepare(
-                `SELECT t.date, t.amount, t.category_id AS categoryId, COALESCE(pa.name, p.name, 'Opération') AS name
-                 FROM transactions t JOIN accounts a ON a.id = t.account_id
-                 LEFT JOIN payees p ON p.id = t.payee_id LEFT JOIN accounts pa ON pa.id = p.transfer_account_id
-                 WHERE ${scopeOf(accountId, "t.account_id")} AND t.parent_id IS NULL AND t.date > ?2 AND t.date <= ?3`,
-              ).bind(accountId, today, end),
+              bookedAfter(d1, accountId, today, end),
             ])
             const balances = (accounts?.results ?? []) as ForecastAccount[]
             const moved = ((sinceStart?.results?.[0] as { total: number } | undefined)?.total ?? 0) as number
@@ -108,7 +120,7 @@ export class ForecastService extends Context.Service<
               accounts: balances,
               opening: balances.reduce((sum, a) => sum + a.balance, 0) - moved,
               daily: (daily?.results ?? []) as Array<{ date: string; total: number }>,
-              future: (future?.results ?? []) as Array<{ date: string; amount: number; categoryId: string | null; name: string }>,
+              future: (future?.results ?? []) as BookedRow[],
             }
           }),
           schedules.occurrences(today > start ? today : start, end),
@@ -123,7 +135,7 @@ export class ForecastService extends Context.Service<
           dailyBalances.set(d.date, running)
         }
         const upcoming: UpcomingItem[] = [
-          ...raw.future.map((t) => ({ ...t, source: "transaction" as const, scheduleId: null, overdue: false })),
+          ...bookedItems(raw.future),
           ...scheduledItems(occurrences, new Set(raw.accounts.map((a) => a.id))),
         ]
         const forecast = computeForecast({
@@ -153,22 +165,17 @@ export class ForecastService extends Context.Service<
               accountId === null
                 ? d1.prepare(`SELECT a.id FROM accounts a WHERE ${scopeOf(null, "a.id")}`)
                 : d1.prepare("SELECT a.id FROM accounts a WHERE a.id = ?1").bind(accountId),
-              d1.prepare(
-                `SELECT t.date, t.amount, t.category_id AS categoryId, COALESCE(pa.name, p.name, 'Opération') AS name
-                 FROM transactions t JOIN accounts a ON a.id = t.account_id
-                 LEFT JOIN payees p ON p.id = t.payee_id LEFT JOIN accounts pa ON pa.id = p.transfer_account_id
-                 WHERE ${scopeOf(accountId, "t.account_id")} AND t.parent_id IS NULL AND t.date > ?2 AND t.date <= ?3`,
-              ).bind(accountId, today, until),
+              bookedAfter(d1, accountId, today, until),
             ])
             return {
               accounts: (accounts?.results ?? []) as Array<{ id: string }>,
-              future: (future?.results ?? []) as Array<{ date: string; amount: number; categoryId: string | null; name: string }>,
+              future: (future?.results ?? []) as BookedRow[],
             }
           }),
           schedules.occurrences(today, until),
         ], { concurrency: "unbounded" })
         const items: UpcomingItem[] = [
-          ...raw.future.map((t) => ({ ...t, source: "transaction" as const, scheduleId: null, overdue: false })),
+          ...bookedItems(raw.future),
           ...scheduledItems(occurrences, new Set(raw.accounts.map((a) => a.id))),
         ].sort((a, b) => compareIso(a.date, b.date))
         return { today, until, items } satisfies UpcomingDto
