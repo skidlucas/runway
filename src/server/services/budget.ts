@@ -81,7 +81,6 @@ export class Budget extends Context.Service<
      */
     fill(month: Month, mode: FillMode, categoryIds?: ReadonlyArray<string>): Effect.Effect<number, DbError | Invalid>
     move(month: Month, from: MoveTarget, to: MoveTarget, amount: number): Effect.Effect<void, DbError | Invalid>
-    setBuffered(month: Month, amount: number): Effect.Effect<void, DbError | Invalid>
   }
 >()("runway/server/services/Budget") {
   static readonly layer = Layer.effect(
@@ -397,19 +396,7 @@ export class Budget extends Context.Service<
         )
       })
 
-      const setBuffered = Effect.fn("Budget.setBuffered")(function* (m: Month, amount: number) {
-        yield* checkMonth(m)
-        if (!Number.isInteger(amount) || amount < 0) return yield* new Invalid({ message: "Montant invalide" })
-        yield* db.batch([
-          db.d1
-            .prepare(
-              "INSERT INTO budget_months (month, buffered) VALUES (?, ?) ON CONFLICT(month) DO UPDATE SET buffered = excluded.buffered",
-            )
-            .bind(m, amount),
-        ])
-      })
-
-      return Budget.of({ compute, month, ageOfMoney: monthAge, setAmount, setCarryover, fill, move, setBuffered })
+      return Budget.of({ compute, month, ageOfMoney: monthAge, setAmount, setCarryover, fill, move })
     }),
   )
 }

@@ -107,7 +107,8 @@ describe("Runway backup", () => {
     const wealth = await target.run(Wealth.use((w) => w.overview))
     expect(wealth.items.filter((i) => i.name === "Rolex")).toHaveLength(1)
     const watch = wealth.items.find((i) => i.name === "Rolex")!
-    expect(await target.run(Wealth.use((w) => w.valuations(watch.id)))).toHaveLength(1)
+    const { results: valuations } = await target.d1.prepare("SELECT id FROM asset_valuations WHERE asset_id = ?").bind(watch.id).all()
+    expect(valuations).toHaveLength(1)
     expect(await target.run(Insights.use((i) => i.savedViews))).toHaveLength(4)
   })
 

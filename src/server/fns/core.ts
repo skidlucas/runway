@@ -158,11 +158,6 @@ export const resolvePayee = createServerFn({ method: "POST" })
     runApp(Payees.use((s) => s.resolveNames([data.name])).pipe(Effect.map((ids) => ids.get(data.name) ?? ""))),
   )
 
-export const suggestPayeeCategory = createServerFn({ method: "GET" })
-  .middleware([authMiddleware])
-  .validator(v(Schema.Struct({ payeeId: Id })))
-  .handler(({ data }) => runApp(Payees.use((s) => s.suggestCategory(data.payeeId))))
-
 // --- Transactions ---------------------------------------------------------------
 
 const SplitInput = Schema.Struct({
@@ -300,11 +295,6 @@ export const moveBudget = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
   .validator(v(Schema.Struct({ month: Month, from: MoveTarget, to: MoveTarget, amount: Cents })))
   .handler(({ data }) => runApp(Budget.use((s) => s.move(data.month, data.from, data.to, data.amount))))
-
-export const setBudgetBuffered = createServerFn({ method: "POST" })
-  .middleware([authMiddleware])
-  .validator(v(Schema.Struct({ month: Month, amount: Cents })))
-  .handler(({ data }) => runApp(Budget.use((s) => s.setBuffered(data.month, data.amount))))
 
 // --- Rules ----------------------------------------------------------------------
 

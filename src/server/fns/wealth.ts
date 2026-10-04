@@ -50,11 +50,6 @@ export const getWealthAssets = createServerFn({ method: "GET" })
   .middleware([authMiddleware])
   .handler(() => runApp(Wealth.use((w) => w.assetsOverview)))
 
-export const getAssetValuations = createServerFn({ method: "GET" })
-  .middleware([authMiddleware])
-  .validator(v(Schema.Struct({ assetId: Schema.String })))
-  .handler(({ data }) => runApp(Wealth.use((w) => w.valuations(data.assetId))))
-
 export const createAsset = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
   .validator(v(AssetInput))
@@ -74,11 +69,6 @@ export const addAssetValuation = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
   .validator(v(Schema.Struct({ assetId: Schema.String, date: Schema.String, amount: Schema.Int })))
   .handler(({ data }) => runApp(Wealth.use((w) => w.addValuation(data))))
-
-export const deleteAssetValuation = createServerFn({ method: "POST" })
-  .middleware([authMiddleware])
-  .validator(v(Schema.Struct({ id: Schema.String })))
-  .handler(({ data }) => runApp(Wealth.use((w) => w.removeValuation(data.id))))
 
 export const refreshValuations = createServerFn({ method: "POST" })
   .middleware([authMiddleware])

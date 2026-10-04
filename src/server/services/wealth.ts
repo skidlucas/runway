@@ -97,7 +97,6 @@ export type AssetInput = {
 
 export type RefreshResult = { updated: number; failures: Array<{ assetId: string; name: string; message: string }> }
 
-export type ValuationDto = { id: string; date: Day; amount: number; source: string; automatic: boolean; unitPrice: number | null }
 
 type AssetRow = typeof assets.$inferSelect
 type ValuationRow = {
@@ -162,12 +161,10 @@ export class Wealth extends Context.Service<
     readonly overview: Effect.Effect<WealthOverview, DbError>
     /** The overview without the accounts, which are read from every operation of their history. */
     readonly assetsOverview: Effect.Effect<WealthOverview, DbError>
-    valuations(assetId: string): Effect.Effect<ValuationDto[], DbError>
     create(input: AssetInput): Effect.Effect<string, DbError | Invalid>
     update(id: string, input: AssetInput): Effect.Effect<void, DbError | Invalid | NotFound>
     remove(id: string): Effect.Effect<void, DbError>
     addValuation(input: { assetId: string; date: Day; amount: number }): Effect.Effect<void, DbError | Invalid | NotFound>
-    removeValuation(id: string): Effect.Effect<void, DbError>
     /**
      * Fetches automatic estimates (crypto, quotes, DVF) for the assets that are due, or for `ids`
      * regardless of age. One request per source, not per asset, where the source allows it.
@@ -390,22 +387,6 @@ export class Wealth extends Context.Service<
       const overview = overviewOf(true).pipe(Effect.withSpan("Wealth.overview"))
       const assetsOverview = overviewOf(false).pipe(Effect.withSpan("Wealth.assetsOverview"))
 
-      const valuationsOf = (assetId: string) =>
-        db.use((orm) =>
-          orm
-            .select({
-              id: assetValuations.id,
-              date: assetValuations.date,
-              amount: assetValuations.amount,
-              source: assetValuations.source,
-              automatic: assetValuations.automatic,
-              unitPrice: assetValuations.unitPrice,
-            })
-            .from(assetValuations)
-            .where(eq(assetValuations.assetId, assetId))
-            .orderBy(assetValuations.date),
-        )
-
       const validate = (input: AssetInput): Effect.Effect<AssetInput, Invalid> => {
         const fail = (message: string) => Effect.fail(new Invalid({ message }))
         const name = input.name.trim()
@@ -616,18 +597,13 @@ export class Wealth extends Context.Service<
         )
       })
 
-      const removeValuation = (id: string) =>
-        db.use((orm) => orm.delete(assetValuations).where(eq(assetValuations.id, id))).pipe(Effect.asVoid)
-
       return Wealth.of({
         overview,
         assetsOverview,
-        valuations: valuationsOf,
         create,
         update,
         remove,
         addValuation,
-        removeValuation,
         refresh,
       })
     }),

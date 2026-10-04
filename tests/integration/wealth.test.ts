@@ -165,7 +165,10 @@ describe("Wealth", () => {
     expect(historyCalls).toBe(1)
     await h.run(Wealth.use((w) => w.refresh({ ids: [btc] })))
     expect(historyCalls).toBe(1)
-    const valuations = await h.run(Wealth.use((w) => w.valuations(btc)))
+    const { results: valuations } = await h.d1
+      .prepare("SELECT date FROM asset_valuations WHERE asset_id = ? ORDER BY date")
+      .bind(btc)
+      .all<{ date: string }>()
     expect(valuations.filter((v) => v.date === today)).toHaveLength(1)
     // Backfilled: one automatic estimate per past month-end, from the price history.
     const monthEnds = monthRange(addMonths(month, -12), addMonths(month, -1)).map(lastDay)
