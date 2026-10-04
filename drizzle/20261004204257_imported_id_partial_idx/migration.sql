@@ -1,0 +1,1 @@
+CREATE INDEX `tx_imported_idx` ON `transactions` (`imported_id`) WHERE imported_id IS NOT NULL;

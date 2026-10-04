@@ -99,6 +99,7 @@ export const transactions = sqliteTable(
     index("tx_parent_idx").on(t.parentId).where(sql`parent_id IS NOT NULL`),
     index("tx_transfer_idx").on(t.transferId).where(sql`transfer_id IS NOT NULL`),
     index("tx_schedule_idx").on(t.scheduleId).where(sql`schedule_id IS NOT NULL`),
+    index("tx_imported_idx").on(t.importedId).where(sql`imported_id IS NOT NULL`),
   ],
 )
 
