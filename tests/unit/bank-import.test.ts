@@ -37,11 +37,15 @@ describe("OFX", () => {
 <OFX><BANKMSGSRSV1><STMTTRNRS><STMTRS><BANKTRANLIST>
 <STMTTRN><TRNTYPE>DEBIT<DTPOSTED>20261002120000<TRNAMT>-42.18<FITID>A1<NAME>MONOPRIX &amp; CO<MEMO>CB 01/10
 <STMTTRN><TRNTYPE>CREDIT<DTPOSTED>20261001<TRNAMT>2840.00<FITID>A2<NAME>SALAIRE
+<STMTTRN><TRNTYPE>DEBIT<DTPOSTED>2026<TRNAMT>-1.00<FITID>A3<NAME>ILLISIBLE
 </BANKTRANLIST></STMTRS></STMTTRNRS></BANKMSGSRSV1></OFX>`
-    expect(parseOfx(text)).toEqual([
-      { date: "2026-10-02", amount: -4218, payee: "MONOPRIX & CO", notes: "CB 01/10", importedId: "A1" },
-      { date: "2026-10-01", amount: 284000, payee: "SALAIRE", notes: null, importedId: "A2" },
-    ])
+    expect(parseOfx(text)).toEqual({
+      transactions: [
+        { date: "2026-10-02", amount: -4218, payee: "MONOPRIX & CO", notes: "CB 01/10", importedId: "A1" },
+        { date: "2026-10-01", amount: 284000, payee: "SALAIRE", notes: null, importedId: "A2" },
+      ],
+      errors: 1,
+    })
   })
 })
 
@@ -57,10 +61,35 @@ D25/09/2026
 T1,250.00
 PSalaire
 ^`
-    expect(parseQif(text)).toEqual([
-      { date: "2026-10-02", amount: -4218, payee: "Monoprix", notes: "Courses", importedId: null },
-      { date: "2026-09-25", amount: 125000, payee: "Salaire", notes: null, importedId: null },
+    expect(parseQif(text)).toEqual({
+      transactions: [
+        { date: "2026-10-02", amount: -4218, payee: "Monoprix", notes: "Courses", importedId: null },
+        { date: "2026-09-25", amount: 125000, payee: "Salaire", notes: null, importedId: null },
+      ],
+      errors: 0,
+    })
+  })
+
+  it("reads Quicken dates and counts the records it cannot read", () => {
+    const text = `!Type:Bank
+D12/ 5'98
+T-10.00
+PVieux
+^
+D 3/ 4/26
+T-20.00
+PRécent
+^
+D31/02/2026
+T-5.00
+PImpossible
+^`
+    const { transactions, errors } = parseQif(text)
+    expect(transactions.map((t) => [t.date, t.payee])).toEqual([
+      ["1998-05-12", "Vieux"],
+      ["2026-04-03", "Récent"],
     ])
+    expect(errors).toBe(1)
   })
 })
 

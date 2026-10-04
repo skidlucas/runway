@@ -24,6 +24,9 @@ export type CsvMapping = {
   hasHeader: boolean
 }
 
+/** `errors` counts the entries that could not be read and are left out. */
+export type ParsedBankFile = { transactions: BankTransaction[]; errors: number }
+
 export type CsvPreview = { rows: string[][]; mapping: CsvMapping; headers: string[] }
 
 const norm = (s: string) =>
@@ -39,6 +42,12 @@ export const parseCsvText = (text: string): string[][] => {
 }
 
 const DATE_RE = /^(\d{1,4})[/.-](\d{1,2})[/.-](\d{1,4})/
+
+/** Two-digit years up to next year are this century's; later ones are the previous century's (98 → 1998). */
+const fullYear = (y: number) => {
+  const pivot = (new Date().getFullYear() % 100) + 1
+  return y > pivot ? 1900 + y : 2000 + y
+}
 
 export const parseDate = (raw: string, format: CsvMapping["dateFormat"]): string | null => {
   const m = DATE_RE.exec(raw.trim())
@@ -58,7 +67,7 @@ export const parseDate = (raw: string, format: CsvMapping["dateFormat"]): string
     mo = Number(b)
     y = Number(c)
   }
-  if (y < 100) y += 2000
+  if (y < 100) y = fullYear(y)
   const day = `${y}-${String(mo).padStart(2, "0")}-${String(d).padStart(2, "0")}`
   return isDay(day) && mo >= 1 && mo <= 12 && d >= 1 && d <= 31 ? day : null
 }
@@ -112,7 +121,7 @@ export const guessCsvMapping = (rows: string[][]): CsvPreview => {
   }
 }
 
-export const applyCsvMapping = (rows: string[][], mapping: CsvMapping): { transactions: BankTransaction[]; errors: number } => {
+export const applyCsvMapping = (rows: string[][], mapping: CsvMapping): ParsedBankFile => {
   const body = mapping.hasHeader ? rows.slice(1) : rows
   const transactions: BankTransaction[] = []
   let errors = 0
@@ -151,16 +160,19 @@ const decodeEntities = (s: string) =>
   s.replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&apos;/g, "'").replace(/&quot;/g, '"')
 
 /** Handles both SGML (OFX 1.x, no closing tags) and XML (OFX 2.x) statements. */
-export const parseOfx = (text: string): BankTransaction[] => {
+export const parseOfx = (text: string): ParsedBankFile => {
   const blocks = text.split(/<STMTTRN>/i).slice(1)
   const out: BankTransaction[] = []
+  let errors = 0
   for (const raw of blocks) {
     const block = raw.split(/<\/STMTTRN>/i)[0] ?? raw
     const posted = ofxField(block, "DTPOSTED")
     const amount = parseAmount(ofxField(block, "TRNAMT") ?? "")
-    if (!posted || amount === null) continue
-    const date = `${posted.slice(0, 4)}-${posted.slice(4, 6)}-${posted.slice(6, 8)}`
-    if (!isDay(date)) continue
+    const date = posted ? `${posted.slice(0, 4)}-${posted.slice(4, 6)}-${posted.slice(6, 8)}` : ""
+    if (amount === null || !isDay(date)) {
+      errors++
+      continue
+    }
     const name = ofxField(block, "NAME") ?? ofxField(block, "PAYEE") ?? ""
     const memo = ofxField(block, "MEMO")
     out.push({
@@ -171,14 +183,15 @@ export const parseOfx = (text: string): BankTransaction[] => {
       importedId: ofxField(block, "FITID"),
     })
   }
-  return out
+  return { transactions: out, errors }
 }
 
 // --- QIF ---------------------------------------------------------------------------
 
-export const parseQif = (text: string): BankTransaction[] => {
+export const parseQif = (text: string): ParsedBankFile => {
   const records = text.split(/^\^\s*$/m)
   const out: BankTransaction[] = []
+  let errors = 0
   const raw: Array<{ d: string; t: string; p: string; m: string | null }> = []
   for (const record of records) {
     let d = ""
@@ -193,17 +206,22 @@ export const parseQif = (text: string): BankTransaction[] => {
       else if (code === "P") p = value
       else if (code === "M") m = value
     }
-    if (d && t) raw.push({ d, t, p, m })
+    // Quicken writes dates like "1/ 5'98": an apostrophe before the year and space-padded parts.
+    if (d && t) raw.push({ d: d.replace(/'/g, "/").replace(/\s+/g, ""), t, p, m })
+    else if (d || t) errors++
   }
   const mdy = raw.some((r) => {
-    const m = /^(\d{1,2})[/.'-](\d{1,2})/.exec(r.d)
+    const m = /^(\d{1,2})[/.-](\d{1,2})/.exec(r.d)
     return m && Number(m[2]) > 12
   })
   for (const r of raw) {
-    const date = parseDate(r.d.replace("'", "/"), mdy ? "mdy" : "dmy")
+    const date = parseDate(r.d, mdy ? "mdy" : "dmy")
     const amount = parseAmount(r.t.replace(/,(?=\d{3}\b)/g, ""))
-    if (!date || amount === null) continue
+    if (!date || amount === null) {
+      errors++
+      continue
+    }
     out.push({ date, amount, payee: r.p || r.m || "", notes: r.p && r.m ? r.m : null, importedId: null })
   }
-  return out
+  return { transactions: out, errors }
 }

@@ -45,7 +45,8 @@ export type ImportOptions = {
   applyRules: boolean
 }
 
-export type ImportResult = { inserted: number; duplicates: number }
+/** `skipped`: rows left out because their account does not exist (deleted meanwhile). */
+export type ImportResult = { inserted: number; duplicates: number; skipped: number }
 
 export type DuplicateProbe = {
   account: string
@@ -414,7 +415,7 @@ export class ImportExport extends Context.Service<
         input: ReadonlyArray<ImportRow>,
         options: ImportOptions,
       ) {
-        if (input.length === 0) return { inserted: 0, duplicates: 0 }
+        if (input.length === 0) return { inserted: 0, duplicates: 0, skipped: 0 }
         for (const r of input) {
           if (!isDay(r.date) || !Number.isInteger(r.amount)) {
             return yield* new Invalid({ message: `Ligne invalide (${r.date} · ${r.amount})` })
@@ -538,7 +539,8 @@ export class ImportExport extends Context.Service<
           r.createdAt && STAMP.test(r.createdAt) ? r.createdAt : fallback[i],
         ])
         yield* db.batch(bulkInsertStatements(db.d1, "transactions", TX_COLUMNS, values, "ignore"))
-        return { inserted: kept.filter((r) => !r.parentId).length, duplicates }
+        const skipped = input.filter((r) => !r.parentId && !known.accounts.has(r.accountId)).length
+        return { inserted: kept.filter((r) => !r.parentId).length, duplicates, skipped }
       })
 
       // Assets and valuations keep their ids and existing ones win, so restoring the same backup

@@ -57,7 +57,7 @@ describe("Volume", () => {
 
     started = performance.now()
     const again = await h.run(ImportExport.use((s) => s.importTransactions(chunks[0]!, { dedupe: true, applyRules: false })))
-    expect(again).toEqual({ inserted: 0, duplicates: chunks[0]!.length })
+    expect(again).toEqual({ inserted: 0, skipped: 0, duplicates: chunks[0]!.length })
     console.info(`import ${ROWS} rows: ${Math.round(importMs)} ms (${chunks.length} chunks) · re-import chunk: ${Math.round(performance.now() - started)} ms`)
     expect(importMs).toBeLessThan(60_000)
   }, 120_000)

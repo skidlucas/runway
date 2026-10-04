@@ -78,7 +78,7 @@ export const chunkFamilies = (rows: ReadonlyArray<ImportRow>, size = CHUNK_SIZE)
   return chunks
 }
 
-export type ImportProgress = { done: number; total: number; inserted: number; duplicates: number }
+export type ImportProgress = { done: number; total: number; inserted: number; duplicates: number; skipped: number }
 
 export const runBundleImport = async (
   bundle: ImportBundle,
@@ -90,7 +90,7 @@ export const runBundleImport = async (
     structure: structureOf(bundle),
     include: { budgets: include.budgets, rules: include.rules, schedules: include.schedules },
   })
-  const progress: ImportProgress = { done: 0, total: 0, inserted: 0, duplicates: 0 }
+  const progress: ImportProgress = { done: 0, total: 0, inserted: 0, duplicates: 0, skipped: 0 }
   if (!include.transactions) return { maps, ...progress }
   const chunks = chunkFamilies(toImportRows(bundle.transactions, maps))
   progress.total = chunks.reduce((s, c) => s + c.length, 0)
@@ -101,6 +101,7 @@ export const runBundleImport = async (
     progress.done += chunk.length
     progress.inserted += result.inserted
     progress.duplicates += result.duplicates
+    progress.skipped += result.skipped
     onProgress({ ...progress })
   }
   return { maps, ...progress }

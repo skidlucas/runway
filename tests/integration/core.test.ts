@@ -235,10 +235,11 @@ describe("bank re-import", () => {
     )
     const line = { accountId: ids.checking, date: "2026-09-12", amount: -1_999, payeeName: "CARREFOUR CITY 75", importedPayee: "CARREFOUR CITY 75", cleared: true }
     const options = { dedupe: true, applyRules: true }
-    expect(await h.run(ImportExport.use((s) => s.importTransactions([line], options)))).toEqual({ inserted: 1, duplicates: 0 })
+    expect(await h.run(ImportExport.use((s) => s.importTransactions([line], options)))).toEqual({ inserted: 1, duplicates: 0, skipped: 0 })
     expect(await h.run(ImportExport.use((s) => s.importTransactions([line, { ...line, amount: -2_999 }], options)))).toEqual({
       inserted: 1,
       duplicates: 1,
+      skipped: 0,
     })
   })
 })

@@ -13,7 +13,7 @@ import { fileOrderStamps, type ImportBundle } from "~/lib/import-bundle"
 import { chunkFamilies, type ImportProgress, runBundleImport } from "~/lib/import-client"
 import {
   applyCsvMapping,
-  type BankTransaction,
+  type ParsedBankFile,
   type CsvMapping,
   guessCsvMapping,
   parseCsvText,
@@ -41,12 +41,12 @@ export const Route = createFileRoute("/_app/settings/data")({ component: DataSet
 const LAST_EXPORT_KEY = "runway-last-export"
 const fmt = new Intl.NumberFormat("fr-FR")
 
-const importedMessage = (inserted: number, duplicates: number) =>
-  `${count(inserted, "opération")} ${plural(inserted, "importée")}${duplicates ? ` · ${count(duplicates, "doublon")} ${plural(duplicates, "ignoré")}` : ""}`
+const importedMessage = (inserted: number, duplicates: number, skipped: number) =>
+  `${count(inserted, "opération")} ${plural(inserted, "importée")}${duplicates ? ` · ${count(duplicates, "doublon")} ${plural(duplicates, "ignoré")}` : ""}${skipped ? ` · ${count(skipped, "opération")} sans compte ${plural(skipped, "ignorée")}` : ""}`
 
 type Pending =
   | { kind: "bundle"; fileName: string; bundle: ImportBundle }
-  | { kind: "bank"; fileName: string; format: "csv" | "ofx" | "qif"; rows?: string[][]; transactions?: BankTransaction[] }
+  | { kind: "bank"; fileName: string; format: "csv" | "ofx" | "qif"; rows?: string[][]; parsed?: ParsedBankFile }
 
 function DataSettings() {
   const [pending, setPending] = React.useState<Pending | null>(null)
@@ -67,9 +67,9 @@ function DataSettings() {
       } else if (name.endsWith(".csv") || name.endsWith(".txt")) {
         setPending({ kind: "bank", fileName: file.name, format: "csv", rows: parseCsvText(await file.text()) })
       } else if (name.endsWith(".ofx") || name.endsWith(".qfx")) {
-        setPending({ kind: "bank", fileName: file.name, format: "ofx", transactions: parseOfx(await file.text()) })
+        setPending({ kind: "bank", fileName: file.name, format: "ofx", parsed: parseOfx(await file.text()) })
       } else if (name.endsWith(".qif")) {
-        setPending({ kind: "bank", fileName: file.name, format: "qif", transactions: parseQif(await file.text()) })
+        setPending({ kind: "bank", fileName: file.name, format: "qif", parsed: parseQif(await file.text()) })
       } else {
         throw new Error("Format non pris en charge : .zip (Actual), .json, .csv, .ofx ou .qif")
       }
@@ -240,7 +240,7 @@ function BundleImportDialog({ fileName, bundle, onClose }: { fileName: string; b
       )
       if (include.extras && bundle.extras) await importExtras({ data: { extras: bundle.extras, maps: result.maps } })
       await client.invalidateQueries()
-      toast(importedMessage(result.inserted, result.duplicates))
+      toast(importedMessage(result.inserted, result.duplicates, result.skipped))
       onClose()
     } catch (error) {
       toastError(error)
@@ -363,7 +363,7 @@ function BankImportDialog({ pending, onClose }: { pending: Extract<Pending, { ki
   }, [accounts.data, accountId])
 
   const parsed = React.useMemo(() => {
-    if (pending.transactions) return { transactions: pending.transactions, errors: 0 }
+    if (pending.parsed) return pending.parsed
     if (pending.rows && mapping) return applyCsvMapping(pending.rows, mapping)
     return { transactions: [], errors: 0 }
   }, [pending, mapping])
@@ -386,6 +386,7 @@ function BankImportDialog({ pending, onClose }: { pending: Extract<Pending, { ki
       }))
       let inserted = 0
       let duplicates = 0
+      let skipped = 0
       const chunks = chunkFamilies(rows)
       setProgress({ done: 0, total: rows.length })
       let done = 0
@@ -393,11 +394,12 @@ function BankImportDialog({ pending, onClose }: { pending: Extract<Pending, { ki
         const r = await importTransactions({ data: { rows: chunk, options: { dedupe: true, applyRules } } })
         inserted += r.inserted
         duplicates += r.duplicates
+        skipped += r.skipped
         done += chunk.length
         setProgress({ done, total: rows.length })
       }
       await client.invalidateQueries()
-      toast(importedMessage(inserted, duplicates))
+      toast(importedMessage(inserted, duplicates, skipped))
       onClose()
     } catch (error) {
       toastError(error)
