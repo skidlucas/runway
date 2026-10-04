@@ -8,14 +8,14 @@ export type AssetType = "real_estate" | "investment" | "crypto" | "vehicle" | "w
 export type RetainedKind = "purchase" | "declared" | "estimated"
 export type DatedAmount = { amount: number; date: Day | null }
 
-export type WealthBucket = "real_estate" | "investments" | "objects" | "vehicles" | "cash"
+export type WealthBucket = "real_estate" | "investments" | "crypto" | "objects" | "vehicles" | "cash"
 
 export const BUCKET_OF_TYPE: Record<AssetType, WealthBucket> = {
   real_estate: "real_estate",
   // Mortgages are netted against the property: the design shows "Immobilier net".
   loan: "real_estate",
   investment: "investments",
-  crypto: "investments",
+  crypto: "crypto",
   vehicle: "vehicles",
   watch: "objects",
   art: "objects",
@@ -26,6 +26,7 @@ export const BUCKET_OF_TYPE: Record<AssetType, WealthBucket> = {
 export const BUCKET_LABELS: Record<WealthBucket, string> = {
   real_estate: "Immobilier net",
   investments: "Placements",
+  crypto: "Crypto",
   objects: "Objets",
   vehicles: "Véhicules",
   cash: "Liquidités",

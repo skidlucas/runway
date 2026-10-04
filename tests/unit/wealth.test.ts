@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest"
 import {
   allocation,
   assetTypeTotals,
+  BUCKET_OF_TYPE,
   type AssetValues,
   historyChange,
   latestOn,
@@ -101,6 +102,11 @@ describe("allocation", () => {
     expect(slices.map((s) => s.bucket)).toEqual(["real_estate", "investments", "cash"])
     expect(slices[0]!.value).toBe(150_200_00)
     expect(slices.reduce((a, s) => a + s.share, 0)).toBeCloseTo(1)
+  })
+
+  it("keeps crypto apart from the other investments", () => {
+    expect(BUCKET_OF_TYPE.crypto).toBe("crypto")
+    expect(BUCKET_OF_TYPE.investment).toBe("investments")
   })
 
   it("gives no share to a negative bucket", () => {

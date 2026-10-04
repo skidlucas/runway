@@ -45,12 +45,13 @@ export const Route = createFileRoute("/_app/wealth")({
 const BUCKET_COLOR: Record<WealthBucket, string> = {
   real_estate: "var(--chart-1)",
   investments: "var(--chart-2)",
+  crypto: "var(--chart-6)",
   objects: "var(--chart-3)",
   vehicles: "var(--chart-4)",
   cash: "var(--chart-5)",
 }
 
-const BUCKET_ORDER: WealthBucket[] = ["real_estate", "investments", "vehicles", "objects", "cash"]
+const BUCKET_ORDER: WealthBucket[] = ["real_estate", "investments", "crypto", "vehicles", "objects", "cash"]
 
 const RETAINED_LABEL: Record<RetainedKind, string> = { purchase: "achat", declared: "déclarée", estimated: "estimée" }
 
@@ -525,6 +526,7 @@ const MOBILE_FILTERS: Array<{ value: WealthBucket | "all"; label: string }> = [
   { value: "all", label: "Tout" },
   { value: "real_estate", label: "Immo" },
   { value: "investments", label: "Placements" },
+  { value: "crypto", label: "Crypto" },
   { value: "objects", label: "Objets" },
   { value: "vehicles", label: "Véhicules" },
   { value: "cash", label: "Liquidités" },

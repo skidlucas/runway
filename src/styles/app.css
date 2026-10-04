@@ -50,6 +50,7 @@
   --chart-3: oklch(0.75 0.14 70);
   --chart-4: oklch(0.7 0.12 220);
   --chart-5: #8a8f98;
+  --chart-6: oklch(0.7 0.15 340);
   --highlight-card: #17181b;
   --highlight-card-text: #e6e7ea;
   --key-bg: rgba(255, 255, 255, 0.06);
@@ -139,6 +140,7 @@
   --color-chart-3: var(--chart-3);
   --color-chart-4: var(--chart-4);
   --color-chart-5: var(--chart-5);
+  --color-chart-6: var(--chart-6);
   --color-overlay: var(--overlay);
   --ease-crisp: cubic-bezier(0.2, 0, 0, 1);
 }
