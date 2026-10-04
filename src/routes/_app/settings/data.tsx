@@ -627,7 +627,7 @@ function DangerZone() {
   const [confirm, setConfirm] = React.useState("")
   const [open, setOpen] = React.useState(false)
   const [busy, setBusy] = React.useState(false)
-  const demo = useAction(seedDemo, { success: (r) => `Démo chargée : ${count(r.transactions, "opération")}` })
+  const demo = useAction(seedDemo, { success: (r) => `Démo chargée : ${count(r.transactions, "opération")}`, writes: ["everything"] })
   return (
     <section className="flex flex-col gap-3">
       <div className="flex flex-col gap-1">

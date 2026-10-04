@@ -75,9 +75,9 @@ export function ScheduleDialog({
   const [autoPost, setAutoPost] = React.useState(schedule?.autoPost ?? false)
 
 
-  const create = useAction(createSchedule, { success: "Échéance créée", onSuccess: onClose })
-  const update = useAction(updateSchedule, { success: "Échéance modifiée", onSuccess: onClose })
-  const remove = useAction(deleteSchedule, { success: "Échéance supprimée", onSuccess: onClose })
+  const create = useAction(createSchedule, { success: "Échéance créée", onSuccess: onClose, writes: ["schedules", "payees"] })
+  const update = useAction(updateSchedule, { success: "Échéance modifiée", onSuccess: onClose, writes: ["schedules", "payees"] })
+  const remove = useAction(deleteSchedule, { success: "Échéance supprimée", onSuccess: onClose, writes: ["schedules"] })
   const { confirm, dialog: confirmDialog } = useConfirm()
 
   const cents = parseAmount(amount)

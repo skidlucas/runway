@@ -36,8 +36,9 @@ function RulesSettings() {
   const names = useNames()
   const [editing, setEditing] = React.useState<RuleDto | "new" | null>(null)
   const client = useQueryClient()
-  const reorder = useAction(reorderRules, { invalidates: ["rules"], scope: "reorder-rules" })
+  const reorder = useAction(reorderRules, { writes: ["rules"], scope: "reorder-rules" })
   const create = useAction(createRule, {
+    writes: ["rules", "transactions"],
     success: (r) => (r.applied ? `Règle créée · ${count(r.applied, "opération")} ${plural(r.applied, "catégorisée")}` : "Règle créée"),
   })
   const list = rules.data ?? []
@@ -147,10 +148,10 @@ function RuleRow({
   onMove: (d: number) => void
 }) {
   const text = describeRule(rule, names)
-  const update = useAction(updateRule)
-  const remove = useAction(deleteRule, { success: "Règle supprimée" })
+  const update = useAction(updateRule, { writes: ["rules"] })
+  const remove = useAction(deleteRule, { success: "Règle supprimée", writes: ["rules"] })
   const { confirm, dialog: confirmDialog } = useConfirm()
-  const apply = useAction(applyRule, { success: (n) => `${count(n, "opération")} ${plural(n, "mise")} à jour` })
+  const apply = useAction(applyRule, { success: (n) => `${count(n, "opération")} ${plural(n, "mise")} à jour`, writes: ["transactions"] })
   return (
     <div data-testid="rule-row" className={cx("group flex items-center gap-3 border-t border-line-subtle px-5 py-2.5 hover:bg-hover", !rule.enabled && "text-muted")}>
       <Switch
@@ -320,7 +321,7 @@ function RuleEditor({ rule, onClose }: { rule: RuleDto | null; onClose: () => vo
       if (rule) await updateRule({ data: { id: rule.id, rule: { ...ruleInput, enabled: rule.enabled } } })
       else await createRule({ data: { rule: ruleInput, applyNow } })
     },
-    { success: rule ? "Règle modifiée" : "Règle créée", onSuccess: onClose },
+    { success: rule ? "Règle modifiée" : "Règle créée", onSuccess: onClose, writes: ["rules", "transactions"] },
   )
 
   return (

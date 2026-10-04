@@ -22,6 +22,7 @@ export function CreateAccountDialog({ onClose, onCreated }: { onClose: () => voi
   const [date, setDate] = React.useState(localToday())
   const create = useAction(createAccount, {
     success: "Compte créé",
+    writes: ["accounts", "transactions"],
     // onCreated usually navigates away; closing as well would navigate back over it.
     onSuccess: (id) => (onCreated ? onCreated(id) : onClose()),
   })
@@ -88,7 +89,7 @@ export function EditAccountDialog({ account, onClose }: { account: AccountDto; o
   const [kind, setKind] = React.useState<AccountKind>(account.kind)
   const [inForecast, setInForecast] = React.useState(account.inForecast)
   const [offBudget, setOffBudget] = React.useState(account.offBudget)
-  const update = useAction(updateAccount, { success: "Compte modifié", onSuccess: onClose })
+  const update = useAction(updateAccount, { success: "Compte modifié", onSuccess: onClose, writes: ["accounts"] })
   return (
     <Dialog
       open
@@ -137,6 +138,7 @@ export function EditAccountDialog({ account, onClose }: { account: AccountDto; o
 export function ReconcileDialog({ account, onClose }: { account: AccountDto; onClose: () => void }) {
   const [statement, setStatement] = React.useState(amountInput(account.clearedBalance))
   const reconcile = useAction(reconcileAccount, {
+    writes: ["transactions", "accounts"],
     success: (r) => (r.adjustment === 0 ? "Compte rapproché" : `Compte rapproché · ajustement de ${formatMoney(r.adjustment)}`),
     onSuccess: onClose,
   })

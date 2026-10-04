@@ -55,6 +55,7 @@ export function useCategorySuggestions(rows: ReadonlyArray<TxRow>) {
       return suggestions
     },
     {
+      writes: ["transactionCategories"],
       onSuccess: (accepted) => {
         if (accepted.length < 2) return
         const draft = ruleCandidate(accepted, rows)

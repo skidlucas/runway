@@ -26,7 +26,7 @@ function CategoriesSettings() {
   const categories = useQuery(q.categories())
   const [newGroup, setNewGroup] = React.useState(false)
   const client = useQueryClient()
-  const reorder = useAction(reorderCategories, { scope: "reorder-categories" })
+  const reorder = useAction(reorderCategories, { scope: "reorder-categories", writes: ["categories"] })
   const tree = categories.data ?? []
 
   // Shown at once, so that a second click moves from the new position rather than the old one.
@@ -116,7 +116,7 @@ function GroupRow({
   canDown: boolean
   onMove: (delta: number) => void
 }) {
-  const update = useAction(updateCategoryGroup)
+  const update = useAction(updateCategoryGroup, { writes: ["categories"] })
   const [deleting, setDeleting] = React.useState(false)
   return (
     <div className="group flex h-[34px] items-center gap-2 border-b border-line-subtle bg-row-group px-5 font-medium text-fg-2">
@@ -170,7 +170,7 @@ function CategoryRow({
   canDown: boolean
   onMove: (delta: number) => void
 }) {
-  const update = useAction(updateCategory)
+  const update = useAction(updateCategory, { writes: ["categories"] })
   const [deleting, setDeleting] = React.useState(false)
   return (
     <div className="group flex h-9 items-center gap-2 border-b border-line-subtle pl-9 pr-5 hover:bg-hover">
@@ -225,7 +225,12 @@ function DeleteDialog({
   onClose: () => void
 }) {
   const [target, setTarget] = React.useState<string | null>(null)
-  const run = useAction((reassignTo: string | null) => onConfirm(reassignTo), { success: "Supprimé", onSuccess: onClose })
+  const run = useAction((reassignTo: string | null) => onConfirm(reassignTo), {
+    success: "Supprimé",
+    onSuccess: onClose,
+    // Operations, schedules, budgets, rules and saved views move to the replacement.
+    writes: ["categories", "transactionCategories", "schedules", "budgets", "rules", "savedViews"],
+  })
   return (
     <ConfirmDialog
       onOpenChange={(o) => !o && onClose()}
@@ -246,7 +251,7 @@ function DeleteDialog({
 function AddCategory({ groupId }: { groupId: string }) {
   const [name, setName] = React.useState("")
   const [open, setOpen] = React.useState(false)
-  const create = useAction(createCategory, { onSuccess: () => setName("") })
+  const create = useAction(createCategory, { onSuccess: () => setName(""), writes: ["categories"] })
   if (!open) {
     return (
       <button
@@ -279,7 +284,7 @@ function AddCategory({ groupId }: { groupId: string }) {
 
 function NewGroupDialog({ onClose }: { onClose: () => void }) {
   const [name, setName] = React.useState("")
-  const create = useAction(createCategoryGroup, { success: "Groupe créé", onSuccess: onClose })
+  const create = useAction(createCategoryGroup, { success: "Groupe créé", onSuccess: onClose, writes: ["categories"] })
   return (
     <Dialog
       open

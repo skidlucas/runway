@@ -192,7 +192,7 @@ export function AssetDialog({
     },
     {
       success: item ? "Bien mis à jour" : "Bien ajouté",
-      invalidates: ["wealth", "wealthAssets"],
+      writes: ["assets"],
       onSuccess: (id) => {
         onSaved?.(id)
         onClose()

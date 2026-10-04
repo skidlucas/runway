@@ -23,7 +23,7 @@ function PayeesSettings() {
   const [selected, setSelected] = React.useState<Set<string>>(new Set())
   const [merging, setMerging] = React.useState(false)
   const { confirm, dialog: confirmDialog } = useConfirm()
-  const cleanup = useAction(deleteUnusedPayees, { success: (n) => `${count(n, "bénéficiaire")} ${plural(n, "supprimé")}` })
+  const cleanup = useAction(deleteUnusedPayees, { success: (n) => `${count(n, "bénéficiaire")} ${plural(n, "supprimé")}`, writes: ["payees"] })
   const catName = React.useMemo(
     () => new Map((categories.data ?? []).flatMap((g) => g.categories.map((c) => [c.id, c.name] as const))),
     [categories.data],
@@ -167,7 +167,7 @@ const PayeeLine = React.memo(function PayeeLine({
 })
 
 function PayeeName({ id, name }: { id: string; name: string }) {
-  const rename = useAction(renamePayee)
+  const rename = useAction(renamePayee, { writes: ["payees"] })
   return (
     <InlineEdit
       value={name}
@@ -189,7 +189,11 @@ function MergeDialog({
 }) {
   const sorted = [...options].sort((a, b) => b.transactionCount - a.transactionCount)
   const [target, setTarget] = React.useState(sorted[0]?.id ?? "")
-  const merge = useAction(mergePayees, { success: "Bénéficiaires fusionnés", onSuccess: () => onClose(true) })
+  const merge = useAction(mergePayees, {
+    success: "Bénéficiaires fusionnés",
+    onSuccess: () => onClose(true),
+    writes: ["payees", "rules", "schedules", "savedViews"],
+  })
   return (
     <Dialog
       open

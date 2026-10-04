@@ -28,7 +28,7 @@ function AccountsPage() {
   ]
   const total = list.filter((a) => !a.closed).reduce((s, a) => s + a.balance, 0)
   const client = useQueryClient()
-  const reorder = useAction(reorderAccounts, { scope: "reorder-accounts", invalidates: ["accounts"] })
+  const reorder = useAction(reorderAccounts, { scope: "reorder-accounts", writes: ["accounts"] })
 
   // Shown at once, so that a second click moves from the new position rather than the old one.
   const move = (section: number, index: number, delta: number) => {

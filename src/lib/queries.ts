@@ -1,4 +1,4 @@
-import { infiniteQueryOptions, queryOptions, useMutation, useQueryClient } from "@tanstack/react-query"
+import { infiniteQueryOptions, type QueryClient, queryOptions, useMutation, useQueryClient } from "@tanstack/react-query"
 import {
   getAccounts,
   getAgeOfMoney,
@@ -92,23 +92,129 @@ export const q = {
 
 type QueryName = keyof typeof q
 
-/** What a budget edit can change: the month itself and the alerts built on it (the forecast only reads transactions). */
-export const BUDGET_QUERIES: ReadonlyArray<QueryName> = ["budget", "findings"]
-
 /**
- * Wraps a server function call in a mutation. By default a success refreshes every active
- * query, since most writes (a transaction, a category) show up on many pages. Frequent
- * actions with a known reach list the queries they touch in `invalidates`.
+ * The queries that read each kind of data. An action declares what it writes, and its success
+ * refreshes those queries only: the ones on screen are refetched, the others marked stale for
+ * their next use. Leaving out a query that reads the data would show it stale.
  */
+const READERS = {
+  // Operations themselves (amount, date, account, payee, existence): balances, the budget, the
+  // forecast, schedule history and every report.
+  transactions: [
+    "transactions",
+    "accounts",
+    "payees",
+    "payeeNames",
+    "budget",
+    "ageOfMoney",
+    "forecast",
+    "upcoming",
+    "scheduledRows",
+    "schedules",
+    "scheduleSuggestions",
+    "ruleSuggestions",
+    "insightView",
+    "findings",
+    "wealth",
+    "netWorth",
+    "cashFlow",
+    "spendingComparison",
+    "categorySpending",
+  ],
+  // Only the category of operations: no balance moves.
+  transactionCategories: [
+    "transactions",
+    "payees",
+    "payeeNames",
+    "budget",
+    "forecast",
+    "upcoming",
+    "ruleSuggestions",
+    "scheduleSuggestions",
+    "insightView",
+    "findings",
+    "cashFlow",
+    "spendingComparison",
+    "categorySpending",
+  ],
+  // Only the cleared flag of operations.
+  cleared: ["transactions", "accounts"],
+  // Account names, kinds, flags and order: shown or used to filter nearly everywhere.
+  accounts: [
+    "accounts",
+    "transactions",
+    "payees",
+    "payeeNames",
+    "budget",
+    "ageOfMoney",
+    "forecast",
+    "upcoming",
+    "scheduledRows",
+    "schedules",
+    "scheduleSuggestions",
+    "insightView",
+    "findings",
+    "wealth",
+    "netWorth",
+    "cashFlow",
+    "spendingComparison",
+    "categorySpending",
+  ],
+  categories: [
+    "categories",
+    "budget",
+    "transactions",
+    "schedules",
+    "scheduleSuggestions",
+    "ruleSuggestions",
+    "insightView",
+    "findings",
+    "cashFlow",
+    "spendingComparison",
+    "categorySpending",
+  ],
+  // Payee names, and which payee operations and schedules point at.
+  payees: [
+    "payees",
+    "payeeNames",
+    "transactions",
+    "schedules",
+    "scheduledRows",
+    "upcoming",
+    "forecast",
+    "scheduleSuggestions",
+    "ruleSuggestions",
+    "insightView",
+    "findings",
+  ],
+  budgets: ["budget", "insightView", "findings"],
+  schedules: ["schedules", "scheduledRows", "upcoming", "forecast", "budget", "scheduleSuggestions", "findings"],
+  rules: ["rules", "ruleSuggestions"],
+  savedViews: ["savedViews"],
+  dashboards: ["dashboards"],
+  assets: ["wealth", "wealthAssets"],
+  // Imports, demo data, deletions that cascade: everything may have changed.
+  everything: Object.keys(q) as QueryName[],
+} satisfies Record<string, ReadonlyArray<QueryName>>
+
+export type Written = keyof typeof READERS
+
+/** Refreshes what reads the `written` data (see READERS); resolves once the queries on screen are fresh. */
+export const refreshAfter = (client: QueryClient, written: ReadonlyArray<Written>) => {
+  const names = new Set(written.flatMap((w): ReadonlyArray<QueryName> => READERS[w]))
+  return Promise.all([...names].map((name) => client.invalidateQueries({ queryKey: [name] })))
+}
+
+/** Wraps a server function call in a mutation; a success refreshes what reads the data it `writes`. */
 export function useAction<TInput, TOutput>(
   fn: (input: TInput) => Promise<TOutput>,
   options: {
     success?: string | ((output: TOutput) => string | undefined)
     onSuccess?: (output: TOutput) => void
-    invalidates?: ReadonlyArray<QueryName>
+    writes: ReadonlyArray<Written>
     /** Calls sharing a scope run one after the other, in the order they were made. */
     scope?: string
-  } = {},
+  },
 ) {
   const client = useQueryClient()
   return useMutation({
@@ -118,9 +224,7 @@ export function useAction<TInput, TOutput>(
       const message = typeof options.success === "function" ? options.success(output) : options.success
       if (message) toast(message)
       // Callers close or navigate in `onSuccess`: wait for fresh data so the next view never shows the old one.
-      await (options.invalidates
-        ? Promise.all(options.invalidates.map((name) => client.invalidateQueries({ queryKey: [name] })))
-        : client.invalidateQueries())
+      await refreshAfter(client, options.writes)
       options.onSuccess?.(output)
     },
     onError: (error) => {

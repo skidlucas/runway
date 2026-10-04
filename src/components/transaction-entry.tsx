@@ -98,6 +98,7 @@ export function TransactionEntry({
   const { draft, signed } = state
   const create = useAction(createTransaction, {
     success: "Opération ajoutée",
+    writes: ["transactions"],
     onSuccess: () => onOpenChange(false),
   })
 

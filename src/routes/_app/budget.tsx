@@ -29,7 +29,7 @@ import { addMonths, formatDayLong, formatDayShort, formatMonthLong, isMonth, mon
 import { type PlannedCategory, type PlannedStatus, plannedStatus } from "~/domain/planned"
 import { amountInput, formatMoney, parseAmount } from "~/domain/money"
 import { localToday, shortcutBlocked, useIsMobile } from "~/lib/hooks"
-import { BUDGET_QUERIES, defaultForecastAccount, forecastScope, q, useAction } from "~/lib/queries"
+import { defaultForecastAccount, forecastScope, q, useAction } from "~/lib/queries"
 import {
   createStarterCategories,
   fillBudget,
@@ -208,8 +208,8 @@ const Line = ({ label, value, strong }: { label: string; value: number; strong?:
 )
 
 function StarterEmptyState() {
-  const create = useAction(createStarterCategories, { success: "Catégories créées" })
-  const demo = useAction(seedDemo, { success: (r) => `Démo chargée : ${count(r.transactions, "opération")}` })
+  const create = useAction(createStarterCategories, { success: "Catégories créées", writes: ["categories"] })
+  const demo = useAction(seedDemo, { success: (r) => `Démo chargée : ${count(r.transactions, "opération")}`, writes: ["everything"] })
   return (
     <EmptyState
       title="Aucune catégorie pour l'instant. Pars d'un jeu de catégories types, ou importe ton budget Actual."
@@ -239,7 +239,7 @@ function BudgetTable({ budget, month, showHidden }: { budget: BudgetMonthDto; mo
   // Flat list of editable category ids, so Tab / Enter can move to the next row.
   const editable = expenseGroups.flatMap((g) => g.categories.filter((c) => showHidden || !c.hidden).map((c) => c.id))
   const [editing, setEditing] = React.useState<string | null>(null)
-  const fill = useAction(fillBudget, { success: (n) => `${count(n, "catégorie")} ${plural(n, "mise")} à jour`, invalidates: BUDGET_QUERIES })
+  const fill = useAction(fillBudget, { success: (n) => `${count(n, "catégorie")} ${plural(n, "mise")} à jour`, writes: ["budgets"] })
 
   return (
     <div role="table" aria-label="Budget du mois">
@@ -425,7 +425,7 @@ function PlannedStatusNote({ category }: { category: BudgetCategoryRow }) {
 
 function PlannedCell({ category, month }: { category: BudgetCategoryRow; month: string }) {
   const [open, setOpen] = React.useState(false)
-  const save = useAction(setBudgetAmount, { invalidates: BUDGET_QUERIES, onSuccess: () => setOpen(false) })
+  const save = useAction(setBudgetAmount, { writes: ["budgets"], onSuccess: () => setOpen(false) })
   const planned = category.planned
   if (!planned) return <span className="num text-right text-[12px] text-faint">—</span>
   const status = statusOf(category)
@@ -524,7 +524,7 @@ function BudgetedCell({
   editing: boolean
   onEdit: (next: boolean | "next" | "prev") => void
 }) {
-  const save = useAction(setBudgetAmount, { invalidates: BUDGET_QUERIES })
+  const save = useAction(setBudgetAmount, { writes: ["budgets"] })
   const trigger = useReturnFocus<HTMLButtonElement>(editing)
   if (editing)
     return (
@@ -617,7 +617,7 @@ function BudgetInput({
 function AvailableMenu({ category, month, budget }: { category: BudgetCategoryRow; month: string; budget: BudgetMonthDto }) {
   const [open, setOpen] = React.useState(false)
   const [mode, setMode] = React.useState<"cover" | "transfer" | null>(null)
-  const carry = useAction(setBudgetCarryover, { invalidates: BUDGET_QUERIES })
+  const carry = useAction(setBudgetCarryover, { writes: ["budgets"] })
   const overspent = category.available < 0
   return (
     <>
@@ -705,7 +705,7 @@ function MoveMoneyDialog({
     mode === "cover" ? (category.available < 0 ? amountInput(-category.available) : "") : amountInput(category.available),
   )
   const available = new Map(budget.groups.flatMap((g) => g.categories.map((c) => [c.id, c.available] as const)))
-  const move = useAction(moveBudget, { success: "Budget mis à jour", onSuccess: onClose, invalidates: BUDGET_QUERIES })
+  const move = useAction(moveBudget, { success: "Budget mis à jour", onSuccess: onClose, writes: ["budgets"] })
   const cents = parseAmount(amount)
   const fromToBudget = other === "__toBudget"
   const submit = () => {
@@ -853,7 +853,7 @@ function MobileBudgetDialog({
   onMove: (mode: "cover" | "transfer") => void
 }) {
   const [text, setText] = React.useState(category.budgeted ? amountInput(category.budgeted) : "")
-  const save = useAction(setBudgetAmount, { onSuccess: onClose, invalidates: BUDGET_QUERIES })
+  const save = useAction(setBudgetAmount, { onSuccess: onClose, writes: ["budgets"] })
   const value = text.trim() === "" ? 0 : parseAmount(text)
   return (
     <Dialog

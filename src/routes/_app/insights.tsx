@@ -93,7 +93,7 @@ function ViewTabs() {
   const navigate = useNavigate()
   const { query } = useQueryNavigation()
   const views = useQuery(q.savedViews())
-  const remove = useAction((id: string) => deleteView({ data: { id } }), { success: "Vue supprimée", invalidates: ["savedViews", "dashboards"] })
+  const remove = useAction((id: string) => deleteView({ data: { id } }), { success: "Vue supprimée", writes: ["savedViews", "dashboards"] })
   const { confirm, dialog: confirmDialog } = useConfirm()
   if (!views.data?.length) return null
   const current = JSON.stringify(queryToSearch(query))
@@ -299,7 +299,7 @@ function SaveViewDialog({
   const save = useAction((input: { name: string; config: InsightViewConfig }) => saveView({ data: input }), {
     success: "Vue enregistrée",
     onSuccess: () => onOpenChange(false),
-    invalidates: ["savedViews"],
+    writes: ["savedViews"],
   })
   return (
     <Dialog

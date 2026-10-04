@@ -125,8 +125,8 @@ function SchedulesPage() {
 }
 
 function ScheduleRow({ schedule: s, onEdit }: { schedule: ScheduleDto; onEdit: () => void }) {
-  const post = useAction(postSchedule, { success: "Opération enregistrée" })
-  const skip = useAction(skipSchedule, { success: "Échéance passée" })
+  const post = useAction(postSchedule, { success: "Opération enregistrée", writes: ["transactions", "schedules"] })
+  const skip = useAction(skipSchedule, { success: "Échéance passée", writes: ["schedules"] })
   return (
     <div
       data-testid="schedule-row"

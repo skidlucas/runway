@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Plus, Trash2 } from "lucide-react"
 import * as React from "react"
 import { amountInput, formatMoney, parseAmount } from "~/domain/money"
-import { q, useAction } from "~/lib/queries"
+import { q, refreshAfter, useAction } from "~/lib/queries"
 import { createRule, deleteTransactions, restoreTransactions, updateTransaction } from "~/server/fns/core"
 import type { TxRow } from "~/server/services/transactions"
 import { AccountSelect, CategoryPicker, PayeePicker, type PayeeValue } from "./pickers"
@@ -38,13 +38,13 @@ export function useDeleteTransactions(onSuccess?: () => void) {
     onSuccess: async ({ undoId }, ids) => {
       const undo = () =>
         restoreTransactions({ data: { undoId } })
-          .then(() => client.invalidateQueries())
+          .then(() => refreshAfter(client, ["transactions"]))
           .then(() => toast("Suppression annulée"), toastError)
       toast(`${count(ids.length, "opération")} ${plural(ids.length, "supprimée")}`, {
         action: { label: "Annuler", run: () => void undo() },
         duration: 8000,
       })
-      await client.invalidateQueries()
+      await refreshAfter(client, ["transactions"])
       onSuccess?.()
     },
     onError: (error) => toastError(error),
@@ -75,7 +75,7 @@ export function TransactionEditor({
   const [lines, setLines] = React.useState<SplitLine[]>(
     tx.isParent && splits ? splits.map((s) => splitLine({ amount: amountInput(s.amount), categoryId: s.categoryId, notes: s.notes ?? "" })) : [],
   )
-  const update = useAction(updateTransaction, { success: "Opération modifiée", onSuccess: onClose })
+  const update = useAction(updateTransaction, { success: "Opération modifiée", onSuccess: onClose, writes: ["transactions"] })
   const remove = useDeleteTransactions(onClose)
 
   const total = parseAmount(amount)
@@ -238,6 +238,7 @@ export function RuleFromTransactionDialog({
   const [categoryId, setCategoryId] = React.useState<string | null>(tx.categoryId)
   const [applyNow, setApplyNow] = React.useState(true)
   const create = useAction(createRule, {
+    writes: ["rules", "transactions"],
     success: (r) => (r.applied ? `Règle créée · ${count(r.applied, "opération")} ${plural(r.applied, "catégorisée")}` : "Règle créée"),
     onSuccess: onClose,
   })

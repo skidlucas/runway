@@ -147,9 +147,10 @@ function AccountPage({ accountId }: { accountId: string }) {
   }, [])
 
   const { confirm, dialog: confirmDialog } = useConfirm()
-  const closeAccount = useAction(setAccountClosed, { success: "Compte mis à jour" })
+  const closeAccount = useAction(setAccountClosed, { success: "Compte mis à jour", writes: ["accounts"] })
   const removeAccount = useAction(deleteAccount, {
     success: "Compte supprimé",
+    writes: ["everything"],
     onSuccess: () => void navigate({ to: "/accounts" }),
   })
 
@@ -346,8 +347,8 @@ function MobileAccountSummary({ account }: { account: AccountDto }) {
 }
 
 function BulkBar({ ids, rows, onDone }: { ids: string[]; rows: TxRow[]; onDone: () => void }) {
-  const setCategory = useAction(setTransactionsCategory, { success: "Catégorie appliquée", onSuccess: onDone })
-  const setCleared = useAction(setTransactionsCleared, { onSuccess: onDone })
+  const setCategory = useAction(setTransactionsCategory, { success: "Catégorie appliquée", onSuccess: onDone, writes: ["transactionCategories"] })
+  const setCleared = useAction(setTransactionsCleared, { onSuccess: onDone, writes: ["cleared"] })
   const remove = useDeleteTransactions(onDone)
   const chosen = new Set(ids)
   const allCleared = rows.filter((r) => chosen.has(r.id)).every((r) => r.cleared)
@@ -393,8 +394,8 @@ function interleave<T>(rows: TxRow[], scheduled: ScheduledRow[], ofTx: (tx: TxRo
 const scheduledKey = (row: ScheduledRow) => `schedule:${row.scheduleId}:${row.dueDate}`
 
 function useScheduledRow(row: ScheduledRow) {
-  const post = useAction(postSchedule, { success: "Opération enregistrée" })
-  const skip = useAction(skipSchedule, { success: "Échéance passée" })
+  const post = useAction(postSchedule, { success: "Opération enregistrée", writes: ["transactions", "schedules"] })
+  const skip = useAction(skipSchedule, { success: "Échéance passée", writes: ["schedules"] })
   const categories = useQuery(q.categories())
   const accounts = useQuery(q.accounts())
   const category = row.categoryId ? categories.data?.flatMap((g) => g.categories).find((c) => c.id === row.categoryId)?.name : undefined
@@ -673,10 +674,10 @@ const TransactionRow = React.memo(function TransactionRow({
   rowIndex: number
 }) {
   const [dialog, setDialog] = React.useState<null | "edit" | "rule" | "schedule">(null)
-  const update = useAction(updateTransaction)
-  const cleared = useAction(setTransactionsCleared)
+  const update = useAction(updateTransaction, { writes: ["transactions"] })
+  const cleared = useAction(setTransactionsCleared, { writes: ["cleared"] })
   const remove = useDeleteTransactions()
-  const duplicate = useAction(createTransaction, { success: "Opération dupliquée" })
+  const duplicate = useAction(createTransaction, { success: "Opération dupliquée", writes: ["transactions"] })
   const future = tx.date > today
   const describe = `${tx.payeeName ?? "opération"} du ${formatDayShort(tx.date)}, ${formatMoney(tx.amount)}`
 
@@ -792,7 +793,7 @@ const TransactionRow = React.memo(function TransactionRow({
 function InlineDate({ tx }: { tx: TxRow }) {
   const [open, setOpen] = React.useState(false)
   const [draft, setDraft] = React.useState(tx.date)
-  const update = useAction(updateTransaction)
+  const update = useAction(updateTransaction, { writes: ["transactions"] })
   const save = (date: Day) => {
     setOpen(false)
     if (date && date !== tx.date) update.mutate({ data: { id: tx.id, date } })
@@ -830,7 +831,7 @@ function InlineDate({ tx }: { tx: TxRow }) {
 }
 
 function InlineCategory({ tx }: { tx: TxRow }) {
-  const update = useAction(updateTransaction)
+  const update = useAction(updateTransaction, { writes: ["transactionCategories"] })
   return (
     <span className="flex min-w-0 items-center gap-1.5">
       <CategoryPicker
@@ -847,7 +848,7 @@ function InlineCategory({ tx }: { tx: TxRow }) {
 }
 
 function InlineAmount({ tx }: { tx: TxRow }) {
-  const update = useAction(updateTransaction)
+  const update = useAction(updateTransaction, { writes: ["transactions"] })
   return (
     <InlineEdit
       value={amountInput(tx.amount)}
@@ -884,7 +885,7 @@ function MobileList({
   const [editing, setEditing] = React.useState<TxRow | null>(null)
   const [categorizing, setCategorizing] = React.useState<TxRow | null>(null)
   const remove = useDeleteTransactions()
-  const update = useAction(updateTransaction)
+  const update = useAction(updateTransaction, { writes: ["transactionCategories"] })
   const lines = React.useMemo(
     () => interleave<MobileLine>(rows, scheduled, (tx) => [{ kind: "tx", tx }], (row) => ({ kind: "scheduled", row })),
     [rows, scheduled],
