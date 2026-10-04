@@ -600,6 +600,35 @@ export const Checkbox = ({
 )
 
 /**
+ * Arrow keys (and Home/End) move the selection inside a tab list or a radio group, which is a
+ * single Tab stop: only the selected item is focusable.
+ */
+function selectWithArrows<T extends string>(
+  e: React.KeyboardEvent<HTMLElement>,
+  values: ReadonlyArray<T>,
+  current: T | null,
+  onChange: (value: T) => void,
+  role: "tab" | "radio",
+) {
+  if ((e.target as HTMLElement).getAttribute("role") !== role) return
+  const steps: Record<string, number> = role === "tab" ? { ArrowRight: 1, ArrowLeft: -1 } : { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 }
+  let index: number
+  if (e.key === "Home") index = 0
+  else if (e.key === "End") index = values.length - 1
+  else {
+    const step = steps[e.key]
+    if (step === undefined) return
+    const from = current === null ? -1 : values.indexOf(current)
+    index = from < 0 ? 0 : (from + step + values.length) % values.length
+  }
+  const next = values[index]
+  if (next === undefined) return
+  e.preventDefault()
+  onChange(next)
+  e.currentTarget.querySelectorAll<HTMLElement>(`[role="${role}"]`)[index]?.focus()
+}
+
+/**
  * A row of tabs under the page header. Scrolls sideways when it runs out of room; a tab can
  * carry its own small action (remove…), shown on hover.
  */
@@ -620,9 +649,23 @@ export function Tabs<T extends string>({
   end?: React.ReactNode
 }) {
   return (
-    <div role="tablist" aria-label={label} className={cx("flex items-end gap-1 overflow-x-auto border-b border-line px-5", className)}>
-      {items.map((item) => {
+    <div
+      role="tablist"
+      aria-label={label}
+      onKeyDown={(e) =>
+        selectWithArrows(
+          e,
+          items.map((i) => i.value),
+          value,
+          onChange,
+          "tab",
+        )
+      }
+      className={cx("flex items-end gap-1 overflow-x-auto border-b border-line px-5", className)}
+    >
+      {items.map((item, index) => {
         const active = item.value === value
+        const focusable = active || (index === 0 && !items.some((i) => i.value === value))
         return (
           <div
             key={item.value}
@@ -635,6 +678,7 @@ export function Tabs<T extends string>({
               type="button"
               role="tab"
               aria-selected={active}
+              tabIndex={focusable ? 0 : -1}
               onClick={() => onChange(item.value)}
               className={cx("h-9 whitespace-nowrap px-2.5 outline-none focus-visible:text-fg", active && "font-medium", item.action && "pr-1")}
             >
@@ -678,6 +722,15 @@ export function Segmented<T extends string>({
     <div
       role="radiogroup"
       aria-label={label}
+      onKeyDown={(e) =>
+        selectWithArrows(
+          e,
+          options.map((o) => o.value),
+          value,
+          onChange,
+          "radio",
+        )
+      }
       className={cx(
         "inline-grid rounded-[8px] bg-subtle p-[3px]",
         size === "sm" ? "text-[12px]" : "text-[13px]",
@@ -685,12 +738,13 @@ export function Segmented<T extends string>({
       )}
       style={{ gridTemplateColumns: `repeat(${options.length}, minmax(0, 1fr))` }}
     >
-      {options.map((o) => (
+      {options.map((o, i) => (
         <button
           key={o.value}
           type="button"
           role="radio"
           aria-checked={value === o.value}
+          tabIndex={value === o.value || (i === 0 && !options.some((x) => x.value === value)) ? 0 : -1}
           onClick={() => onChange(o.value)}
           className={cx(
             "rounded-[6px] px-2.5 py-1 transition-colors duration-[120ms]",
