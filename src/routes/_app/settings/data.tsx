@@ -22,6 +22,7 @@ import {
 } from "~/lib/importers/bank"
 import { q, useAction } from "~/lib/queries"
 import { backupToBundle, isRunwayBackup, type RunwayBackup } from "~/lib/runway-backup"
+import { csvNumber, csvText } from "~/lib/csv-export"
 import { downloadFile, loadSqlJs } from "~/lib/sqljs"
 import {
   countDuplicates,
@@ -507,11 +508,6 @@ const fetchAll = async () => {
 
 const stamp = () => new Date().toISOString().slice(0, 10)
 
-const csvCell = (value: string | number | null) => {
-  const s = value === null ? "" : String(value)
-  return /[;"\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
-}
-
 function ExportSection() {
   const [busy, setBusy] = React.useState<string | null>(null)
   const [last, setLast] = React.useState<string | null>(null)
@@ -560,16 +556,14 @@ function ExportSection() {
         if (t.isParent) continue
         lines.push(
           [
-            t.date,
-            account.get(t.accountId) ?? "",
-            t.payeeId ? (payee.get(t.payeeId) ?? "") : "",
-            t.categoryId ? (category.get(t.categoryId) ?? "") : "",
-            amountInput(t.amount),
-            t.notes,
-            t.cleared ? "oui" : "non",
-          ]
-            .map(csvCell)
-            .join(";"),
+            csvText(t.date),
+            csvText(account.get(t.accountId) ?? ""),
+            csvText(t.payeeId ? (payee.get(t.payeeId) ?? "") : ""),
+            csvText(t.categoryId ? (category.get(t.categoryId) ?? "") : ""),
+            csvNumber(amountInput(t.amount)),
+            csvText(t.notes),
+            csvText(t.cleared ? "oui" : "non"),
+          ].join(";"),
         )
       }
       downloadFile("﻿" + lines.join("\n"), `runway-operations-${stamp()}.csv`, "text/csv;charset=utf-8")
