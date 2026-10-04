@@ -71,5 +71,6 @@ export const backupToBundle = (backup: RunwayBackup): ImportBundle => ({
     active: s.active,
   })),
   extras: { assets: backup.assets, valuations: backup.valuations, savedViews: backup.savedViews, dashboards: backup.dashboards ?? [] },
-  skipped: { rules: 0, schedules: 0, transactions: 0 },
+  skipped: { rules: 0, schedules: 0, transactions: 0, budgets: 0 },
+  approximated: { schedules: 0 },
 })

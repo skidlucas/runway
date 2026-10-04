@@ -12,7 +12,7 @@ export type ImportApi = {
 export const CHUNK_SIZE = 4000
 
 export const structureOf = (bundle: ImportBundle): BundleStructure => {
-  const { transactions: _t, skipped: _s, extras: _e, ...structure } = bundle
+  const { transactions: _t, skipped: _s, approximated: _a, extras: _e, ...structure } = bundle
   return structure
 }
 

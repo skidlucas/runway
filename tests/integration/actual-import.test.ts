@@ -243,4 +243,97 @@ describe("Actual parsing of edge cases", () => {
     ])
     expect(parsed.schedules[0]?.endDate).toBe("2026-12-15")
   })
+
+  const budgetFile = async () => {
+    const SQL = await initSqlJs()
+    const db = new SQL.Database(template())
+    db.run("INSERT INTO accounts (id, name, offbudget, closed, tombstone, sort_order) VALUES ('A','Courant',0,0,0,1)")
+    db.run("INSERT INTO category_groups (id, name, is_income, sort_order, tombstone) VALUES ('G','Dépenses',0,1,0)")
+    db.run("INSERT INTO categories (id, name, is_income, cat_group, sort_order, tombstone) VALUES ('C1','Frais',0,'G',1,0),('C2','Loisirs',0,'G',2,0)")
+    const parse = () => parseActual(SQL, { db: db.export(), metadata: { budgetName: "edge" } })
+    return { db, parse }
+  }
+
+  it("keeps the budget Actual shows for a category that absorbed a deleted one", async () => {
+    const { db, parse } = await budgetFile()
+    // What Actual does when "Loisirs" is deleted into "Frais": its amounts are added to Frais,
+    // its own rows stay behind, and category_mapping forwards it to Frais.
+    db.run("UPDATE categories SET tombstone = 1 WHERE id = 'C2'")
+    db.run("INSERT INTO category_mapping (id, transferId) VALUES ('C1','C1'),('C2','C1')")
+    db.run("INSERT INTO zero_budgets (id, month, category, amount, carryover) VALUES ('202609-C1',202609,'C1',5000,1)")
+    db.run("INSERT INTO zero_budgets (id, month, category, amount, carryover) VALUES ('202609-C2',202609,'C2',3000,0)")
+    db.run("INSERT INTO transactions (id,isParent,isChild,acct,category,amount,date,sort_order,tombstone) VALUES ('T',0,0,'A','C2',-1200,20260910,1,0)")
+
+    const parsed = parse()
+    expect(parsed.budgets.filter((b) => b.categoryId === "C1" || b.categoryId === "C2")).toEqual([
+      { month: "2026-09", categoryId: "C1", amount: 5000, carryover: true },
+    ])
+    expect(parsed.transactions.find((t) => t.id === "T")?.categoryId).toBe("C1")
+  })
+
+  it("reports the amounts of a tracking budget instead of importing stale envelope ones", async () => {
+    const { db, parse } = await budgetFile()
+    db.run("INSERT INTO preferences (id, value) VALUES ('budgetType','tracking')")
+    db.run(`INSERT INTO reflect_budgets (id, month, category, amount, carryover)
+            VALUES ('202609-C1',202609,'C1',5000,0),('202609-C2',202609,'C2',2000,0),('202610-C1',202610,'C1',0,0)`)
+    db.run("INSERT INTO zero_budgets (id, month, category, amount, carryover) VALUES ('202601-C1',202601,'C1',9999,0)")
+    db.run("INSERT INTO zero_budget_months (id, buffered) VALUES ('2026-01',100)")
+
+    const parsed = parse()
+    expect(parsed.budgets).toEqual([])
+    expect(parsed.buffered).toEqual([])
+    expect(parsed.skipped.budgets).toBe(2)
+
+    db.run("UPDATE preferences SET value = 'envelope' WHERE id = 'budgetType'")
+    const envelope = parse()
+    expect(envelope.budgets.map((b) => [b.month, b.categoryId, b.amount])).toEqual([["2026-01", "C1", 9999]])
+    expect(envelope.skipped.budgets).toBe(0)
+  })
+
+  it("imports schedules on precise days or around weekends with a simpler rhythm, and counts them", async () => {
+    const { db, parse } = await budgetFile()
+    const schedule = (id: string, date: Record<string, unknown>) => {
+      db.run("INSERT INTO rules (id, stage, conditions, actions, conditions_op, tombstone) VALUES (?,NULL,?,'[]','and',0)", [
+        `R${id}`,
+        JSON.stringify([
+          { field: "account", op: "is", value: "A" },
+          { field: "amount", op: "is", value: -1000 },
+          { field: "date", op: "isapprox", value: { start: "2026-09-30", frequency: "monthly", interval: 1, endMode: "never", ...date } },
+        ]),
+      ])
+      db.run("INSERT INTO schedules (id, rule, active, completed, posts_transaction, tombstone, name) VALUES (?,?,1,0,0,0,?)", [id, `R${id}`, id])
+    }
+    schedule("plain", {})
+    schedule("lastDay", { patterns: [{ type: "day", value: -1 }] })
+    schedule("weekdays", { skipWeekend: true, weekendSolveMode: "before" })
+    schedule("emptyPatterns", { patterns: [], skipWeekend: false })
+
+    const parsed = parse()
+    expect(parsed.schedules.map((s) => s.name).sort()).toEqual(["emptyPatterns", "lastDay", "plain", "weekdays"])
+    expect(parsed.schedules.every((s) => s.recurrence.unit === "month")).toBe(true)
+    expect(parsed.approximated.schedules).toBe(2)
+  })
+
+  it("keeps a closed account with its history, and counts the operations left on a deleted one", async () => {
+    const { db, parse } = await budgetFile()
+    db.run("INSERT INTO accounts (id, name, offbudget, closed, tombstone, sort_order) VALUES ('OLD','Ancien livret',0,1,0,2),('DEAD','Supprimé',0,0,1,3)")
+    db.run(`INSERT INTO transactions (id,isParent,isChild,acct,category,amount,date,sort_order,tombstone,starting_balance_flag)
+            VALUES ('O1',0,0,'OLD',NULL,50000,20250101,1,0,1),('O2',0,0,'OLD','C1',-50000,20250601,1,0,0),
+                   ('O3',0,0,'OLD','C1',-2500,20250301,1,0,0),('D1',0,0,'DEAD',NULL,-700,20250301,1,0,0)`)
+
+    const parsed = parse()
+    expect(parsed.accounts.find((a) => a.id === "OLD")).toMatchObject({ closed: true })
+    expect(parsed.transactions.filter((t) => t.accountId === "OLD").map((t) => t.id).sort()).toEqual(["O1", "O2", "O3"])
+    expect(parsed.skipped.transactions).toBe(1)
+
+    const fresh = await createHarness({ now: NOW })
+    try {
+      await runBundleImport(parsed, include, importApi(fresh))
+      const old = (await fresh.run(Accounts.use((a) => a.list))).find((a) => a.name === "Ancien livret")
+      expect(old).toMatchObject({ closed: true, balance: -2500, transactionCount: 3 })
+      expect((await fresh.run(Budget.use((b) => b.month("2025-03")))).groups.flatMap((g) => g.categories).find((c) => c.name === "Frais")?.spent).toBe(2500)
+    } finally {
+      await fresh.dispose()
+    }
+  })
 })

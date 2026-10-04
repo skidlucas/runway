@@ -209,27 +209,37 @@ const readDatabase = (db: Database, name: string): ImportBundle => {
   const parents = new Set(transactions.filter((t) => t.isParent).map((t) => t.id))
   const finalTx = transactions.filter((t) => !t.parentId || parents.has(t.parentId))
 
-  const budgetTable = hasTable(db, "zero_budgets") ? "zero_budgets" : null
-  const budgets = budgetTable
-    ? all(db, `SELECT month, category, amount, carryover FROM ${budgetTable}`)
-        .map((r) => ({
-          month: toMonth(r.month),
-          categoryId: validCategory(r.category) ?? "",
-          amount: Number(r.amount ?? 0),
-          carryover: r.carryover === 1,
-        }))
-        .filter((b) => b.categoryId !== "" && (b.amount !== 0 || b.carryover))
-    : []
-  const buffered = hasTable(db, "zero_budget_months")
-    ? all(db, "SELECT id, buffered FROM zero_budget_months WHERE buffered != 0").map((r) => ({
-        month: toMonth(r.id),
-        amount: Number(r.buffered),
+  // A tracking budget keeps its amounts in reflect_budgets: zero_budgets then only holds what was
+  // budgeted before switching, which Actual no longer shows. Runway only has envelopes.
+  const tracking =
+    hasTable(db, "preferences") && all(db, "SELECT value FROM preferences WHERE id = 'budgetType'")[0]?.value === "tracking"
+  // No category_mapping here: deleting a category into another already added its amounts to the
+  // other one, and the deleted category's own rows are leftovers.
+  const budgetRows = (table: string) =>
+    hasTable(db, table)
+      ? all(db, `SELECT month, category, amount, carryover FROM ${table}`).filter(
+          (r) => categoryIds.has(String(r.category)) && (Number(r.amount ?? 0) !== 0 || r.carryover === 1),
+        )
+      : []
+  const budgets = tracking
+    ? []
+    : budgetRows("zero_budgets").map((r) => ({
+        month: toMonth(r.month),
+        categoryId: String(r.category),
+        amount: Number(r.amount ?? 0),
+        carryover: r.carryover === 1,
       }))
-    : []
+  const buffered =
+    !tracking && hasTable(db, "zero_budget_months")
+      ? all(db, "SELECT id, buffered FROM zero_budget_months WHERE buffered != 0").map((r) => ({
+          month: toMonth(r.id),
+          amount: Number(r.buffered),
+        }))
+      : []
 
   const payeeName = new Map(payees.map((p) => [p.id, p.name]))
   const { rules, skipped: skippedRules } = readRules(db, mapPayee, mapCategory, payeeName, categoryIds)
-  const { schedules, skipped: skippedSchedules } = readSchedules(db, mapPayee, validCategory, accountIds)
+  const { schedules, skipped: skippedSchedules, approximated } = readSchedules(db, mapPayee, validCategory, accountIds)
 
   return {
     source: "actual",
@@ -243,7 +253,13 @@ const readDatabase = (db: Database, name: string): ImportBundle => {
     buffered,
     rules,
     schedules,
-    skipped: { rules: skippedRules, schedules: skippedSchedules, transactions: skippedTx },
+    skipped: {
+      rules: skippedRules,
+      schedules: skippedSchedules,
+      transactions: skippedTx,
+      budgets: tracking ? budgetRows("reflect_budgets").length : 0,
+    },
+    approximated: { schedules: approximated },
   }
 }
 
@@ -363,8 +379,8 @@ const readSchedules = (
   mapPayee: (id: unknown) => string | null,
   validCategory: (id: unknown) => string | null,
   accountIds: Set<string>,
-): { schedules: BundleSchedule[]; skipped: number } => {
-  if (!hasTable(db, "schedules")) return { schedules: [], skipped: 0 }
+): { schedules: BundleSchedule[]; skipped: number; approximated: number } => {
+  if (!hasTable(db, "schedules")) return { schedules: [], skipped: 0, approximated: 0 }
   const rows = all(
     db,
     `SELECT s.id, s.name, s.completed, s.posts_transaction, r.conditions, r.actions,
@@ -385,6 +401,7 @@ const readSchedules = (
   )
   const schedules: BundleSchedule[] = []
   let skipped = 0
+  let approximated = 0
   for (const row of rows) {
     const conds = parseJson<ActualCondition[]>(row.conditions) ?? []
     const acts = parseJson<ActualAction[]>(row.actions) ?? []
@@ -397,7 +414,16 @@ const readSchedules = (
       typeof rawAmount === "number" ? rawAmount : rawAmount ? Math.round((rawAmount.num1 + rawAmount.num2) / 2) : null
     const date = dateCond?.value as
       | string
-      | { start: string; frequency: string; interval?: number; endMode?: string; endDate?: string; endOccurrences?: number }
+      | {
+          start: string
+          frequency: string
+          interval?: number
+          endMode?: string
+          endDate?: string
+          endOccurrences?: number
+          patterns?: unknown[]
+          skipWeekend?: boolean
+        }
       | undefined
     if (typeof account !== "string" || !accountIds.has(account) || amount === null || !date) {
       skipped++
@@ -409,6 +435,9 @@ const readSchedules = (
       skipped++
       continue
     }
+    // Runway repeats on the start date's day: "last day of the month", "every 2nd Tuesday" or
+    // "move off weekends" are imported on that plain rhythm, for the user to check.
+    if (recurring && ((date.patterns?.length ?? 0) > 0 || date.skipWeekend === true)) approximated++
     const startDate = recurring ? date.start : date
     const recurrence: Recurrence = { unit, interval: recurring ? Math.max(1, Number(date.interval ?? 1)) : 1 }
     const endDate = !recurring
@@ -440,5 +469,5 @@ const readSchedules = (
       active: row.completed !== 1 && following !== null,
     })
   }
-  return { schedules, skipped }
+  return { schedules, skipped, approximated }
 }

@@ -87,11 +87,13 @@ export type ImportBundle = {
   /** Runway backups only: wealth, saved insight views and dashboards, restored after the structure. */
   extras?: BundleExtras
   /** Things that exist in the source but cannot be represented, for the preview. */
-  skipped: { rules: number; schedules: number; transactions: number }
+  skipped: { rules: number; schedules: number; transactions: number; budgets: number }
+  /** Things imported in a simpler form than in the source, for the preview. */
+  approximated: { schedules: number }
 }
 
 /** Structure part of a bundle: everything except transactions, sent in one request. */
-export type BundleStructure = Omit<ImportBundle, "transactions" | "skipped" | "extras">
+export type BundleStructure = Omit<ImportBundle, "transactions" | "skipped" | "approximated" | "extras">
 
 export type BundleExtras = Pick<ExportMeta, "assets" | "valuations" | "savedViews" | "dashboards">
 

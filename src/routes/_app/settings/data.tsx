@@ -45,6 +45,20 @@ const fmt = new Intl.NumberFormat("fr-FR")
 const importedMessage = (inserted: number, duplicates: number, skipped: number) =>
   `${count(inserted, "opération")} ${plural(inserted, "importée")}${duplicates ? ` · ${count(duplicates, "doublon")} ${plural(duplicates, "ignoré")}` : ""}${skipped ? ` · ${count(skipped, "opération")} sans compte ${plural(skipped, "ignorée")}` : ""}`
 
+const importNotes = ({ skipped, approximated }: ImportBundle) =>
+  [
+    skipped.rules || skipped.schedules
+      ? `Non repris : ${count(skipped.rules, "règle")} et ${count(skipped.schedules, "échéance")} qui utilisent des options que Runway ne gère pas.`
+      : null,
+    skipped.transactions ? `Non repris : ${count(skipped.transactions, "opération")} de comptes supprimés.` : null,
+    skipped.budgets
+      ? `Non repris : ${count(skipped.budgets, "montant")} du budget de suivi, Runway ne gère que le budget par enveloppes.`
+      : null,
+    approximated.schedules
+      ? `${count(approximated.schedules, "échéance")} sur des jours précis ou hors week-end ${plural(approximated.schedules, "reprise")} au même jour chaque période : à vérifier après l'import.`
+      : null,
+  ].filter((note) => note !== null)
+
 type Pending =
   | { kind: "bundle"; fileName: string; bundle: ImportBundle }
   | { kind: "bank"; fileName: string; format: "csv" | "ofx" | "qif"; rows?: string[][]; parsed?: ParsedBankFile }
@@ -323,12 +337,11 @@ function BundleImportDialog({ fileName, bundle, onClose }: { fileName: string; b
           Impossible de compter à l'avance les opérations déjà présentes. Elles seront quand même ignorées à l'import.
         </div>
       ) : null}
-      {bundle.skipped.rules || bundle.skipped.schedules ? (
-        <p className="mx-5 mb-3 text-[12px] text-faint">
-          Non repris : {count(bundle.skipped.rules, "règle")} et {count(bundle.skipped.schedules, "échéance")} qui utilisent des
-          options que Runway ne gère pas.
+      {importNotes(bundle).map((note) => (
+        <p key={note} className="mx-5 mb-3 text-[12px] text-faint">
+          {note}
         </p>
-      ) : null}
+      ))}
       <div className="mx-5 mb-4 flex items-center justify-between gap-3">
         <span className="text-muted">Mode</span>
         <Segmented
