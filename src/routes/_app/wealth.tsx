@@ -85,7 +85,7 @@ function WealthPage() {
   const credits = [...new Set(items.map((i) => creditOf(i.source)).filter((c) => c !== null))]
   const editing = dialog ?? (search.new ? { item: null } : null)
 
-  const refresh = useAction(refreshValuations, { invalidates: ["wealth"] })
+  const refresh = useAction(refreshValuations, { invalidates: ["wealth", "wealthAssets"] })
   // Automatic estimates are fetched lazily, once per visit, when some are out of date.
   const refreshed = React.useRef(false)
   React.useEffect(() => {
@@ -369,10 +369,10 @@ function sourceDescription(item: WealthItem): string | null {
 }
 
 function Detail({ item, months, today, onEdit }: { item: WealthItem; months: Month[]; today: string; onEdit: () => void }) {
-  const remove = useAction(deleteAsset, { success: "Bien supprimé", invalidates: ["wealth"] })
+  const remove = useAction(deleteAsset, { success: "Bien supprimé", invalidates: ["wealth", "wealthAssets"] })
   const { confirm, dialog: confirmDialog } = useConfirm()
-  const setRetained = useAction(updateAsset, { success: "Valeur retenue modifiée", invalidates: ["wealth"] })
-  const refresh = useAction(refreshValuations, { invalidates: ["wealth"] })
+  const setRetained = useAction(updateAsset, { success: "Valeur retenue modifiée", invalidates: ["wealth", "wealthAssets"] })
+  const refresh = useAction(refreshValuations, { invalidates: ["wealth", "wealthAssets"] })
   const isAsset = item.kind === "asset"
   const shared = item.share !== FULL_SHARE
   const purchase = item.purchase ? applyShare(item.purchase.amount, item.share) : null
@@ -551,7 +551,7 @@ function HistoryBars({ values, months }: { values: number[]; months: Month[] }) 
 function AddEstimate({ assetId, today, shared }: { assetId: string; today: string; shared: boolean }) {
   const [amount, setAmount] = React.useState("")
   const [date, setDate] = React.useState(today)
-  const add = useAction(addAssetValuation, { success: "Estimation ajoutée", onSuccess: () => setAmount(""), invalidates: ["wealth"] })
+  const add = useAction(addAssetValuation, { success: "Estimation ajoutée", onSuccess: () => setAmount(""), invalidates: ["wealth", "wealthAssets"] })
   const cents = parseAmount(amount)
   return (
     <form

@@ -160,6 +160,8 @@ export class Wealth extends Context.Service<
   Wealth,
   {
     readonly overview: Effect.Effect<WealthOverview, DbError>
+    /** The overview without the accounts, which are read from every operation of their history. */
+    readonly assetsOverview: Effect.Effect<WealthOverview, DbError>
     valuations(assetId: string): Effect.Effect<ValuationDto[], DbError>
     create(input: AssetInput): Effect.Effect<string, DbError | Invalid>
     update(id: string, input: AssetInput): Effect.Effect<void, DbError | Invalid | NotFound>
@@ -249,14 +251,19 @@ export class Wealth extends Context.Service<
           }
         })
 
-      const overview = Effect.gen(function* () {
+      const overviewOf = (withAccounts: boolean) => Effect.gen(function* () {
         const today = yield* settings.today
         const current = monthOf(today)
         const months = monthRange(addMonths(current, -HISTORY_MONTHS), current)
         // Past months are read at their last day, the current one today.
         const days = months.map((m) => (m === current ? today : lastDay(m)))
         const [rows, valuations, lastAuto, accountData] = yield* Effect.all(
-          [loadAssets, loadValuations(days[0]!), lastAutomaticDates, accountRows(`${months[0]!}-01`, today)],
+          [
+            loadAssets,
+            loadValuations(days[0]!),
+            lastAutomaticDates,
+            withAccounts ? accountRows(`${months[0]!}-01`, today) : Effect.succeed({ accounts: [], monthly: [] }),
+          ],
           { concurrency: "unbounded" },
         )
 
@@ -379,7 +386,9 @@ export class Wealth extends Context.Service<
           closed,
           needsRefresh: rows.some((a) => refreshDue(a.source, lastAuto.get(a.id) ?? null, today)),
         } satisfies WealthOverview
-      }).pipe(Effect.withSpan("Wealth.overview"))
+      })
+      const overview = overviewOf(true).pipe(Effect.withSpan("Wealth.overview"))
+      const assetsOverview = overviewOf(false).pipe(Effect.withSpan("Wealth.assetsOverview"))
 
       const valuationsOf = (assetId: string) =>
         db.use((orm) =>
@@ -612,6 +621,7 @@ export class Wealth extends Context.Service<
 
       return Wealth.of({
         overview,
+        assetsOverview,
         valuations: valuationsOf,
         create,
         update,

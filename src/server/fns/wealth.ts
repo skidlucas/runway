@@ -46,6 +46,10 @@ export const getWealth = createServerFn({ method: "GET" })
   .middleware([authMiddleware])
   .handler(() => runApp(Wealth.use((w) => w.overview)))
 
+export const getWealthAssets = createServerFn({ method: "GET" })
+  .middleware([authMiddleware])
+  .handler(() => runApp(Wealth.use((w) => w.assetsOverview)))
+
 export const getAssetValuations = createServerFn({ method: "GET" })
   .middleware([authMiddleware])
   .validator(v(Schema.Struct({ assetId: Schema.String })))

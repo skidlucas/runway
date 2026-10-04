@@ -90,7 +90,7 @@ export function Sidebar() {
 }
 
 function AssetTypeSection({ path }: { path: string }) {
-  const wealth = useQuery(q.wealth())
+  const wealth = useQuery(q.wealthAssets())
   const activeType = useRouterState({ select: (s) => (s.location.search as { type?: string }).type })
   // Accounts already have their own sections above.
   const types = assetTypeTotals(wealth.data?.items ?? [], { accounts: false })

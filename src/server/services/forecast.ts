@@ -77,17 +77,19 @@ export class ForecastService extends Context.Service<
 
         const [raw, occurrences] = yield* Effect.all([
           db.use(async (_, d1) => {
-            const [accounts, opening, daily, future] = await d1.batch([
+            const [accounts, sinceStart, daily, future] = await d1.batch([
               d1.prepare(
                 `SELECT a.id, a.name, COALESCE(SUM(CASE WHEN t.date <= ?2 THEN t.amount END), 0) AS balance
                  FROM accounts a LEFT JOIN transactions t ON t.account_id = a.id AND t.parent_id IS NULL
                  WHERE ${scopeOf(accountId, "a.id")}
                  GROUP BY a.id ORDER BY a.sort_order`,
               ).bind(accountId, today),
+              // The month never starts after today: the opening balance is today's balance minus what
+              // moved since the 1st, which reads the month rather than the whole history.
               d1.prepare(
                 `SELECT COALESCE(SUM(t.amount), 0) AS total FROM transactions t JOIN accounts a ON a.id = t.account_id
-                 WHERE ${scopeOf(accountId, "t.account_id")} AND t.parent_id IS NULL AND t.date < ?2`,
-              ).bind(accountId, start),
+                 WHERE ${scopeOf(accountId, "t.account_id")} AND t.parent_id IS NULL AND t.date BETWEEN ?2 AND ?3`,
+              ).bind(accountId, start, today),
               d1.prepare(
                 `SELECT t.date, SUM(t.amount) AS total FROM transactions t JOIN accounts a ON a.id = t.account_id
                  WHERE ${scopeOf(accountId, "t.account_id")} AND t.parent_id IS NULL AND t.date BETWEEN ?2 AND ?3
@@ -100,9 +102,11 @@ export class ForecastService extends Context.Service<
                  WHERE ${scopeOf(accountId, "t.account_id")} AND t.parent_id IS NULL AND t.date > ?2 AND t.date <= ?3`,
               ).bind(accountId, today, end),
             ])
+            const balances = (accounts?.results ?? []) as ForecastAccount[]
+            const moved = ((sinceStart?.results?.[0] as { total: number } | undefined)?.total ?? 0) as number
             return {
-              accounts: (accounts?.results ?? []) as ForecastAccount[],
-              opening: ((opening?.results?.[0] as { total: number } | undefined)?.total ?? 0) as number,
+              accounts: balances,
+              opening: balances.reduce((sum, a) => sum + a.balance, 0) - moved,
               daily: (daily?.results ?? []) as Array<{ date: string; total: number }>,
               future: (future?.results ?? []) as Array<{ date: string; amount: number; categoryId: string | null; name: string }>,
             }

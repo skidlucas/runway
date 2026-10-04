@@ -93,6 +93,8 @@ describe("Wealth", () => {
     expect(byName.get("Crédit immo")).toMatchObject({ value: -90_000_00, isLiability: true, bucket: "real_estate" })
     expect(byName.get("Crédit immo")!.estimate).toMatchObject({ label: "Tableau d'amortissement", automatic: true })
     expect(overview.netWorth).toBe(2_000_00 + 9_500_00 - 90_000_00)
+    const assets = await h.run(Wealth.use((w) => w.assetsOverview))
+    expect(assets.items).toEqual(overview.items.filter((i) => i.kind === "asset"))
     // The declared value only exists from two months ago: before that the purchase price counts.
     const watchHistory = byName.get("Rolex Submariner")!.history
     expect(watchHistory[0]).toBe(6_800_00)

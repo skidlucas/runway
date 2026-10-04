@@ -10,7 +10,7 @@ import {
   listTransactions,
 } from "~/server/fns/core"
 import { getAiStatus, getFindings, getInsightView, getSavedViews } from "~/server/fns/insights"
-import { getWealth } from "~/server/fns/wealth"
+import { getWealth, getWealthAssets } from "~/server/fns/wealth"
 import { getForecast, getScheduledRows, getSchedules, getScheduleSuggestions, getUpcoming } from "~/server/fns/planning"
 import { getCashFlow, getCategorySpending, getDashboards, getNetWorth, getSpendingComparison } from "~/server/fns/reports"
 import type { InsightViewConfig } from "~/server/db/schema"
@@ -68,6 +68,8 @@ export const q = {
   findings: () => queryOptions({ queryKey: ["findings"], queryFn: () => getFindings() }),
   savedViews: () => queryOptions({ queryKey: ["savedViews"], queryFn: () => getSavedViews() }),
   wealth: () => queryOptions({ queryKey: ["wealth"], queryFn: () => getWealth() }),
+  /** The assets of the wealth overview, without the accounts and their history. */
+  wealthAssets: () => queryOptions({ queryKey: ["wealthAssets"], queryFn: () => getWealthAssets() }),
   dashboards: () => queryOptions({ queryKey: ["dashboards"], queryFn: () => getDashboards() }),
   netWorth: (months: number) =>
     queryOptions({ queryKey: ["netWorth", months], queryFn: () => getNetWorth({ data: { months } }), staleTime: REPORT_STALE }),
