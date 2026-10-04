@@ -1,6 +1,6 @@
 import { eq } from "drizzle-orm"
 import { Context, Effect, Layer, Result } from "effect"
-import { addMonths, type Day, diffDays, isDay, lastDay, type Month, monthOf, monthRange } from "~/domain/dates"
+import { addMonths, type Day, diffDays, firstDay, isDay, lastDay, type Month, monthOf, monthRange } from "~/domain/dates"
 import {
   type AllocationSlice,
   allocation,
@@ -135,7 +135,7 @@ const refreshDue = (source: ValuationSource, lastAutomatic: Day | null, today: D
  * asset was bought this month. A history that failed or was postponed is retried next refresh.
  */
 const lacksHistory = (asset: { purchaseDate: string | null }, firstAutomatic: Day | null, today: Day) => {
-  const monthStart = `${monthOf(today)}-01`
+  const monthStart = firstDay(monthOf(today))
   return (firstAutomatic === null || firstAutomatic >= monthStart) && (asset.purchaseDate === null || asset.purchaseDate < monthStart)
 }
 
@@ -262,7 +262,7 @@ export class Wealth extends Context.Service<
             loadAssets,
             loadValuations(days[0]!),
             lastAutomaticDates,
-            withAccounts ? accountRows(`${months[0]!}-01`, today) : Effect.succeed({ accounts: [], monthly: [] }),
+            withAccounts ? accountRows(firstDay(months[0]!), today) : Effect.succeed({ accounts: [], monthly: [] }),
           ],
           { concurrency: "unbounded" },
         )

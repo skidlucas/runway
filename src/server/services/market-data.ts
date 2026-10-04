@@ -1,5 +1,5 @@
 import { Context, Effect, Layer, Result, Schema } from "effect"
-import { addMonths, type Day, lastDay, type Month } from "~/domain/dates"
+import { addMonths, type Day, lastDay, type Month, monthOf } from "~/domain/dates"
 import { ExternalError } from "../errors"
 
 // Free public sources, no API key. Each one can disappear or rate-limit: callers treat every
@@ -220,7 +220,7 @@ export const makeLiveMarketData = (fetchFn: typeof fetch): MarketData["Service"]
     return timestamps.flatMap((t, i) => {
       const close = result.indicators.quote[0]?.close[i]
       // Yahoo stamps monthly bars at the start of the month; the close is the month's last price.
-      return close == null ? [] : [{ date: lastDay(new Date(t * 1000).toISOString().slice(0, 7)), price: close * factor * rate }]
+      return close == null ? [] : [{ date: lastDay(monthOf(new Date(t * 1000).toISOString())), price: close * factor * rate }]
     })
   })
 

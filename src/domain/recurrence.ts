@@ -1,4 +1,4 @@
-import { addDays, type Day, daysInMonth, makeDay, parseDay } from "./dates"
+import { addDays, type Day, daysInMonth, diffDays, makeDay, parseDay } from "./dates"
 
 export type Recurrence = {
   /** "once": a single occurrence on the start date (interval is ignored). */
@@ -50,9 +50,7 @@ export const periodDays = (r: Recurrence) =>
 export const nextOnOrAfter = (timing: ScheduleTiming, from: Day): Day | null => {
   if (from <= timing.startDate) return timing.endDate !== null && timing.startDate > timing.endDate ? null : timing.startDate
   if (timing.recurrence.unit === "once") return null
-  const { y: fy, m: fm, d: fd } = parseDay(from)
-  const { y: sy, m: sm, d: sd } = parseDay(timing.startDate)
-  const elapsed = (Date.UTC(fy, fm - 1, fd) - Date.UTC(sy, sm - 1, sd)) / 86_400_000
+  const elapsed = diffDays(timing.startDate, from)
   // Start a little before the estimate, then walk forward: clamping makes the exact index fuzzy.
   let n = Math.max(0, Math.floor(elapsed / periodDays(timing.recurrence)) - 1)
   for (let guard = 0; guard < 10_000; guard++, n++) {

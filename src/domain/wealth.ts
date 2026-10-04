@@ -2,7 +2,7 @@
 // picks which one counts. Amounts are positive cents; the caller (Wealth.overview) negates
 // liabilities.
 
-import { type Day, lastDay, type Month, monthOf, parseDay } from "./dates"
+import { addMonths, type Day, daysInMonth, type Month, monthOf, parseDay } from "./dates"
 import { formatPercent } from "./money"
 
 /** In display order. */
@@ -159,7 +159,7 @@ export const loanPaymentsMade = (terms: LoanTerms, day: Day): number => {
   const start = parseDay(terms.startDate)
   const at = parseDay(day)
   let n = (at.y - start.y) * 12 + (at.m - start.m)
-  if (at.d < start.d && at.d !== Number(lastDay(monthOf(day)).slice(8))) n--
+  if (at.d < start.d && at.d !== daysInMonth(monthOf(day))) n--
   return Math.min(Math.max(n, 0), terms.months)
 }
 
@@ -173,11 +173,7 @@ export const loanBalance = (terms: LoanTerms, day: Day): number => {
   return Math.max(0, Math.round(remaining))
 }
 
-export const loanEndMonth = (terms: LoanTerms): string => {
-  const { y, m } = parseDay(terms.startDate)
-  const total = y * 12 + (m - 1) + terms.months
-  return `${Math.floor(total / 12)}-${String((total % 12) + 1).padStart(2, "0")}`
-}
+export const loanEndMonth = (terms: LoanTerms): Month => addMonths(monthOf(terms.startDate), terms.months)
 
 // --- Aggregates --------------------------------------------------------------------
 

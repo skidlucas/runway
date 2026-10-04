@@ -1,6 +1,6 @@
 import { eq, getTableColumns, isNotNull, or, sql } from "drizzle-orm"
 import { Clock, Context, Effect, Layer, type Result } from "effect"
-import { isDay } from "~/domain/dates"
+import { firstDay, isDay, lastDay } from "~/domain/dates"
 import { bulkInsertStatements, chunkIds, chunkRows, Db, type DbError, newId } from "../db/client"
 import { IS_INTERNAL_TRANSFER, UNCATEGORIZED } from "../db/predicates"
 import { accounts, payees, transactions } from "../db/schema"
@@ -261,7 +261,7 @@ export class Transactions extends Context.Service<
         }
         if (filter.month) {
           where.push("t.date BETWEEN ? AND ?")
-          params.push(`${filter.month}-01`, `${filter.month}-31`)
+          params.push(firstDay(filter.month), lastDay(filter.month))
         }
         if (filter.from) {
           where.push("t.date >= ?")

@@ -1,4 +1,4 @@
-import { type Day, daysInMonth, diffDays, lastDay, type Month } from "./dates"
+import { compareIso, type Day, daysInMonth, diffDays, firstDay, lastDay, type Month, monthOf } from "./dates"
 
 export type UpcomingItem = {
   readonly date: Day
@@ -49,9 +49,9 @@ export type Forecast = {
 export const computeForecast = (input: ForecastInput): Forecast => {
   const { today, month } = input
   const end = lastDay(month)
-  const inMonth = today.slice(0, 7) === month
+  const inMonth = monthOf(today) === month
   const isPast = end < today
-  const effectiveToday: Day = inMonth ? today : isPast ? end : `${month}-01`
+  const effectiveToday: Day = inMonth ? today : isPast ? end : firstDay(month)
   const daysLeft = isPast ? 0 : diffDays(effectiveToday, end) + 1
 
   let balanceToday = input.openingBalance
@@ -59,7 +59,7 @@ export const computeForecast = (input: ForecastInput): Forecast => {
 
   const upcoming = input.upcoming
     .filter((u) => u.date >= effectiveToday && u.date <= end)
-    .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0))
+    .sort((a, b) => compareIso(a.date, b.date))
     .map((u) => {
       const tag: UpcomingTag =
         u.source === "transaction" ? { kind: "booked" } : u.amount > 0 ? { kind: "income" } : { kind: "scheduled" }

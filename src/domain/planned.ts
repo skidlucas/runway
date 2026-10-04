@@ -1,4 +1,4 @@
-import { addDays, type Day, firstDay, lastDay, type Month, monthOf, monthRange } from "./dates"
+import { addDays, compareIso, type Day, firstDay, lastDay, type Month, monthOf, monthRange } from "./dates"
 import { nextOnOrAfter, occurrencesBetween, periodDays, type Recurrence, type ScheduleTiming } from "./recurrence"
 
 export type PlannedSchedule = {
@@ -131,7 +131,7 @@ export const plannedByCategory = (
 
   const planned = new Map<string, PlannedCategory>()
   for (const [categoryId, list] of lines) {
-    list.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0))
+    list.sort((a, b) => compareIso(a.date, b.date))
     const saved = Math.max(0, carryIn.get(categoryId) ?? 0)
     const due = list.filter((l) => l.kind === "due").reduce((sum, l) => sum + l.amount * l.count, 0)
     const spaced = list.filter((l) => l.kind === "setAside")

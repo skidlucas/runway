@@ -1,7 +1,7 @@
 import { createIsomorphicFn } from "@tanstack/react-start"
 import { getRequestHeader } from "@tanstack/react-start/server"
 import { useEffect, useState, useSyncExternalStore } from "react"
-import { todayIn } from "~/domain/dates"
+import { DEFAULT_TIME_ZONE, todayIn } from "~/domain/dates"
 
 const subscribeMedia = (query: string) => (cb: () => void) => {
   const mql = window.matchMedia(query)
@@ -26,16 +26,16 @@ export function useIsMobile() {
 
 const browserTimeZone = () => {
   try {
-    return Intl.DateTimeFormat().resolvedOptions().timeZone || "Europe/Paris"
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || DEFAULT_TIME_ZONE
   } catch {
-    return "Europe/Paris"
+    return DEFAULT_TIME_ZONE
   }
 }
 
 // Workers run in UTC: server rendering assumes the default zone, which the browser then
 // reports to the server (see the /_app route) so both agree on "today".
 export const localTimeZone = createIsomorphicFn()
-  .server(() => "Europe/Paris")
+  .server(() => DEFAULT_TIME_ZONE)
   .client(browserTimeZone)
 
 /** The browser's zone, or undefined while rendering on the server. */

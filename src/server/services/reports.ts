@@ -1,5 +1,5 @@
 import { Context, Effect, Layer } from "effect"
-import { addMonths, type Day, type Month, monthRange } from "~/domain/dates"
+import { addMonths, type Day, firstDay, type Month, monthOf, monthRange } from "~/domain/dates"
 import { cumulativeByDay, type MonthValue, REPORT_MONTHS, runningBalances, topWithRest } from "~/domain/reports"
 import { Db, type DbError } from "../db/client"
 import { BUDGET_CASH_FLOW } from "../db/predicates"
@@ -58,7 +58,7 @@ export class Reports extends Context.Service<
       const window = Effect.fn("Reports.window")(function* (months: number) {
         if (!(REPORT_MONTHS as ReadonlyArray<number>).includes(months)) return yield* new Invalid({ message: "Période invalide" })
         const today = yield* settings.today
-        const to = today.slice(0, 7)
+        const to = monthOf(today)
         const from = addMonths(to, -(months - 1))
         return { today, from, to, months: monthRange(from, to) }
       })
@@ -67,11 +67,11 @@ export class Reports extends Context.Service<
         const w = yield* window(months)
         const raw = yield* db.use(async (_, d1) => {
           const [opening, monthly] = await d1.batch([
-            d1.prepare("SELECT COALESCE(SUM(amount), 0) AS total FROM transactions WHERE parent_id IS NULL AND date < ?").bind(`${w.from}-01`),
+            d1.prepare("SELECT COALESCE(SUM(amount), 0) AS total FROM transactions WHERE parent_id IS NULL AND date < ?").bind(firstDay(w.from)),
             d1.prepare(
               `SELECT substr(date, 1, 7) AS month, SUM(amount) AS total FROM transactions
                WHERE parent_id IS NULL AND date >= ? AND date <= ? GROUP BY 1`,
-            ).bind(`${w.from}-01`, w.today),
+            ).bind(firstDay(w.from), w.today),
           ])
           return {
             opening: ((opening?.results?.[0] as { total: number } | undefined)?.total ?? 0) as number,
@@ -96,7 +96,7 @@ export class Reports extends Context.Service<
                WHERE ${BUDGET_CASH_FLOW} AND t.date >= ? AND t.date <= ?
                GROUP BY 1`,
             )
-            .bind(`${w.from}-01`, w.today)
+            .bind(firstDay(w.from), w.today)
             .all<{ month: Month; income: number; expenses: number }>()
           return results
         })
@@ -113,7 +113,7 @@ export class Reports extends Context.Service<
 
       const spendingComparison = Effect.gen(function* () {
         const today = yield* settings.today
-        const month = today.slice(0, 7)
+        const month = monthOf(today)
         const previous = addMonths(month, -1)
         const rows = yield* db.use(async (_, d1) => {
           const { results } = await d1
@@ -123,7 +123,7 @@ export class Reports extends Context.Service<
                WHERE ${BUDGET_CASH_FLOW} AND c.is_income = 0 AND t.date >= ? AND t.date <= ?
                GROUP BY t.date`,
             )
-            .bind(`${previous}-01`, today)
+            .bind(firstDay(previous), today)
             .all<{ date: Day; total: number }>()
           return results
         })
@@ -147,7 +147,7 @@ export class Reports extends Context.Service<
                WHERE ${BUDGET_CASH_FLOW} AND c.is_income = 0 AND t.date >= ? AND t.date <= ?
                GROUP BY c.id HAVING SUM(-t.amount) > 0`,
             )
-            .bind(`${w.from}-01`, w.today)
+            .bind(firstDay(w.from), w.today)
             .all<{ id: string; name: string; group: string; amount: number }>()
           return results
         })

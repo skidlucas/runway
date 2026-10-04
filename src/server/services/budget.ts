@@ -1,7 +1,7 @@
 import { Context, Effect, Layer } from "effect"
 import { ageOfMoney, type MoneyDay, type Outflow } from "~/domain/age-of-money"
 import { type BudgetCell, type BudgetInputs, type BudgetMonth, computeBudget } from "~/domain/budget-engine"
-import { addMonths, type Day, isMonth, lastDay, type Month } from "~/domain/dates"
+import { addMonths, type Day, firstDay, isMonth, lastDay, type Month } from "~/domain/dates"
 import { type PlannedCategory, plannedByCategory } from "~/domain/planned"
 import { Db, type DbError } from "../db/client"
 import { BUDGET_LINE_ALONE, UNCATEGORIZED } from "../db/predicates"
@@ -220,7 +220,7 @@ export class Budget extends Context.Service<
                LEFT JOIN payees p ON p.id = t.payee_id
                WHERE ${UNCATEGORIZED} AND t.date BETWEEN ? AND ?`,
             )
-            .bind(`${m}-01`, lastDay(m))
+            .bind(firstDay(m), lastDay(m))
             .first<{ count: number; amount: number }>(),
         )
 

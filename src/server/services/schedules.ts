@@ -1,6 +1,6 @@
 import { and, asc, eq, lte } from "drizzle-orm"
 import { Context, Effect, Layer, Option, Result, Schema } from "effect"
-import { addDays, addMonths, type Day, diffDays, isDay } from "~/domain/dates"
+import { addDays, addMonths, compareIso, type Day, diffDays, firstDay, isDay, monthOf } from "~/domain/dates"
 import { describeRecurrence, nextOnOrAfter, occurrencesBetween, type Recurrence } from "~/domain/recurrence"
 import { type Remaining, remainingOccurrences } from "~/domain/planned"
 import { detectRecurring, type HistoryTransaction, type RecurringCandidate } from "~/domain/recurring-detection"
@@ -104,7 +104,7 @@ export type ScheduledRow = {
 export const registerRows = (occurrences: ReadonlyArray<Occurrence>, accountId: string | null): ScheduledRow[] => {
   const seen = new Set<string>()
   return [...occurrences]
-    .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0))
+    .sort((a, b) => compareIso(a.date, b.date))
     .flatMap((o): ScheduledRow[] => {
       const incoming = accountId !== null && o.accountId !== accountId
       if (incoming && o.transferAccountId !== accountId) return []
@@ -570,7 +570,7 @@ export class Schedules extends Context.Service<
             const distance = (t: { date: Day }) => Math.abs(diffDays(date, t.date))
             const best = own
               .filter((t) => !used.has(t.id) && distance(t) <= MATCH_WINDOW_DAYS)
-              .sort((a, b) => distance(a) - distance(b) || (a.date < b.date ? -1 : a.date > b.date ? 1 : 0))[0]
+              .sort((a, b) => distance(a) - distance(b) || compareIso(a.date, b.date))[0]
             if (!best) break
             used.add(best.id)
             links.push(best.id)
@@ -629,7 +629,7 @@ export class Schedules extends Context.Service<
 
       const suggestions = Effect.gen(function* () {
         const today = yield* settings.today
-        const since = `${addMonths(today.slice(0, 7), -13)}-01`
+        const since = firstDay(addMonths(monthOf(today), -13))
         const history = yield* db.use(async (_, d1) => {
           const { results } = await d1
             .prepare(

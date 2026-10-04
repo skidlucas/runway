@@ -1,5 +1,5 @@
 import { Context, Effect, Layer } from "effect"
-import { addDays, type Day, isMonth, lastDay, type Month } from "~/domain/dates"
+import { addDays, compareIso, type Day, firstDay, isMonth, lastDay, type Month, monthOf } from "~/domain/dates"
 import { computeForecast, type Forecast, type UpcomingItem } from "~/domain/forecast"
 import { Db, type DbError } from "../db/client"
 import { Invalid, NotFound } from "../errors"
@@ -67,12 +67,12 @@ export class ForecastService extends Context.Service<
 
       const month = Effect.fn("Forecast.month")(function* (scope: ForecastScope = {}) {
         const today = yield* settings.today
-        const m = scope.month ?? today.slice(0, 7)
+        const m = scope.month ?? monthOf(today)
         if (!isMonth(m)) return yield* new Invalid({ message: "Mois invalide" })
         // Today's balance and the operations still to come are only known from the current month on.
-        if (m > today.slice(0, 7)) return yield* new Invalid({ message: "La prévision commence au mois en cours" })
+        if (m > monthOf(today)) return yield* new Invalid({ message: "La prévision commence au mois en cours" })
         const accountId = scope.accountId ?? null
-        const start = `${m}-01`
+        const start = firstDay(m)
         const end = lastDay(m)
 
         const [raw, occurrences] = yield* Effect.all([
@@ -170,7 +170,7 @@ export class ForecastService extends Context.Service<
         const items: UpcomingItem[] = [
           ...raw.future.map((t) => ({ ...t, source: "transaction" as const, scheduleId: null, overdue: false })),
           ...scheduledItems(occurrences, new Set(raw.accounts.map((a) => a.id))),
-        ].sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0))
+        ].sort((a, b) => compareIso(a.date, b.date))
         return { today, until, items } satisfies UpcomingDto
       })
 

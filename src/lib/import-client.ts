@@ -1,3 +1,4 @@
+import { compareIso } from "~/domain/dates"
 import type { ImportOptions, ImportResult, ImportRow } from "~/server/services/import-export"
 import type { BundleStructure, BundleTransaction, IdMaps, ImportBundle } from "./import-bundle"
 
@@ -61,7 +62,7 @@ export const chunkFamilies = (rows: ReadonlyArray<ImportRow>, size = CHUNK_SIZE)
       children.set(r.parentId, list)
     } else roots.push(r)
   }
-  roots.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0))
+  roots.sort((a, b) => compareIso(a.date, b.date))
   const chunks: ImportRow[][] = []
   let current: ImportRow[] = []
   let currentDate = ""

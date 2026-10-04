@@ -103,6 +103,8 @@ describe("loans", () => {
     expect(loanBalance(free, "2026-02-28")).toBe(11_000_00)
     expect(loanBalance(free, "2026-07-31")).toBe(6_000_00)
     expect(loanEndMonth(terms)).toBe("2040-05")
+    expect(loanEndMonth({ ...free, startDate: "2026-12-15", months: 1 })).toBe("2027-01")
+    expect(loanEndMonth({ ...free, startDate: "2026-01-15", months: 11 })).toBe("2026-12")
   })
 })
 

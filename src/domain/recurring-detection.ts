@@ -1,4 +1,4 @@
-import { addDays, type Day, diffDays } from "./dates"
+import { addDays, compareIso, type Day, diffDays } from "./dates"
 import type { Recurrence } from "./recurrence"
 import { nextOnOrAfter } from "./recurrence"
 
@@ -73,7 +73,7 @@ export const detectRecurring = (
   const candidates: RecurringCandidate[] = []
   for (const list of groups.values()) {
     if (list.length < minOccurrences) continue
-    list.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0))
+    list.sort((a, b) => compareIso(a.date, b.date))
     const gaps: number[] = []
     for (let i = 1; i < list.length; i++) {
       const prev = list[i - 1]

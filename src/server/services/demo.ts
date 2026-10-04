@@ -1,5 +1,5 @@
 import { Context, Effect, Layer } from "effect"
-import { addMonths, daysInMonth, type Day, monthRange } from "~/domain/dates"
+import { addMonths, type Day, daysInMonth, firstDay, monthOf, monthRange } from "~/domain/dates"
 import { bulkInsertStatements, Db, type DbError, newId } from "../db/client"
 import { Invalid, type NotFound } from "../errors"
 import { Accounts } from "./accounts"
@@ -63,7 +63,7 @@ export class Demo extends Context.Service<
 
       const populate = Effect.gen(function* () {
         const today = yield* settings.today
-        const currentMonth = today.slice(0, 7)
+        const currentMonth = monthOf(today)
         const firstMonth = addMonths(currentMonth, -12)
 
         yield* categories.createStarterSet
@@ -76,14 +76,14 @@ export class Demo extends Context.Service<
           kind: "checking",
           offBudget: false,
           startingBalance: 180000,
-          startingDate: `${firstMonth}-01`,
+          startingDate: firstDay(firstMonth),
         })
         const savings = yield* accounts.create({
           name: "Livret A",
           kind: "savings",
           offBudget: true,
           startingBalance: 650000,
-          startingDate: `${firstMonth}-01`,
+          startingDate: firstDay(firstMonth),
         })
 
         const rand = mulberry32(42)

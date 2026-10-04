@@ -6,6 +6,14 @@ import { capitalize } from "./text"
 export type Day = string
 export type Month = string
 
+/** The budget's time zone until the user picks one. */
+export const DEFAULT_TIME_ZONE = "Europe/Paris"
+
+const MS_PER_DAY = 86_400_000
+
+/** Orders ISO days or months: their text order is their calendar order. */
+export const compareIso = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0)
+
 const pad = (n: number, width = 2) => String(n).padStart(width, "0")
 
 // Years are bounded: a budget walks every month between its first and last transaction, so a
@@ -72,7 +80,7 @@ export const addDays = (day: Day, delta: number): Day => {
 export const diffDays = (from: Day, to: Day): number => {
   const a = parseDay(from)
   const b = parseDay(to)
-  return Math.round((Date.UTC(b.y, b.m - 1, b.d) - Date.UTC(a.y, a.m - 1, a.d)) / 86_400_000)
+  return Math.round((Date.UTC(b.y, b.m - 1, b.d) - Date.UTC(a.y, a.m - 1, a.d)) / MS_PER_DAY)
 }
 
 /** Day of week, 0 = Monday. */
@@ -83,6 +91,7 @@ export const weekday = (day: Day): number => {
 
 /** Today's date in a given IANA time zone. */
 export const todayIn = (timeZone: string, now: Date = new Date()): Day => {
+  // The Canadian English locale formats dates as YYYY-MM-DD, the ISO day this module works with.
   const parts = new Intl.DateTimeFormat("en-CA", {
     timeZone,
     year: "numeric",

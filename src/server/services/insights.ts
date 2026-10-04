@@ -1,6 +1,6 @@
 import { asc } from "drizzle-orm"
 import { Clock, Context, Effect, Layer, Option, Schema } from "effect"
-import { addMonths, type Day, diffDays, lastDay, type Month, monthRange, parseDay } from "~/domain/dates"
+import { addMonths, type Day, diffDays, firstDay, lastDay, type Month, monthOf, monthRange, parseDay } from "~/domain/dates"
 import {
   type CategoryInsightInput,
   computeFindings,
@@ -154,10 +154,10 @@ export class Insights extends Context.Service<
       const view = Effect.fn("Insights.view")(function* (query: InsightQuery) {
         yield* validate(query)
         const today = yield* settings.today
-        const month = today.slice(0, 7)
+        const month = monthOf(today)
         const first = addMonths(month, -(query.months + query.rolling - 1))
         const months = monthRange(first, month)
-        const periodStart = `${addMonths(month, -(query.months - 1))}-01`
+        const periodStart = firstDay(addMonths(month, -(query.months - 1)))
         const measure = measureSql(query.measure)
         const target = targetSql(query.target)
         const dayOfMonth = parseDay(today).d
@@ -176,7 +176,7 @@ export class Insights extends Context.Service<
                    WHERE ${COMMON_WHERE} AND t.date BETWEEN ? AND ? AND ${measure.where} AND ${target.where}
                    GROUP BY month`,
                 )
-                .bind(dayOfMonth, `${first}-01`, lastDay(month), ...target.params),
+                .bind(dayOfMonth, firstDay(first), lastDay(month), ...target.params),
               d1
                 .prepare(
                   breakdownBy === "payee"
@@ -219,7 +219,7 @@ export class Insights extends Context.Service<
 
       const monthData = Effect.gen(function* () {
         const today = yield* settings.today
-        const month = today.slice(0, 7)
+        const month = monthOf(today)
         const first = addMonths(month, -12)
         const months = monthRange(first, month)
         const expense = measureSql("expenses")
@@ -237,7 +237,7 @@ export class Insights extends Context.Service<
                    WHERE ${COMMON_WHERE} AND c.is_income = 0 AND t.date BETWEEN ? AND ?
                    GROUP BY month, t.category_id`,
                 )
-                .bind(dayOfMonth, `${first}-01`, lastDay(month)),
+                .bind(dayOfMonth, firstDay(first), lastDay(month)),
               d1
                 .prepare(
                   `SELECT t.category_id AS categoryId, COALESCE(p.name, 'Sans bénéficiaire') AS name, SUM(-t.amount) AS amount
@@ -245,7 +245,7 @@ export class Insights extends Context.Service<
                    WHERE ${COMMON_WHERE} AND c.is_income = 0 AND t.date BETWEEN ? AND ?
                    GROUP BY t.category_id, t.payee_id`,
                 )
-                .bind(`${month}-01`, lastDay(month)),
+                .bind(firstDay(month), lastDay(month)),
               d1
                 .prepare(
                   `SELECT t.payee_id AS id, p.name AS name, SUM(-t.amount) AS amount, COUNT(*) AS count
@@ -255,13 +255,13 @@ export class Insights extends Context.Service<
                      AND t.date BETWEEN ? AND ? AND ${expense.where}
                    GROUP BY t.payee_id ORDER BY amount DESC LIMIT 5`,
                 )
-                .bind(`${month}-01`, lastDay(month)),
+                .bind(firstDay(month), lastDay(month)),
               d1
                 .prepare(
                   `SELECT COALESCE(SUM(-t.amount), 0) AS total ${BASE_FROM}
                    WHERE ${COMMON_WHERE} AND t.date BETWEEN ? AND ? AND ${expense.where}`,
                 )
-                .bind(`${month}-01`, lastDay(month)),
+                .bind(firstDay(month), lastDay(month)),
               d1.prepare("SELECT month, category_id AS categoryId, amount FROM budgets WHERE month BETWEEN ? AND ?").bind(first, month),
               // What the income categories received this month, as Reports counts it.
               d1
@@ -270,7 +270,7 @@ export class Insights extends Context.Service<
                    JOIN accounts a ON a.id = t.account_id JOIN categories c ON c.id = t.category_id
                    WHERE ${BUDGET_CASH_FLOW} AND c.is_income = 1 AND t.date BETWEEN ? AND ?`,
                 )
-                .bind(`${month}-01`, lastDay(month)),
+                .bind(firstDay(month), lastDay(month)),
             ])
             return {
               series: (series?.results ?? []) as Array<{ month: string; categoryId: string; total: number; toDate: number; count: number }>,

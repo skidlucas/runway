@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest"
-import { addDays, addMonths, diffDays, formatDayInput, isDay, isMonth, lastDay, monthRange, parseDayInput, todayIn, weekday } from "~/domain/dates"
+import { addDays, addMonths, compareIso, diffDays, formatDayInput, isDay, isMonth, lastDay, monthRange, parseDayInput, todayIn, weekday } from "~/domain/dates"
+import { nextOnOrAfter } from "~/domain/recurrence"
 
 describe("calendar edges", () => {
   it("knows the last day of every kind of month, leap years included", () => {
@@ -74,5 +75,18 @@ describe("typed dates", () => {
     expect(parseDayInput("12/3/202", ref)).toBeNull()
     expect(parseDayInput("demain", ref)).toBeNull()
     expect(parseDayInput("1/2/3/4", ref)).toBeNull()
+  })
+})
+
+describe("calendar helpers", () => {
+  it("orders days and months by their text", () => {
+    expect(["2026-10-02", "2025-12-31", "2026-01-15"].sort(compareIso)).toEqual(["2025-12-31", "2026-01-15", "2026-10-02"])
+    expect(compareIso("2026-10", "2026-10")).toBe(0)
+  })
+
+  it("finds the next occurrence across a year and a leap day", () => {
+    const weekly = { startDate: "2023-12-28", endDate: null, recurrence: { unit: "week", interval: 1 } } as const
+    expect(nextOnOrAfter(weekly, "2024-02-29")).toBe("2024-02-29")
+    expect(nextOnOrAfter(weekly, "2024-03-01")).toBe("2024-03-07")
   })
 })

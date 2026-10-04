@@ -1,6 +1,6 @@
 import { eq } from "drizzle-orm"
 import { Clock, Context, Effect, Layer, Schema } from "effect"
-import { type Day, todayIn } from "~/domain/dates"
+import { type Day, DEFAULT_TIME_ZONE, todayIn } from "~/domain/dates"
 import { Db, type DbError } from "../db/client"
 import { settings } from "../db/schema"
 
@@ -12,7 +12,7 @@ export type AppSettings = {
 }
 
 const DEFAULTS: AppSettings = {
-  timeZone: "Europe/Paris",
+  timeZone: DEFAULT_TIME_ZONE,
   startingBalanceCategoryId: null,
   aiEnabled: true,
 }
