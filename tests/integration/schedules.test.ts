@@ -1,6 +1,6 @@
 import { Effect } from "effect"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
-import { addDays, addMonths, todayIn } from "~/domain/dates"
+import { addDays, addMonths, lastDay, todayIn } from "~/domain/dates"
 import { Accounts } from "~/server/services/accounts"
 import { ForecastService } from "~/server/services/forecast"
 import { Schedules, type ScheduleInput } from "~/server/services/schedules"
@@ -96,7 +96,7 @@ describe("Schedules", () => {
   })
 
   it("keeps an overdue occurrence and its day of month when edited", async () => {
-    const start = `${addMonths(today.slice(0, 7), -3)}-31`.replace(/-(02|04|06|09|11)-31$/, "-$1-30")
+    const start = lastDay(addMonths(today.slice(0, 7), -3))
     const id = await h.run(Schedules.use((s) => s.create(monthly(start, { name: "Manuel", autoPost: false }))))
     const current = await schedule(id)
     await h.run(Schedules.use((s) => s.update(id, monthly(current.startDate, { name: "Manuel renommé", autoPost: false }))))
@@ -125,7 +125,7 @@ describe("Schedules", () => {
     const savings = await h.run(
       Accounts.use((a) => a.create({ name: "Livret A", kind: "savings", offBudget: false, startingBalance: 0, startingDate: "2020-01-01" })),
     )
-    const later = addDays(today, 3) > `${today.slice(0, 7)}-31` ? today : addDays(today, 3)
+    const later = addDays(today, 3) > lastDay(today.slice(0, 7)) ? today : addDays(today, 3)
     const between = await h.run(
       Schedules.use((s) => s.create(monthly(later, { name: "Entre comptes courants", autoPost: false, payee: { kind: "transfer", accountId: other } }))),
     )
