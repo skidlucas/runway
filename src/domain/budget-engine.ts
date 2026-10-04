@@ -1,4 +1,4 @@
-import { addMonths, type Month, monthRange } from "./dates"
+import { type Month, monthRange } from "./dates"
 
 // Envelope budgeting with the same semantics as Actual's envelope ("zero") budget:
 // - a category's available amount rolls over to the next month when positive;
@@ -6,7 +6,7 @@ import { addMonths, type Month, monthRange } from "./dates"
 //   has `carryover` set for that month, in which case the debt stays in the category;
 // - income is whatever lands in income categories, and "to budget" accumulates across months.
 
-export type BudgetCategory = {
+type BudgetCategory = {
   readonly id: string
   readonly isIncome: boolean
 }
@@ -21,7 +21,7 @@ export type BudgetInputs = {
   readonly buffered?: ReadonlyMap<Month, number>
 }
 
-export type CategoryMonth = {
+type CategoryMonth = {
   readonly budgeted: number
   /** Signed: spending is negative, income is positive. */
   readonly activity: number
@@ -49,7 +49,7 @@ const EMPTY_CELLS: ReadonlyMap<string, BudgetCell> = new Map()
 const EMPTY_ACTIVITY: ReadonlyMap<string, number> = new Map()
 
 /** First month that has any activity or budget, or undefined for an empty budget. */
-export const firstBudgetMonth = (inputs: BudgetInputs): Month | undefined => {
+const firstBudgetMonth = (inputs: BudgetInputs): Month | undefined => {
   let first: Month | undefined
   for (const month of [...inputs.activity.keys(), ...inputs.budgeted.keys(), ...(inputs.buffered?.keys() ?? [])]) {
     if (first === undefined || month < first) first = month
@@ -136,6 +136,3 @@ const computeMonth = (inputs: BudgetInputs, month: Month, previous: BudgetMonth 
   }
 }
 
-/** Months between two months, used by callers that only need a window of the computation. */
-export const previousMonths = (month: Month, count: number): Month[] =>
-  monthRange(addMonths(month, -(count - 1)), month)

@@ -5,7 +5,7 @@ import type { ExportMeta } from "~/server/services/import-export"
 // Source-agnostic description of data to import. Ids are the source ids: they are
 // kept when free, which makes re-importing the same file idempotent.
 
-export type BundleAccount = {
+type BundleAccount = {
   id: string
   name: string
   offBudget: boolean
@@ -15,8 +15,8 @@ export type BundleAccount = {
   inForecast?: boolean
   lastReconciledAt?: string | null
 }
-export type BundleGroup = { id: string; name: string; isIncome: boolean; hidden: boolean; sortOrder: number }
-export type BundleCategory = {
+type BundleGroup = { id: string; name: string; isIncome: boolean; hidden: boolean; sortOrder: number }
+type BundleCategory = {
   id: string
   groupId: string
   name: string
@@ -24,7 +24,7 @@ export type BundleCategory = {
   hidden: boolean
   sortOrder: number
 }
-export type BundlePayee = { id: string; name: string; transferAccountId: string | null }
+type BundlePayee = { id: string; name: string; transferAccountId: string | null }
 export type BundleTransaction = {
   id: string
   accountId: string
@@ -46,7 +46,7 @@ export type BundleTransaction = {
   /** Orders the operations of a same day; the server stamps them itself when absent. */
   createdAt?: string | null
 }
-export type BundleBudget = { month: string; categoryId: string; amount: number; carryover: boolean }
+type BundleBudget = { month: string; categoryId: string; amount: number; carryover: boolean }
 export type BundleRule = {
   conditionsOp: "and" | "or"
   conditions: RuleCondition[]

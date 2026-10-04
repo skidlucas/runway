@@ -4,7 +4,7 @@ import { parseAmount } from "~/domain/money"
 
 // Bank statement files (CSV, OFX, QIF) become a flat list of transactions for one account.
 
-export type BankTransaction = {
+type BankTransaction = {
   date: string
   amount: number
   payee: string
@@ -49,7 +49,7 @@ const fullYear = (y: number) => {
   return y > pivot ? 1900 + y : 2000 + y
 }
 
-export const parseDate = (raw: string, format: CsvMapping["dateFormat"]): string | null => {
+const parseDate = (raw: string, format: CsvMapping["dateFormat"]): string | null => {
   const m = DATE_RE.exec(raw.trim())
   if (!m) return null
   let [, a, b, c] = m as unknown as [string, string, string, string]

@@ -24,7 +24,7 @@ import { Settings } from "./settings"
 
 export type InsightQuery = InsightViewConfig
 
-export type BreakdownRow = { id: string | null; name: string; amount: number; count: number }
+type BreakdownRow = { id: string | null; name: string; amount: number; count: number }
 
 export type InsightViewDto = InsightView & {
   query: InsightQuery

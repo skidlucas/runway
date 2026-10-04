@@ -9,15 +9,15 @@ export type ImportApi = {
 }
 
 /** Rows per request: keeps each call well under Worker CPU and D1 statement limits. */
-export const CHUNK_SIZE = 4000
+const CHUNK_SIZE = 4000
 
-export const structureOf = (bundle: ImportBundle): BundleStructure => {
+const structureOf = (bundle: ImportBundle): BundleStructure => {
   const { transactions: _t, skipped: _s, approximated: _a, extras: _e, ...structure } = bundle
   return structure
 }
 
 /** Translates source ids to the ids chosen by the server. */
-export const toImportRows = (transactions: ReadonlyArray<BundleTransaction>, maps: IdMaps): ImportRow[] =>
+const toImportRows = (transactions: ReadonlyArray<BundleTransaction>, maps: IdMaps): ImportRow[] =>
   transactions.flatMap((t) => {
     const accountId = maps.accounts[t.accountId]
     if (!accountId) return []

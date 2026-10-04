@@ -23,7 +23,7 @@ export class Db extends Context.Service<
   }
 }
 
-export const makeDb = (d1: D1Database): Db["Service"] => {
+const makeDb = (d1: D1Database): Db["Service"] => {
   const orm = drizzle(d1)
   const use = <A>(f: (orm: Orm, d1: D1Database) => Promise<A>) =>
     Effect.tryPromise({
@@ -41,8 +41,6 @@ export const makeDb = (d1: D1Database): Db["Service"] => {
 // INSERT. Instead, rows travel as a single JSON parameter expanded with json_each(): one
 // statement inserts thousands of rows. A bound value is limited to 2 MB, hence the chunking.
 const MAX_JSON_BYTES = 1_500_000
-
-export type BulkColumn = { readonly name: string; readonly json?: boolean }
 
 /**
  * Builds INSERT statements that write `rows` (arrays aligned with `columns`) through json_each.

@@ -24,7 +24,7 @@ export type CategoryGroupDto = {
   categories: CategoryDto[]
 }
 
-export const STARTER_GROUPS: ReadonlyArray<{ name: string; categories: string[] }> = [
+const STARTER_GROUPS: ReadonlyArray<{ name: string; categories: string[] }> = [
   { name: "Logement", categories: ["Loyer", "Électricité", "Internet"] },
   { name: "Quotidien", categories: ["Courses", "Transport", "Santé"] },
   { name: "Loisirs", categories: ["Restaurants", "Sorties", "Abonnements"] },

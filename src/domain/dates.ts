@@ -47,8 +47,6 @@ export const addMonths = (month: Month, delta: number): Month => {
   return `${pad(year, 4)}-${pad(mm + 1)}`
 }
 
-export const compareMonths = (a: Month, b: Month): number => (a < b ? -1 : a > b ? 1 : 0)
-
 /** Inclusive list of months from `from` to `to`. */
 export const monthRange = (from: Month, to: Month): Month[] => {
   const out: Month[] = []

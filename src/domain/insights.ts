@@ -70,7 +70,7 @@ export const projectedOverrunDay = (spent: number, projected: number, budget: nu
 
 // --- View (query bar + chart) --------------------------------------------------------
 
-export type InsightBar = { readonly month: Month; readonly value: number; readonly average: number | null; readonly current: boolean }
+type InsightBar = { readonly month: Month; readonly value: number; readonly average: number | null; readonly current: boolean }
 
 export type InsightView = {
   readonly bars: ReadonlyArray<InsightBar>

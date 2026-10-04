@@ -24,7 +24,7 @@ export const BUCKET_OF_TYPE: Record<AssetType, WealthBucket> = {
   cash: "cash",
 }
 
-export const BUCKET_LABELS: Record<WealthBucket, string> = {
+const BUCKET_LABELS: Record<WealthBucket, string> = {
   real_estate: "Immobilier net",
   investments: "Placements",
   crypto: "Crypto",

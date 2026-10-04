@@ -6,7 +6,7 @@ import { Invalid, NotFound } from "../errors"
 import { type Occurrence, Schedules } from "./schedules"
 import { Settings } from "./settings"
 
-export type ForecastAccount = { id: string; name: string; balance: number }
+type ForecastAccount = { id: string; name: string; balance: number }
 
 export type ForecastDto = Forecast & {
   accounts: ForecastAccount[]

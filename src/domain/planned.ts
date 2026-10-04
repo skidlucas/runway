@@ -21,7 +21,7 @@ export type Remaining = {
   readonly until: Day
 }
 
-export type PlannedLine = {
+type PlannedLine = {
   readonly scheduleId: string
   readonly name: string
   readonly kind: "due" | "setAside"
@@ -53,7 +53,7 @@ export type PlannedCategory = {
 }
 
 /** Paid at least once a month: budgeted as it falls, without setting money aside. */
-export const isFrequent = (r: Recurrence) => periodDays(r) <= 31
+const isFrequent = (r: Recurrence) => periodDays(r) <= 31
 
 const REMAINING_LIMIT = 10_000
 

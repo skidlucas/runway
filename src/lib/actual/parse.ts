@@ -9,7 +9,7 @@ import { type BundleRule, type BundleSchedule, type BundleTransaction, type Impo
 // Actual stores rows with tombstones, and remaps merged payees/categories through
 // payee_mapping / category_mapping: both must be applied to get what Actual shows.
 
-export class ActualFormatError extends Error {}
+class ActualFormatError extends Error {}
 
 const toDay = (value: unknown): string | null => {
   const n = Number(value)

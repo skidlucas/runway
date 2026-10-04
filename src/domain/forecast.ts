@@ -24,7 +24,7 @@ export type ForecastInput = {
 
 export type UpcomingTag = { kind: "scheduled" } | { kind: "income" } | { kind: "booked" }
 
-export type ForecastDay = { date: Day; balance: number; kind: "past" | "today" | "future"; hasSchedule: boolean }
+type ForecastDay = { date: Day; balance: number; kind: "past" | "today" | "future"; hasSchedule: boolean }
 
 export type Forecast = {
   month: Month

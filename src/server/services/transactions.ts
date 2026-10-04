@@ -92,7 +92,7 @@ export const transactionInsertStatements = (
 
 export type PreparedTx = { readonly id: string; readonly rows: ReadonlyArray<NewTxRow> }
 
-export type SplitInput = { readonly amount: number; readonly categoryId: string | null; readonly notes?: string | null }
+type SplitInput = { readonly amount: number; readonly categoryId: string | null; readonly notes?: string | null }
 
 export type TxInput = {
   readonly accountId: string

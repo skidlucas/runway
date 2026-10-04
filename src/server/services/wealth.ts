@@ -25,7 +25,7 @@ import { type ExternalError, Invalid, NotFound } from "../errors"
 import { MarketData } from "./market-data"
 import { Settings } from "./settings"
 
-export type EstimateDto = {
+type EstimateDto = {
   amount: number
   date: Day
   /** Where the number comes from, shown under it ("Estimation DVF", "Cours en direct"…). */
