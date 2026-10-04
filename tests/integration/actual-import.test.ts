@@ -179,6 +179,8 @@ describe("Actual import", () => {
         date: t.date,
         amount: t.amount,
         payee: bundle.payees.find((p) => p.id === t.payeeId)?.name ?? null,
+        importedId: t.importedId,
+        importedPayee: t.importedPayee,
       }))
     expect(await h.run(ImportExport.use((s) => s.countDuplicates(probes)))).toBe(10)
   })

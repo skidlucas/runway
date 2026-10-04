@@ -176,7 +176,9 @@ export const countDuplicates = createServerFn({ method: "POST" })
   .validator(
     v(
       Schema.Struct({
-        probes: Schema.Array(Schema.Struct({ account: Str, date: Str, amount: Schema.Int, payee: NStr, id: Opt(NStr) })),
+        probes: Schema.Array(
+          Schema.Struct({ account: Str, date: Str, amount: Schema.Int, payee: NStr, id: Opt(NStr), importedId: Opt(NStr), importedPayee: Opt(NStr) }),
+        ),
       }),
     ),
   )

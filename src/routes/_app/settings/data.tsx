@@ -174,6 +174,7 @@ function BundleImportDialog({ fileName, bundle, onClose }: { fileName: string; b
   })
   const [mode, setMode] = React.useState<"merge" | "replace">("merge")
   const [duplicates, setDuplicates] = React.useState<number | null>(null)
+  const [duplicatesFailed, setDuplicatesFailed] = React.useState(false)
   const [progress, setProgress] = React.useState<ImportProgress | null>(null)
   const [running, setRunning] = React.useState(false)
   const topLevel = bundle.transactions.filter((t) => !t.parentId).length
@@ -192,6 +193,8 @@ function BundleImportDialog({ fileName, bundle, onClose }: { fileName: string; b
         amount: t.amount,
         payee: t.payeeId ? (payeeName.get(t.payeeId) ?? null) : null,
         id: t.id,
+        importedId: t.importedId,
+        importedPayee: t.importedPayee,
       }))
     ;(async () => {
       let total = 0
@@ -206,7 +209,7 @@ function BundleImportDialog({ fileName, bundle, onClose }: { fileName: string; b
         start = end
       }
       if (!cancelled) setDuplicates(total)
-    })().catch(() => !cancelled && setDuplicates(0))
+    })().catch(() => !cancelled && setDuplicatesFailed(true))
     return () => {
       cancelled = true
     }
@@ -306,6 +309,11 @@ function BundleImportDialog({ fileName, bundle, onClose }: { fileName: string; b
         <div className="mx-5 mb-3 rounded-[8px] border border-warning-line bg-warning-soft px-3 py-2.5 text-warning">
           {fmt.format(duplicates)} opération{duplicates > 1 ? "s existent" : " existe"} déjà (même date, montant et bénéficiaire).{" "}
           {duplicates > 1 ? "Elles seront ignorées." : "Elle sera ignorée."}
+        </div>
+      ) : null}
+      {mode === "merge" && duplicatesFailed ? (
+        <div className="mx-5 mb-3 rounded-[8px] border border-warning-line bg-warning-soft px-3 py-2.5 text-warning">
+          Impossible de compter à l'avance les opérations déjà présentes. Elles seront quand même ignorées à l'import.
         </div>
       ) : null}
       {bundle.skipped.rules || bundle.skipped.schedules ? (

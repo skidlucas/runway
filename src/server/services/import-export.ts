@@ -47,7 +47,15 @@ export type ImportOptions = {
 
 export type ImportResult = { inserted: number; duplicates: number }
 
-export type DuplicateProbe = { account: string; date: string; amount: number; payee: string | null; id?: string | null }
+export type DuplicateProbe = {
+  account: string
+  date: string
+  amount: number
+  payee: string | null
+  id?: string | null
+  importedId?: string | null
+  importedPayee?: string | null
+}
 
 export type ExportMeta = {
   version: 1
@@ -97,10 +105,41 @@ const STAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/
 
 const ACCOUNT_KINDS = new Set<string>(["checking", "savings", "credit", "investment", "other"])
 
-const signature = (account: string, date: string, amount: number, payee: string | null) =>
-  `${account}|${date}|${amount}|${payee ?? ""}`
-const labelSignature = (account: string, date: string, amount: number, label: string) =>
-  `${account}|${date}|${amount}|label:${label.trim()}`
+type DedupeKey = {
+  account: string
+  date: string
+  amount: number
+  payee: string | null
+  importedId?: string | null
+  importedPayee?: string | null
+}
+
+const signature = (k: DedupeKey) => `${k.account}|${k.date}|${k.amount}|${k.payee ?? ""}`
+const labelSignature = (k: DedupeKey, label: string) => `${k.account}|${k.date}|${k.amount}|label:${label.trim()}`
+
+/**
+ * Decides which incoming rows already exist, for the import and for its preview alike.
+ * A multiset match on (account, date, amount, payee), so two identical coffees on the same day
+ * both survive when only one of them was already imported. A row that kept the bank's raw label
+ * is matched on that label (a rule may have renamed its payee since), and a known bank id always
+ * marks a duplicate. Each call to the returned function consumes the existing row it matched.
+ */
+const duplicateMatcher = (existing: Iterable<DedupeKey>) => {
+  const counts = new Map<string, number>()
+  const bankIds = new Set<string>()
+  for (const x of existing) {
+    const key = x.importedPayee ? labelSignature(x, x.importedPayee) : signature(x)
+    counts.set(key, (counts.get(key) ?? 0) + 1)
+    if (x.importedId) bankIds.add(`${x.account}|${x.importedId}`)
+  }
+  return (row: DedupeKey) => {
+    const byLabel = row.importedPayee ? labelSignature(row, row.importedPayee) : null
+    const key = byLabel && counts.get(byLabel) ? byLabel : signature(row)
+    const left = counts.get(key) ?? 0
+    if (left > 0) counts.set(key, left - 1)
+    return left > 0 || (row.importedId ? bankIds.has(`${row.account}|${row.importedId}`) : false)
+  }
+}
 
 export class ImportExport extends Context.Service<
   ImportExport,
@@ -399,10 +438,7 @@ export class ImportExport extends Context.Service<
             categoryId: r.categoryId && known.categories.has(r.categoryId) ? r.categoryId : null,
           }))
 
-        // Duplicates: rows whose id already exists, then a multiset match on
-        // (account, date, amount, payee) so two identical coffees on the same day both survive
-        // when only one of them was already imported. A row that kept the bank's raw label is
-        // matched on that label: a rule may have renamed its payee since.
+        // Duplicates: rows whose id already exists, then `duplicateMatcher`.
         let duplicates = 0
         const skip = new Set<string>()
         const lookups = chunkRows(rows.map((r) => r.id)).map((chunk) =>
@@ -420,32 +456,21 @@ export class ImportExport extends Context.Service<
           const top = rows.filter((r) => !r.parentId && !skip.has(r.id))
           if (top.length > 0) {
             const dates = top.map((r) => r.date).sort()
-            const counts = yield* db.use(async (_, d1) => {
+            const existing = yield* db.use(async (_, d1) => {
               const { results } = await d1
                 .prepare(
-                  `SELECT account_id AS a, date AS d, amount AS m, payee_id AS p, imported_id AS i, imported_payee AS l FROM transactions
+                  `SELECT account_id AS account, date, amount, payee_id AS payee, imported_id AS importedId, imported_payee AS importedPayee
+                   FROM transactions
                    WHERE parent_id IS NULL AND date BETWEEN ? AND ?
                      AND account_id IN (SELECT value FROM json_each(?))`,
                 )
                 .bind(dates[0], dates[dates.length - 1], JSON.stringify([...new Set(top.map((r) => r.accountId))]))
-                .all<{ a: string; d: string; m: number; p: string | null; i: string | null; l: string | null }>()
-              const map = new Map<string, number>()
-              const imported = new Set<string>()
-              for (const x of results) {
-                const key = x.l ? labelSignature(x.a, x.d, x.m, x.l) : signature(x.a, x.d, x.m, x.p)
-                map.set(key, (map.get(key) ?? 0) + 1)
-                if (x.i) imported.add(`${x.a}|${x.i}`)
-              }
-              return { map, imported }
+                .all<DedupeKey>()
+              return results
             })
+            const isDuplicate = duplicateMatcher(existing)
             for (const r of top) {
-              const byLabel = r.importedPayee ? labelSignature(r.accountId, r.date, r.amount, r.importedPayee) : null
-              const key =
-                byLabel && counts.map.get(byLabel) ? byLabel : signature(r.accountId, r.date, r.amount, r.payeeId ?? null)
-              const left = counts.map.get(key) ?? 0
-              const sameBankId = r.importedId ? counts.imported.has(`${r.accountId}|${r.importedId}`) : false
-              if (left > 0 || sameBankId) {
-                if (left > 0) counts.map.set(key, left - 1)
+              if (isDuplicate({ ...r, account: r.accountId, payee: r.payeeId ?? null })) {
                 skip.add(r.id)
                 duplicates++
               }
@@ -611,34 +636,24 @@ export class ImportExport extends Context.Service<
         const existing = yield* db.use(async (_, d1) => {
           const { results } = await d1
             .prepare(
-              `SELECT t.id, a.name AS a, t.date AS d, t.amount AS m, COALESCE(pa.name, p.name) AS p
+              `SELECT t.id, a.name AS account, t.date, t.amount, COALESCE(pa.name, p.name) AS payee,
+                 t.imported_id AS importedId, t.imported_payee AS importedPayee
                FROM transactions t JOIN accounts a ON a.id = t.account_id
                LEFT JOIN payees p ON p.id = t.payee_id LEFT JOIN accounts pa ON pa.id = p.transfer_account_id
                WHERE t.parent_id IS NULL AND t.date BETWEEN ? AND ? AND t.account_id IN (SELECT value FROM json_each(?))`,
             )
             .bind(dates[0], dates[dates.length - 1], JSON.stringify(accountIds))
-            .all<{ id: string; a: string; d: string; m: number; p: string | null }>()
+            .all<DedupeKey & { id: string }>()
           return results
         })
+        // The preview runs before the file's accounts and payees are matched to ids: it compares
+        // names, the way the import will match them.
+        const byName = (k: DedupeKey): DedupeKey => ({ ...k, account: normalizeText(k.account), payee: normalizeText(k.payee ?? "") })
         const ids = new Set(existing.map((e) => e.id))
-        const counts = new Map<string, number>()
-        const key = (a: string, d: string, m: number, p: string | null) => `${normalizeText(a)}|${d}|${m}|${normalizeText(p ?? "")}`
-        for (const e of existing) {
-          const k = key(e.a, e.d, e.m, e.p)
-          counts.set(k, (counts.get(k) ?? 0) + 1)
-        }
+        const isDuplicate = duplicateMatcher(existing.map(byName))
         let n = 0
         for (const p of probes) {
-          if (p.id && ids.has(p.id)) {
-            n++
-            continue
-          }
-          const k = key(p.account, p.date, p.amount, p.payee)
-          const left = counts.get(k) ?? 0
-          if (left > 0) {
-            counts.set(k, left - 1)
-            n++
-          }
+          if ((p.id && ids.has(p.id)) || isDuplicate(byName(p))) n++
         }
         return n
       })
