@@ -3,12 +3,14 @@ import { Accounts } from "~/server/services/accounts"
 import { ImportExport, type ImportRow } from "~/server/services/import-export"
 import { createHarness, type Harness } from "./harness"
 
+const NOW = "2026-10-04T10:00:00Z"
+
 describe("Import duplicates", () => {
   let h: Harness
   let account: string
 
   beforeAll(async () => {
-    h = await createHarness()
+    h = await createHarness({ now: NOW })
     account = await h.run(
       Accounts.use((a) => a.create({ name: "Courant", kind: "checking", offBudget: false, startingBalance: 0, startingDate: "2026-01-01" })),
     )
@@ -51,7 +53,7 @@ describe("Import dedupe", () => {
     (await h.d1.prepare("SELECT COUNT(*) AS n FROM transactions WHERE account_id = ? AND parent_id IS NULL").bind(accountId).first<{ n: number }>())!.n
 
   beforeAll(async () => {
-    h = await createHarness({ now: "2026-10-04T10:00:00Z" })
+    h = await createHarness({ now: NOW })
   }, 60_000)
   afterAll(() => h?.dispose())
 

@@ -6,6 +6,8 @@ import { Payees } from "~/server/services/payees"
 import { Transactions } from "~/server/services/transactions"
 import { createHarness, type Harness } from "./harness"
 
+const NOW = "2026-10-04T10:00:00Z"
+
 describe("Transactions", () => {
   let h: Harness
   let account: string
@@ -13,7 +15,7 @@ describe("Transactions", () => {
   let categories: string[]
 
   beforeAll(async () => {
-    h = await createHarness()
+    h = await createHarness({ now: NOW })
     await h.run(Categories.use((c) => c.createStarterSet))
     const tree = await h.run(Categories.use((c) => c.tree))
     categories = tree.filter((g) => !g.isIncome).flatMap((g) => g.categories.map((c) => c.id))

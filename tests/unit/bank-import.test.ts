@@ -29,6 +29,34 @@ describe("CSV", () => {
       ["2026-10-03", 500, "Refund", null],
     ])
   })
+
+  it("reads grouped thousands in either convention, and a lone dot or comma as decimals", () => {
+    const rows = parseCsvText(`Date;Libellé;Montant
+01/10/2026;Salaire;2 840,00
+02/10/2026;Loyer;-1.250,00
+03/10/2026;Voiture;"-12,345.67"
+04/10/2026;Ambigu;1.234`)
+    const { mapping } = guessCsvMapping(rows)
+    expect(mapping).toMatchObject({ amount: 2, debit: null, credit: null })
+    expect(applyCsvMapping(rows, mapping).transactions.map((t) => [t.payee, t.amount])).toEqual([
+      ["Salaire", 284_000],
+      ["Loyer", -125_000],
+      ["Voiture", -1_234_567],
+      ["Ambigu", 123],
+    ])
+  })
+
+  it("switches to month-first dates when a day cannot be a month, for every row", () => {
+    const rows = parseCsvText("Date,Payee,Amount\n10/13/2026,Store,-5.00\n01/02/2026,Gym,-30.00\n13/13/2026,Broken,-1.00")
+    const { mapping } = guessCsvMapping(rows)
+    expect(mapping.dateFormat).toBe("mdy")
+    const { transactions, errors } = applyCsvMapping(rows, mapping)
+    expect(transactions.map((t) => [t.date, t.payee])).toEqual([
+      ["2026-10-13", "Store"],
+      ["2026-01-02", "Gym"],
+    ])
+    expect(errors).toBe(1)
+  })
 })
 
 describe("OFX", () => {
@@ -45,6 +73,39 @@ describe("OFX", () => {
         { date: "2026-10-01", amount: 284000, payee: "SALAIRE", notes: null, importedId: "A2" },
       ],
       errors: 1,
+    })
+  })
+
+  it("reads XML statements (OFX 2.x) with closing tags and indentation", () => {
+    const text = `<?xml version="1.0" encoding="UTF-8"?>
+<?OFX OFXHEADER="200" VERSION="220" SECURITY="NONE" OLDFILEUID="NONE" NEWFILEUID="NONE"?>
+<OFX>
+  <BANKMSGSRSV1><STMTTRNRS><STMTRS>
+    <BANKTRANLIST>
+      <STMTTRN>
+        <TRNTYPE>DEBIT</TRNTYPE>
+        <DTPOSTED>20261002000000.000[+2:CEST]</DTPOSTED>
+        <TRNAMT>-1234.50</TRNAMT>
+        <FITID>X-1</FITID>
+        <NAME>LEROY MERLIN</NAME>
+        <MEMO>Facture 42</MEMO>
+      </STMTTRN>
+      <STMTTRN>
+        <TRNTYPE>CREDIT</TRNTYPE>
+        <DTPOSTED>20261001</DTPOSTED>
+        <TRNAMT>15</TRNAMT>
+        <FITID>X-2</FITID>
+        <PAYEE>Remboursement</PAYEE>
+      </STMTTRN>
+    </BANKTRANLIST>
+  </STMTRS></STMTTRNRS></BANKMSGSRSV1>
+</OFX>`
+    expect(parseOfx(text)).toEqual({
+      transactions: [
+        { date: "2026-10-02", amount: -123_450, payee: "LEROY MERLIN", notes: "Facture 42", importedId: "X-1" },
+        { date: "2026-10-01", amount: 1500, payee: "Remboursement", notes: null, importedId: "X-2" },
+      ],
+      errors: 0,
     })
   })
 })
@@ -90,6 +151,22 @@ PImpossible
       ["2026-04-03", "Récent"],
     ])
     expect(errors).toBe(1)
+  })
+
+  it("reads an American file month first when one day settles it, with grouped thousands", () => {
+    const text = `!Type:Bank
+D01/02/2026
+T-1,234.56
+PRent
+^
+D12/31/2026
+T2,000
+PBonus
+^`
+    expect(parseQif(text).transactions.map((t) => [t.date, t.amount, t.payee])).toEqual([
+      ["2026-01-02", -123_456, "Rent"],
+      ["2026-12-31", 200_000, "Bonus"],
+    ])
   })
 })
 

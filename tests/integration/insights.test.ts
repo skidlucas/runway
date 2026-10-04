@@ -172,14 +172,13 @@ describe("saved views", () => {
 })
 
 describe("findings", () => {
-  it("produces findings on the demo budget", async () => {
-    const fresh = await createHarness({ now: NOW })
+  it("produces findings on the demo budget, past the first days of the month", async () => {
+    const fresh = await createHarness({ now: "2026-10-20T10:00:00Z" })
     try {
       await fresh.run(Demo.use((d) => d.seed))
       const result = await fresh.run(Insights.use((s) => s.findings))
       expect(result.month).toBe(month)
-      expect(result.findings.length).toBeGreaterThan(0)
-      expect(result.findings.some((f) => f.kind === "top_payees")).toBe(true)
+      expect(result.findings.map((f) => f.kind)).toEqual(["projection", "projection", "top_payees"])
       for (const f of result.findings) {
         expect(f.text.length).toBeGreaterThan(10)
         expect(f.context.length).toBeGreaterThan(0)

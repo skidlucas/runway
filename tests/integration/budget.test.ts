@@ -7,6 +7,8 @@ import { Schedules } from "~/server/services/schedules"
 import { Transactions } from "~/server/services/transactions"
 import { createHarness, type Harness } from "./harness"
 
+const NOW = "2026-10-04T10:00:00Z"
+
 describe("Budget moves", () => {
   let h: Harness
   let a: string
@@ -17,7 +19,7 @@ describe("Budget moves", () => {
   const toBudget = async (month: string) => (await h.run(Budget.use((s) => s.month(month)))).toBudget
 
   beforeAll(async () => {
-    h = await createHarness()
+    h = await createHarness({ now: NOW })
     await h.run(Categories.use((s) => s.createStarterSet))
     const tree = await h.run(Categories.use((s) => s.tree))
     ;[a, b, c] = tree.filter((g) => !g.isIncome).flatMap((g) => g.categories.map((x) => x.id)) as [string, string, string]
@@ -86,7 +88,7 @@ describe("Budget engine", () => {
     Object.fromEntries((await month(FEBRUARY)).groups.flatMap((g) => g.categories).filter((c) => !c.isIncome).map((c) => [c.name, c.budgeted]))
 
   beforeAll(async () => {
-    h = await createHarness({ now: "2026-10-04T10:00:00Z" })
+    h = await createHarness({ now: NOW })
     await h.run(Categories.use((s) => s.createStarterSet))
     for (const g of await h.run(Categories.use((s) => s.tree))) for (const c of g.categories) ids[c.name] = c.id
     await h.run(Categories.use((s) => s.update(ids.Santé!, { hidden: true })))
@@ -227,7 +229,7 @@ describe("Budget planned from schedules", () => {
   const row = async (id: string) => (await rows()).find((x) => x.id === id)!
 
   beforeAll(async () => {
-    h = await createHarness()
+    h = await createHarness({ now: NOW })
     await h.run(Categories.use((s) => s.createStarterSet))
     const tree = await h.run(Categories.use((s) => s.tree))
     ;[a, b, c] = tree.filter((g) => !g.isIncome).flatMap((g) => g.categories.map((x) => x.id)) as [string, string, string]
@@ -258,7 +260,7 @@ describe("Budget planned from schedules", () => {
     expect([(await row(a)).budgeted, (await row(b)).budgeted, (await row(c)).budgeted]).toEqual([5_000, 10_000, 7_000])
   })
 
-  it("never lowers a budget above what the schedules need", async () => {
+  it("keeps a budget that already covers more than the schedules need", async () => {
     const february = "2030-02"
     await h.run(Budget.use((s) => s.setAmount(february, a, 9_000)))
     await h.run(Budget.use((s) => s.fill(february, { kind: "planned" })))
@@ -272,7 +274,7 @@ describe("Budget planned from a yearly bill", () => {
   let c: string
 
   beforeAll(async () => {
-    h = await createHarness()
+    h = await createHarness({ now: NOW })
     await h.run(Categories.use((s) => s.createStarterSet))
     c = (await h.run(Categories.use((s) => s.tree))).find((g) => !g.isIncome)!.categories[0]!.id
     accountId = await h.run(
@@ -305,7 +307,7 @@ describe("Age of money", () => {
   let h: Harness
 
   beforeAll(async () => {
-    h = await createHarness()
+    h = await createHarness({ now: NOW })
     const account = (name: string, offBudget: boolean, startingBalance: number) =>
       h.run(Accounts.use((s) => s.create({ name, kind: "checking", offBudget, startingBalance, startingDate: "2026-01-01" })))
     const checking = await account("Courant", false, 100_000)

@@ -232,19 +232,21 @@ describe("core flows on D1", () => {
   })
 })
 
+const DEMO_TRANSACTIONS = 254
+
 describe("demo data", () => {
   it("seeds a realistic year on an empty budget", async () => {
-    const fresh = await createHarness()
+    const fresh = await createHarness({ now: NOW })
     try {
       const { Demo } = await import("~/server/services/demo")
       const { ForecastService } = await import("~/server/services/forecast")
       const result = await fresh.run(Demo.use((d) => d.seed))
-      expect(result.transactions).toBeGreaterThan(150)
+      expect(result.transactions).toBe(DEMO_TRANSACTIONS)
       const accounts = await fresh.run(Accounts.use((a) => a.list))
-      expect(accounts).toHaveLength(2)
+      expect(accounts.map((a) => [a.name, a.transactionCount])).toEqual([["Compte courant", 268], ["Livret A", 14]])
       const forecast = await fresh.run(ForecastService.use((f) => f.month()))
-      expect(forecast.upcoming.length).toBeGreaterThan(0)
-      expect(forecast.days.length).toBeGreaterThan(27)
+      expect(forecast.upcoming.length).toBe(3)
+      expect(forecast.days.length).toBe(31)
       await expect(fresh.run(Demo.use((d) => d.seed))).rejects.toThrow(/budget vide/)
     } finally {
       await fresh.dispose()
@@ -252,14 +254,14 @@ describe("demo data", () => {
   })
 
   it("can be loaded again after failing halfway", async () => {
-    const fresh = await createHarness()
+    const fresh = await createHarness({ now: NOW })
     try {
       const { Demo } = await import("~/server/services/demo")
       await fresh.d1.prepare("CREATE TRIGGER no_schedules BEFORE INSERT ON schedules BEGIN SELECT RAISE(ABORT, 'boom'); END").run()
       await expect(fresh.run(Demo.use((d) => d.seed))).rejects.toThrow()
       expect(await fresh.run(Accounts.use((a) => a.list))).toHaveLength(0)
       await fresh.d1.prepare("DROP TRIGGER no_schedules").run()
-      expect((await fresh.run(Demo.use((d) => d.seed))).transactions).toBeGreaterThan(150)
+      expect((await fresh.run(Demo.use((d) => d.seed))).transactions).toBe(DEMO_TRANSACTIONS)
     } finally {
       await fresh.dispose()
     }

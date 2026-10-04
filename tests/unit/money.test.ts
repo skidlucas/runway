@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { formatCompact, formatMoney, formatPercent, parseAmount } from "~/domain/money"
+import { amountInput, formatCompact, formatMoney, formatPercent, parseAmount } from "~/domain/money"
 
 const nbsp = (s: string) => s.replace(/ /g, " ").replace(/ €/g, " €")
 
@@ -41,7 +41,36 @@ describe("parseAmount", () => {
     expect(parseAmount(input)).toBe(expected)
   })
 
-  it.each(["", "abc", "12abc", "=1/0", "=(1+2", "1..2"])("rejects %s", (input) => {
+  it.each(["", "abc", "12abc", "=1/0", "=(1+2", "1..2", "1.234.567", "1,234,567"])("rejects %s", (input) => {
     expect(parseAmount(input)).toBeNull()
+  })
+
+  it("reads a lone separator as the decimal one, even before three digits, and rounds to the cent", () => {
+    expect(parseAmount("1.234")).toBe(123)
+    expect(parseAmount("1,234")).toBe(123)
+    expect(parseAmount("1.235")).toBe(124)
+    expect(parseAmount("1 234 567,89")).toBe(123_456_789)
+    expect(parseAmount("1.234.567,89")).toBe(123_456_789)
+    expect(parseAmount("+12")).toBe(1200)
+  })
+
+  it("reads back every amount it formats, with or without currency, sign or grouping", () => {
+    let seed = 42
+    const random = () => {
+      seed = (seed * 1_103_515_245 + 12_345) % 2 ** 31
+      return seed / 2 ** 31
+    }
+    const samples = [0, 1, -1, 99, -100, 100_000, -123_456_789, 999_999_999_99]
+    for (let i = 0; i < 500; i++) samples.push(Math.round((random() - 0.5) * 10 ** Math.ceil(random() * 11)) || 0)
+    for (const cents of samples) {
+      for (const text of [
+        formatMoney(cents),
+        formatMoney(cents, { currency: false }),
+        formatMoney(cents, { sign: "always" }),
+        amountInput(cents),
+      ]) {
+        expect(parseAmount(text), text).toBe(cents)
+      }
+    }
   })
 })
