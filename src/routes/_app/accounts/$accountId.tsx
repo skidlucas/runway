@@ -37,7 +37,7 @@ import {
   payeeValueOf,
   useDeleteTransactions,
 } from "~/components/transaction-editor"
-import { Button, Calendar, Checkbox, Chip, cx, DateInput, Dialog, EmptyState, IconButton, Input, Kpi, Menu, Money, Popover, SkeletonRows, useConfirm } from "~/components/ui"
+import { Button, Calendar, Checkbox, Chip, cx, DateInput, Dialog, EmptyState, IconButton, Input, Kpi, Menu, Money, Popover, revealOnHover, SkeletonRows, useConfirm } from "~/components/ui"
 import { type Day, formatDayLong, formatDayShort, formatMonthLong, monthOf, parseDayInput } from "~/domain/dates"
 import { amountInput, formatMoney, parseAmount } from "~/domain/money"
 import { shortcutBlocked, useDebounced, useIsMobile, useToday } from "~/lib/hooks"
@@ -638,7 +638,7 @@ function ScheduledLine({
         <span className="truncate italic">{row.name}</span>
         <Chip>Échéance</Chip>
         {row.next ? (
-          <span className="ml-auto flex shrink-0 gap-1 opacity-0 focus-within:opacity-100 group-hover:opacity-100">
+          <span className={cx("ml-auto flex shrink-0 gap-1", revealOnHover)}>
             <Button size="sm" variant="ghost" disabled={s.busy} onClick={s.skip}>
               Passer
             </Button>
@@ -786,7 +786,7 @@ const TransactionRow = React.memo(function TransactionRow({
       </button>
       <Menu
         trigger={
-          <IconButton label={`Actions ${describe}`} size="sm" className="opacity-0 focus-visible:opacity-100 group-focus-within:opacity-100 group-hover:opacity-100 data-[popup-open]:opacity-100">
+          <IconButton label={`Actions ${describe}`} size="sm" className={revealOnHover}>
             <MoreHorizontal size={14} />
           </IconButton>
         }

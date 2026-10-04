@@ -13,6 +13,13 @@ import { useToday } from "~/lib/hooks"
 
 export const cx = clsx
 
+/**
+ * Row actions hidden until the row (a `group`) is hovered or holds the focus. Only with a mouse:
+ * on a touch screen they stay visible, since a hidden button would still take taps.
+ */
+export const revealOnHover =
+  "hoverable:opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100 data-[popup-open]:opacity-100"
+
 // --- Buttons -------------------------------------------------------------------
 
 type ButtonVariant = "primary" | "secondary" | "ghost" | "danger" | "inverse"
@@ -529,7 +536,7 @@ export function Tabs<T extends string>({
                 aria-label={item.action.label}
                 title={item.action.label}
                 onClick={item.action.run}
-                className="mr-1 rounded p-0.5 text-faint opacity-0 hover:text-fg focus-visible:opacity-100 group-hover:opacity-100"
+                className={cx("mr-1 rounded p-0.5 text-faint hover:text-fg", revealOnHover)}
               >
                 {item.action.icon}
               </button>

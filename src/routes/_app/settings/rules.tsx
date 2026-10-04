@@ -4,7 +4,7 @@ import { ArrowDown, ArrowUp, MoreHorizontal, Play, Plus, Sparkles, Trash2 } from
 import * as React from "react"
 import { CategoryPicker, PayeePicker, type PayeeValue } from "~/components/pickers"
 import { PageHeader } from "~/components/shell"
-import { Button, Chip, cx, Dialog, EmptyState, IconButton, Input, Menu, type Option, SectionTitle, Select, SkeletonRows, Switch, useConfirm } from "~/components/ui"
+import { Button, Chip, cx, Dialog, EmptyState, IconButton, Input, Menu, type Option, revealOnHover, SectionTitle, Select, SkeletonRows, Switch, useConfirm } from "~/components/ui"
 import { parseAmount } from "~/domain/money"
 import { describeRule, type RuleAction, type RuleCondition, type RuleConditionField, type RuleConditionOp } from "~/domain/rules"
 import { q, useAction } from "~/lib/queries"
@@ -163,7 +163,7 @@ function RuleRow({
         <span className="truncate">{text.actions}.</span>
       </button>
       {rule.origin !== "manual" ? <Chip>{rule.origin === "imported" ? "importée" : "suggérée"}</Chip> : null}
-      <span className="flex items-center gap-1 opacity-0 group-focus-within:opacity-100 group-hover:opacity-100">
+      <span className={cx("flex items-center gap-1", revealOnHover)}>
         <IconButton label="Monter" size="sm" disabled={!canUp} onClick={() => onMove(-1)}>
           <ArrowUp size={13} />
         </IconButton>

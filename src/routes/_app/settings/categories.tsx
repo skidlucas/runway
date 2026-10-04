@@ -4,7 +4,7 @@ import { ArrowDown, ArrowUp, Eye, EyeOff, MoreHorizontal, Plus, Trash2 } from "l
 import * as React from "react"
 import { CategoryPicker } from "~/components/pickers"
 import { PageHeader } from "~/components/shell"
-import { Button, ConfirmDialog, cx, Dialog, Field, IconButton, Input, Menu, SkeletonRows } from "~/components/ui"
+import { Button, ConfirmDialog, cx, Dialog, Field, IconButton, Input, Menu, revealOnHover, SkeletonRows } from "~/components/ui"
 import { q, useAction } from "~/lib/queries"
 import {
   createCategory,
@@ -139,7 +139,7 @@ function GroupRow({
       <InlineName value={group.name} onSave={(name) => update.mutate({ data: { id: group.id, name } })} />
       {group.isIncome ? <span className="text-[11px] font-normal text-faint">revenus</span> : null}
       {group.hidden ? <span className="text-[11px] font-normal text-faint">masqué</span> : null}
-      <span className="ml-auto flex items-center gap-1 opacity-0 group-focus-within:opacity-100 group-hover:opacity-100">
+      <span className={cx("ml-auto flex items-center gap-1", revealOnHover)}>
         <IconButton label="Monter" size="sm" disabled={!canUp} onClick={() => onMove(-1)}>
           <ArrowUp size={13} />
         </IconButton>
@@ -196,7 +196,7 @@ function CategoryRow({
         onSave={(name) => update.mutate({ data: { id: category.id, name } })}
       />
       {category.hidden ? <span className="text-[11px] text-faint">masquée</span> : null}
-      <span className="ml-auto flex items-center gap-1 opacity-0 group-focus-within:opacity-100 group-hover:opacity-100">
+      <span className={cx("ml-auto flex items-center gap-1", revealOnHover)}>
         <IconButton label="Monter" size="sm" disabled={!canUp} onClick={() => onMove(-1)}>
           <ArrowUp size={13} />
         </IconButton>

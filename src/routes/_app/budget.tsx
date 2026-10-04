@@ -19,6 +19,7 @@ import {
   Menu,
   Money,
   Popover,
+  revealOnHover,
   SkeletonRows,
   Switch,
 } from "~/components/ui"
@@ -390,7 +391,7 @@ function CategoryRow({
         ) : null}
         <button
           type="button"
-          className="text-faint opacity-0 hover:text-fg focus-visible:opacity-100 group-focus-within:opacity-100 group-hover:opacity-100"
+          className={cx("text-faint hover:text-fg", revealOnHover)}
           aria-label={`Ajouter une opération dans ${category.name}`}
           onClick={() => openNewTransaction({ categoryId: category.id })}
         >

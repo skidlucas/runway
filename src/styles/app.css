@@ -6,6 +6,8 @@
 @import "@fontsource/geist-mono/500.css";
 
 @custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+/* A mouse or trackpad: touch screens (tablets included) have no hover to reveal anything. */
+@custom-variant hoverable (@media (hover: hover) and (pointer: fine));
 
 /* Design tokens: "Précision" direction. Dark is the reference theme. */
 :root,

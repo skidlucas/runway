@@ -3,7 +3,7 @@ import { createFileRoute, Link, useNavigate } from "@tanstack/react-router"
 import { ArrowDown, ArrowUp, ChevronRight, Plus } from "lucide-react"
 import { CreateAccountDialog } from "~/components/account-dialogs"
 import { PageHeader } from "~/components/shell"
-import { Button, cx, EmptyState, IconButton, Money, SkeletonRows } from "~/components/ui"
+import { Button, cx, EmptyState, IconButton, Money, revealOnHover, SkeletonRows } from "~/components/ui"
 import { formatDayLong } from "~/domain/dates"
 import { count } from "~/domain/text"
 import { q, useAction } from "~/lib/queries"
@@ -98,7 +98,7 @@ function AccountsPage() {
                       <Money value={a.balance} className={cx("text-[13px]", a.balance < 0 && "text-negative")} />
                       <ChevronRight size={14} className="text-faint" />
                     </Link>
-                    <span className="flex items-center gap-1 md:opacity-0 md:group-focus-within:opacity-100 md:group-hover:opacity-100">
+                    <span className={cx("flex items-center gap-1", revealOnHover)}>
                       <IconButton label="Monter" size="sm" disabled={i === 0} onClick={() => move(si, i, -1)}>
                         <ArrowUp size={13} />
                       </IconButton>
