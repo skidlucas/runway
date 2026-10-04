@@ -8,12 +8,27 @@ import { Categories } from "../services/categories"
 import { Payees } from "../services/payees"
 import { Rules } from "../services/rules"
 import { Transactions } from "../services/transactions"
-import { Cents, Day, Id, Ids, Month, MonthCount, Name, Notes, PayeeInput, RuleAction, RuleCondition, RulesOp, SearchText } from "../schemas"
+import {
+  AccountKind,
+  Cents,
+  Day,
+  Id,
+  Ids,
+  Month,
+  MonthCount,
+  Name,
+  Notes,
+  PayeeInput,
+  RuleAction,
+  RuleCondition,
+  RuleOrigin,
+  RulesOp,
+  SearchText,
+} from "../schemas"
 
 const v = Schema.toStandardSchemaV1
 
 const NullableId = Schema.NullOr(Id)
-const AccountKind = Schema.Literals(["checking", "savings", "credit", "investment", "other"])
 
 // --- Accounts -------------------------------------------------------------------
 
@@ -303,7 +318,7 @@ const RuleInput = Schema.Struct({
   conditions: Schema.Array(RuleCondition),
   actions: Schema.Array(RuleAction),
   enabled: Schema.optional(Schema.Boolean),
-  origin: Schema.optional(Schema.Literals(["manual", "suggested", "imported"])),
+  origin: Schema.optional(RuleOrigin),
 })
 
 export const getRules = createServerFn({ method: "GET" })

@@ -5,8 +5,11 @@
 import { type Day, lastDay, type Month, monthOf, parseDay } from "./dates"
 import { formatPercent } from "./money"
 
-export type AssetType = "real_estate" | "investment" | "crypto" | "vehicle" | "watch" | "art" | "cash" | "loan" | "other"
-export type RetainedKind = "purchase" | "declared" | "estimated"
+/** In display order. */
+export const ASSET_TYPES = ["real_estate", "loan", "investment", "crypto", "vehicle", "watch", "art", "cash", "other"] as const
+export type AssetType = (typeof ASSET_TYPES)[number]
+export const RETAINED_KINDS = ["purchase", "declared", "estimated"] as const
+export type RetainedKind = (typeof RETAINED_KINDS)[number]
 export type DatedAmount = { amount: number; date: Day | null }
 
 export type WealthBucket = "real_estate" | "investments" | "crypto" | "objects" | "vehicles" | "cash"
@@ -57,9 +60,7 @@ export const TYPE_PLURAL_LABELS: Record<AssetType, string> = {
   other: "Autres",
 }
 
-export const TYPE_ORDER: ReadonlyArray<AssetType> = ["real_estate", "loan", "investment", "crypto", "vehicle", "watch", "art", "cash", "other"]
-
-/** Items summed by type, in `TYPE_ORDER`; values are signed, so loans are negative. */
+/** Items summed by type, in `ASSET_TYPES` order; values are signed, so loans are negative. */
 export const assetTypeTotals = (
   items: ReadonlyArray<{ kind: "asset" | "account"; type: AssetType; value: number }>,
   { accounts }: { accounts: boolean },
@@ -70,7 +71,7 @@ export const assetTypeTotals = (
     const t = totals.get(item.type) ?? { total: 0, count: 0 }
     totals.set(item.type, { total: t.total + item.value, count: t.count + 1 })
   }
-  return TYPE_ORDER.flatMap((type) => {
+  return ASSET_TYPES.flatMap((type) => {
     const t = totals.get(type)
     return t ? [{ type, ...t }] : []
   })

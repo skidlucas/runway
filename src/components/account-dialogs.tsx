@@ -3,16 +3,18 @@ import { amountInput, formatMoney, parseAmount } from "~/domain/money"
 import { localToday } from "~/lib/hooks"
 import { useAction } from "~/lib/queries"
 import { createAccount, reconcileAccount, updateAccount } from "~/server/fns/core"
-import type { AccountDto, AccountKind } from "~/server/services/accounts"
+import { ACCOUNT_KINDS, type AccountKind } from "~/domain/accounts"
+import type { AccountDto } from "~/server/services/accounts"
 import { Button, DateInput, Dialog, Field, Input, Select, Switch } from "./ui"
 
-export const ACCOUNT_KINDS: ReadonlyArray<{ value: AccountKind; label: string }> = [
-  { value: "checking", label: "Compte courant" },
-  { value: "savings", label: "Épargne" },
-  { value: "credit", label: "Carte de crédit" },
-  { value: "investment", label: "Placement" },
-  { value: "other", label: "Autre" },
-]
+const ACCOUNT_KIND_LABELS: Record<AccountKind, string> = {
+  checking: "Compte courant",
+  savings: "Épargne",
+  credit: "Carte de crédit",
+  investment: "Placement",
+  other: "Autre",
+}
+const ACCOUNT_KIND_OPTIONS = ACCOUNT_KINDS.map((value) => ({ value, label: ACCOUNT_KIND_LABELS[value] }))
 
 export function CreateAccountDialog({ onClose, onCreated }: { onClose: () => void; onCreated?: (id: string) => void }) {
   const [name, setName] = React.useState("")
@@ -62,7 +64,7 @@ export function CreateAccountDialog({ onClose, onCreated }: { onClose: () => voi
             setKind(k)
             if (k === "investment" || k === "savings") setOffBudget(true)
             else setOffBudget(false)
-          }} options={ACCOUNT_KINDS} />
+          }} options={ACCOUNT_KIND_OPTIONS} />
         </Field>
         <div className="grid grid-cols-2 gap-3">
           <Field label="Solde actuel">
@@ -114,7 +116,7 @@ export function EditAccountDialog({ account, onClose }: { account: AccountDto; o
           <Input value={name} onChange={(e) => setName(e.target.value)} />
         </Field>
         <Field label="Type">
-          <Select value={kind} onChange={setKind} options={ACCOUNT_KINDS} />
+          <Select value={kind} onChange={setKind} options={ACCOUNT_KIND_OPTIONS} />
         </Field>
         <label className="flex items-center justify-between gap-3">
           <span>

@@ -1,5 +1,6 @@
 import { eq, sql } from "drizzle-orm"
 import { Context, Effect, Layer } from "effect"
+import type { AccountKind } from "~/domain/accounts"
 import { isDay } from "~/domain/dates"
 import { Db, type DbError, newId } from "../db/client"
 import { accounts, payees, transactions } from "../db/schema"
@@ -8,7 +9,7 @@ import { Categories } from "./categories"
 import { Payees } from "./payees"
 import { Settings } from "./settings"
 
-export type AccountKind = "checking" | "savings" | "credit" | "investment" | "other"
+export type { AccountKind }
 
 export type AccountDto = {
   id: string

@@ -1,3 +1,4 @@
+import { INSIGHT_MONTHS, INSIGHT_ROLLING, INSIGHT_TARGET_KINDS, type InsightMonths, type InsightRolling, type InsightTargetKind } from "~/domain/insights"
 import type { InsightViewConfig } from "~/server/db/schema"
 
 // The insights query lives in the URL (shareable, back button works); saved views are
@@ -6,13 +7,15 @@ import type { InsightViewConfig } from "~/server/db/schema"
 export type InsightSearch = {
   measure?: "income"
   target?: string
-  months?: 3 | 6 | 24
-  rolling?: 0 | 3 | 12
+  months?: InsightMonths
+  rolling?: InsightRolling
 }
 
 export const DEFAULT_QUERY: InsightViewConfig = { measure: "expenses", target: { kind: "all" }, months: 12, rolling: 6 }
 
-const TARGET_KINDS = new Set(["category", "group", "payee"])
+const isTargetKind = (kind: string): kind is InsightTargetKind => INSIGHT_TARGET_KINDS.includes(kind as InsightTargetKind)
+const isMonths = (n: number): n is InsightMonths => INSIGHT_MONTHS.includes(n as InsightMonths)
+const isRolling = (n: number): n is InsightRolling => INSIGHT_ROLLING.includes(n as InsightRolling)
 
 export const parseInsightSearch = (s: Record<string, unknown>): InsightSearch => {
   const months = Number(s.months)
@@ -21,9 +24,9 @@ export const parseInsightSearch = (s: Record<string, unknown>): InsightSearch =>
   const [kind, id] = target?.split(":") ?? []
   return {
     ...(s.measure === "income" ? { measure: "income" as const } : {}),
-    ...(kind && id && TARGET_KINDS.has(kind) ? { target: `${kind}:${id}` } : {}),
-    ...(months === 3 || months === 6 || months === 24 ? { months } : {}),
-    ...(rolling === 0 || rolling === 3 || rolling === 12 ? { rolling } : {}),
+    ...(kind && id && isTargetKind(kind) ? { target: `${kind}:${id}` } : {}),
+    ...(isMonths(months) && months !== DEFAULT_QUERY.months ? { months } : {}),
+    ...(isRolling(rolling) && rolling !== DEFAULT_QUERY.rolling ? { rolling } : {}),
   }
 }
 
@@ -31,7 +34,7 @@ export const searchToQuery = (search: InsightSearch): InsightViewConfig => {
   const [kind, id] = search.target?.split(":") ?? []
   return {
     measure: search.measure ?? DEFAULT_QUERY.measure,
-    target: kind && id ? { kind: kind as "category" | "group" | "payee", id } : { kind: "all" },
+    target: kind && id && isTargetKind(kind) ? { kind, id } : { kind: "all" },
     months: search.months ?? DEFAULT_QUERY.months,
     rolling: search.rolling ?? DEFAULT_QUERY.rolling,
   }

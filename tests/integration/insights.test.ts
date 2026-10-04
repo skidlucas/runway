@@ -103,14 +103,14 @@ describe("insights view", () => {
     expect(missing.label).toBe("Catégorie supprimée")
     expect(missing.bars.every((b) => b.value === 0)).toBe(true)
     await expect(
-      h.run(Insights.use((s) => s.view({ measure: "expenses", target: { kind: "all" }, months: 5, rolling: 0 }))),
+      h.run(Insights.use((s) => s.view({ measure: "expenses", target: { kind: "all" }, months: 5 as never, rolling: 0 }))),
     ).rejects.toThrow(/invalide/)
   })
 })
 
 describe("saved views", () => {
   it("saves, lists and deletes", async () => {
-    const config = { measure: "expenses" as const, target: { kind: "category" as const, id: ids.restaurants }, months: 6, rolling: 6 as const }
+    const config = { measure: "expenses" as const, target: { kind: "category" as const, id: ids.restaurants }, months: 6 as const, rolling: 6 as const }
     const saved = await h.run(Insights.use((s) => s.saveView("Restaurants · 6 mois", config)))
     expect((await h.run(Insights.use((s) => s.savedViews))).filter((v) => v.id === saved.id)).toEqual([saved])
     await h.run(Insights.use((s) => s.deleteView(saved.id)))

@@ -8,7 +8,7 @@ import { PageHeader } from "~/components/shell"
 import { Button, ChipButton, cx, Dialog, Dot, EmptyState, Field, Input, Kpi, Menu, Money, Popover, SkeletonRows, Spinner, Tabs, useConfirm } from "~/components/ui"
 import { toastError } from "~/components/toast"
 import { formatMonthName } from "~/domain/dates"
-import type { Finding, FindingTone } from "~/domain/insights"
+import { type Finding, type FindingTone, INSIGHT_MONTHS, INSIGHT_ROLLING } from "~/domain/insights"
 import { formatCompact, formatMoney } from "~/domain/money"
 import { commandFilter, commandGroupClass, commandInputClass, commandItemClass, commandListClass, MAX_PAYEE_OPTIONS } from "~/components/pickers"
 import { normalizeText } from "~/domain/rules"
@@ -37,9 +37,6 @@ const TONE_COLOR: Record<FindingTone, string> = {
   warning: "var(--warning)",
   accent: "var(--accent)",
 }
-
-const MONTH_OPTIONS = [3, 6, 12, 24] as const
-const ROLLING_OPTIONS = [0, 3, 6, 12] as const
 
 function useQueryNavigation() {
   const navigate = useNavigate()
@@ -154,12 +151,12 @@ function QueryBar() {
       <Menu
         align="start"
         trigger={<QueryChip label="Période" value={`${query.months} mois`} />}
-        items={MONTH_OPTIONS.map((m) => ({ label: `${m} mois`, onSelect: () => setQuery({ months: m }) }))}
+        items={INSIGHT_MONTHS.map((m) => ({ label: `${m} mois`, onSelect: () => setQuery({ months: m }) }))}
       />
       <Menu
         align="start"
         trigger={<QueryChip label="Moyenne" value={query.rolling ? `${query.rolling} mois glissants` : "aucune"} />}
-        items={ROLLING_OPTIONS.map((r) => ({
+        items={INSIGHT_ROLLING.map((r) => ({
           label: r ? `${r} mois glissants` : "Aucune",
           onSelect: () => setQuery({ rolling: r }),
         }))}

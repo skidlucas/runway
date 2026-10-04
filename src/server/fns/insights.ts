@@ -1,5 +1,6 @@
 import { createServerFn } from "@tanstack/react-start"
 import { Effect, Schema } from "effect"
+import { INSIGHT_MEASURES, INSIGHT_MONTHS, INSIGHT_ROLLING, INSIGHT_TARGET_KINDS } from "~/domain/insights"
 import { authMiddleware } from "../auth"
 import { runApp } from "../runtime"
 import { Ids, Name, Notes } from "../schemas"
@@ -10,13 +11,13 @@ import { Insights } from "../services/insights"
 const v = Schema.toStandardSchemaV1
 
 export const InsightQuery = Schema.Struct({
-  measure: Schema.Literals(["expenses", "income"]),
+  measure: Schema.Literals(INSIGHT_MEASURES),
   target: Schema.Union([
     Schema.Struct({ kind: Schema.Literal("all") }),
-    Schema.Struct({ kind: Schema.Literals(["category", "group", "payee"]), id: Schema.String }),
+    Schema.Struct({ kind: Schema.Literals(INSIGHT_TARGET_KINDS), id: Schema.String }),
   ]),
-  months: Schema.Int,
-  rolling: Schema.Literals([0, 3, 6, 12]),
+  months: Schema.Literals(INSIGHT_MONTHS),
+  rolling: Schema.Literals(INSIGHT_ROLLING),
 })
 
 export const getInsightView = createServerFn({ method: "GET" })

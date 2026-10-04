@@ -4,8 +4,15 @@ import { formatMoney } from "./money"
 // conditions (all or any must match) and a list of actions. Rules are evaluated in
 // order and, for each field, the first matching rule wins: put specific rules first.
 
-export type RuleConditionField = "payee" | "imported_payee" | "notes" | "amount" | "account"
-export type RuleConditionOp = "is" | "contains" | "starts_with" | "matches" | "gt" | "lt" | "between"
+export const RULE_CONDITION_FIELDS = ["payee", "imported_payee", "notes", "amount", "account"] as const
+export type RuleConditionField = (typeof RULE_CONDITION_FIELDS)[number]
+export const RULE_CONDITION_OPS = ["is", "contains", "starts_with", "matches", "gt", "lt", "between"] as const
+export type RuleConditionOp = (typeof RULE_CONDITION_OPS)[number]
+export const RULE_CONDITIONS_OPS = ["and", "or"] as const
+export type RuleConditionsOp = (typeof RULE_CONDITIONS_OPS)[number]
+/** How a rule was born: typed by hand, accepted from a suggestion, imported from Actual. */
+export const RULE_ORIGINS = ["manual", "suggested", "imported"] as const
+export type RuleOrigin = (typeof RULE_ORIGINS)[number]
 
 export type RuleCondition = {
   readonly field: RuleConditionField
@@ -20,7 +27,7 @@ export type RuleAction =
 
 export type Rule = {
   readonly id: string
-  readonly conditionsOp: "and" | "or"
+  readonly conditionsOp: RuleConditionsOp
   readonly conditions: ReadonlyArray<RuleCondition>
   readonly actions: ReadonlyArray<RuleAction>
   readonly enabled: boolean

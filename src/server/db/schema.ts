@@ -1,6 +1,9 @@
 import { sql } from "drizzle-orm"
+import { ACCOUNT_KINDS } from "../../domain/accounts"
+import type { InsightMeasure, InsightMonths, InsightRolling, InsightTargetKind } from "../../domain/insights"
 import type { Recurrence } from "../../domain/recurrence"
-import type { RuleAction, RuleCondition } from "../../domain/rules"
+import { RULE_CONDITIONS_OPS, RULE_ORIGINS, type RuleAction, type RuleCondition } from "../../domain/rules"
+import { ASSET_TYPES, RETAINED_KINDS } from "../../domain/wealth"
 import { index, integer, primaryKey, real, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core"
 
 // Amounts are integer cents everywhere. Dates are ISO strings: `YYYY-MM-DD` for days, `YYYY-MM` for months.
@@ -13,7 +16,7 @@ const createdAt = () =>
 export const accounts = sqliteTable("accounts", {
   id: text("id").primaryKey(),
   name: text("name").notNull(),
-  kind: text("kind", { enum: ["checking", "savings", "credit", "investment", "other"] })
+  kind: text("kind", { enum: ACCOUNT_KINDS })
     .notNull()
     .default("checking"),
   offBudget: integer("off_budget", { mode: "boolean" }).notNull().default(false),
@@ -126,14 +129,13 @@ export const budgetMonths = sqliteTable("budget_months", {
 
 export const rules = sqliteTable("rules", {
   id: text("id").primaryKey(),
-  conditionsOp: text("conditions_op", { enum: ["and", "or"] })
+  conditionsOp: text("conditions_op", { enum: RULE_CONDITIONS_OPS })
     .notNull()
     .default("and"),
   conditions: text("conditions", { mode: "json" }).$type<RuleCondition[]>().notNull(),
   actions: text("actions", { mode: "json" }).$type<RuleAction[]>().notNull(),
   enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
-  // How the rule was born: typed by hand, accepted from a suggestion, imported from Actual.
-  origin: text("origin", { enum: ["manual", "suggested", "imported"] })
+  origin: text("origin", { enum: RULE_ORIGINS })
     .notNull()
     .default("manual"),
   sortOrder: real("sort_order").notNull().default(0),
@@ -174,16 +176,14 @@ export type ValuationSource =
 export const assets = sqliteTable("assets", {
   id: text("id").primaryKey(),
   name: text("name").notNull(),
-  type: text("type", {
-    enum: ["real_estate", "investment", "crypto", "vehicle", "watch", "art", "cash", "loan", "other"],
-  }).notNull(),
+  type: text("type", { enum: ASSET_TYPES }).notNull(),
   isLiability: integer("is_liability", { mode: "boolean" }).notNull().default(false),
   subtitle: text("subtitle"),
   purchaseAmount: integer("purchase_amount"),
   purchaseDate: text("purchase_date"),
   declaredAmount: integer("declared_amount"),
   declaredDate: text("declared_date"),
-  retained: text("retained", { enum: ["purchase", "declared", "estimated"] })
+  retained: text("retained", { enum: RETAINED_KINDS })
     .notNull()
     .default("estimated"),
   /** Part owned, in basis points (5 000 = 50 %). Amounts are stored for the whole asset. */
@@ -215,10 +215,10 @@ export const assetValuations = sqliteTable(
 )
 
 export type InsightViewConfig = {
-  measure: "expenses" | "income"
-  target: { kind: "all" } | { kind: "category" | "group" | "payee"; id: string }
-  months: number
-  rolling: 0 | 3 | 6 | 12
+  measure: InsightMeasure
+  target: { kind: "all" } | { kind: InsightTargetKind; id: string }
+  months: InsightMonths
+  rolling: InsightRolling
 }
 
 export const savedViews = sqliteTable("saved_views", {

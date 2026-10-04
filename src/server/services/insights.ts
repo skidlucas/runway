@@ -7,6 +7,10 @@ import {
   EARLY_MONTH_DAYS,
   computeView,
   type Finding,
+  INSIGHT_MEASURES,
+  INSIGHT_MONTHS,
+  INSIGHT_ROLLING,
+  INSIGHT_TARGET_KINDS,
   type InsightView,
   type MonthTotals,
   type NewRecurring,
@@ -52,16 +56,13 @@ export type AiAnalysis = typeof AnalysisSchema.Type & { month: Month }
 
 const InterpretationSchema = Schema.Struct({
   understood: Schema.Boolean,
-  measure: Schema.Literals(["expenses", "income"]),
-  targetKind: Schema.Literals(["all", "category", "group", "payee"]),
+  measure: Schema.Literals(INSIGHT_MEASURES),
+  targetKind: Schema.Literals(["all", ...INSIGHT_TARGET_KINDS]),
   targetName: Schema.NullOr(Schema.String),
-  months: Schema.Literals([3, 6, 12, 24]),
-  rolling: Schema.Literals([0, 3, 6, 12]),
+  months: Schema.Literals(INSIGHT_MONTHS),
+  rolling: Schema.Literals(INSIGHT_ROLLING),
 })
 export type Interpretation = { query: InsightQuery | null; message: string | null }
-
-const MONTH_OPTIONS = new Set([3, 6, 12, 24])
-const ROLLING_OPTIONS = new Set([0, 3, 6, 12])
 
 // Shared SQL fragments. Amounts are flipped for expenses so every total is positive.
 // Uncategorized lines count towards "all expenses" / "all income" by their sign.
@@ -114,7 +115,7 @@ export class Insights extends Context.Service<
       const ai = yield* Ai
 
       const validate = (query: InsightQuery) =>
-        !MONTH_OPTIONS.has(query.months) || !ROLLING_OPTIONS.has(query.rolling)
+        !INSIGHT_MONTHS.includes(query.months) || !INSIGHT_ROLLING.includes(query.rolling)
           ? Effect.fail(new Invalid({ message: "Période ou moyenne invalide" }))
           : Effect.void
 

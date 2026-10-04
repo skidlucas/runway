@@ -12,6 +12,7 @@ import { formatMoney, formatPercent, parseAmount } from "~/domain/money"
 import {
   type AllocationSlice,
   applyShare,
+  ASSET_TYPES,
   type AssetType,
   assetTypeTotals,
   FULL_SHARE,
@@ -21,7 +22,6 @@ import {
   loanMonthlyPayment,
   type RetainedKind,
   TYPE_LABELS,
-  TYPE_ORDER,
   TYPE_PLURAL_LABELS,
   type WealthBucket,
   type WealthChange,
@@ -35,7 +35,7 @@ import { count, plural } from "~/domain/text"
 /** `type` narrows the page to one kind of asset; `new` opens the dialog to add one. */
 type Search = { type?: AssetType; new?: boolean }
 
-const isAssetType = (v: unknown): v is AssetType => TYPE_ORDER.includes(v as AssetType)
+const isAssetType = (v: unknown): v is AssetType => ASSET_TYPES.includes(v as AssetType)
 
 export const Route = createFileRoute("/_app/wealth")({
   validateSearch: (s: Record<string, unknown>): Search => ({

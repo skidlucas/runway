@@ -1,15 +1,15 @@
 import { asc, eq, sql } from "drizzle-orm"
 import { Context, Effect, Layer } from "effect"
-import { compileRules, normalizeText, patternProblem, type Rule, type RuleAction, type RuleCondition, type RuleOutcome, type RuleSubject } from "~/domain/rules"
+import { compileRules, normalizeText, patternProblem, type Rule, type RuleAction, type RuleCondition, type RuleConditionsOp, type RuleOrigin, type RuleOutcome, type RuleSubject } from "~/domain/rules"
 import { chunkIds, Db, type DbError, newId } from "../db/client"
 import { RULE_CANDIDATE } from "../db/predicates"
 import { rules } from "../db/schema"
 import { Invalid, NotFound } from "../errors"
 
-export type RuleDto = Rule & { origin: "manual" | "suggested" | "imported"; sortOrder: number }
+export type RuleDto = Rule & { origin: RuleOrigin; sortOrder: number }
 
 export type RuleInput = {
-  conditionsOp: "and" | "or"
+  conditionsOp: RuleConditionsOp
   conditions: ReadonlyArray<RuleCondition>
   actions: ReadonlyArray<RuleAction>
   enabled?: boolean

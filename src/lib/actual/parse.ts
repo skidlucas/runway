@@ -2,7 +2,7 @@ import { unzipSync } from "fflate"
 import type { Database, SqlJsStatic } from "sql.js"
 import { addDays } from "~/domain/dates"
 import { nextOnOrAfter, occurrence, periodDays, type Recurrence } from "~/domain/recurrence"
-import { patternProblem, type RuleAction, type RuleCondition } from "~/domain/rules"
+import { patternProblem, type RuleAction, type RuleCondition, type RuleConditionsOp } from "~/domain/rules"
 import { type BundleRule, type BundleSchedule, type BundleTransaction, type ImportBundle, orderStamps } from "../import-bundle"
 
 // Reads an Actual Budget export (zip with db.sqlite + metadata.json).
@@ -299,7 +299,7 @@ const readRules = (
     if (scheduleRules.has(String(row.id))) continue
     const conds = parseJson<ActualCondition[]>(row.conditions) ?? []
     const acts = parseJson<ActualAction[]>(row.actions) ?? []
-    let op: "and" | "or" = row.conditions_op === "or" ? "or" : "and"
+    let op: RuleConditionsOp = row.conditions_op === "or" ? "or" : "and"
     const conditions: RuleCondition[] = []
     let ok = true
     for (const c of conds) {

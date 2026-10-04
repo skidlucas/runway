@@ -1,3 +1,4 @@
+import type { InsightTargetKind } from "~/domain/insights"
 import type { InsightViewConfig } from "../db/schema"
 
 /**
@@ -7,7 +8,7 @@ import type { InsightViewConfig } from "../db/schema"
  */
 export const retargetViews = (
   d1: D1Database,
-  kind: "category" | "group" | "payee",
+  kind: InsightTargetKind,
   ids: ReadonlyArray<string>,
   next: InsightViewConfig["target"],
 ) =>

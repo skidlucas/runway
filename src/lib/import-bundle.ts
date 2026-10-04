@@ -1,5 +1,5 @@
 import type { Recurrence } from "~/domain/recurrence"
-import type { RuleAction, RuleCondition } from "~/domain/rules"
+import type { RuleAction, RuleCondition, RuleConditionsOp } from "~/domain/rules"
 import type { ExportMeta } from "~/server/services/import-export"
 
 // Source-agnostic description of data to import. Ids are the source ids: they are
@@ -48,7 +48,7 @@ export type BundleTransaction = {
 }
 type BundleBudget = { month: string; categoryId: string; amount: number; carryover: boolean }
 export type BundleRule = {
-  conditionsOp: "and" | "or"
+  conditionsOp: RuleConditionsOp
   conditions: RuleCondition[]
   /** Payee and category ids in actions are source ids. */
   actions: RuleAction[]

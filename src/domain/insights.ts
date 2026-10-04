@@ -70,6 +70,17 @@ export const projectedOverrunDay = (spent: number, projected: number, budget: nu
 
 // --- View (query bar + chart) --------------------------------------------------------
 
+export const INSIGHT_MEASURES = ["expenses", "income"] as const
+export type InsightMeasure = (typeof INSIGHT_MEASURES)[number]
+export const INSIGHT_TARGET_KINDS = ["category", "group", "payee"] as const
+export type InsightTargetKind = (typeof INSIGHT_TARGET_KINDS)[number]
+/** Months shown by a view. */
+export const INSIGHT_MONTHS = [3, 6, 12, 24] as const
+export type InsightMonths = (typeof INSIGHT_MONTHS)[number]
+/** Length of the rolling average, 0 for none. */
+export const INSIGHT_ROLLING = [0, 3, 6, 12] as const
+export type InsightRolling = (typeof INSIGHT_ROLLING)[number]
+
 type InsightBar = { readonly month: Month; readonly value: number; readonly average: number | null; readonly current: boolean }
 
 export type InsightView = {

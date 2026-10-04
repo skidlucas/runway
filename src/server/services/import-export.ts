@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm"
-import { Clock, Context, Effect, Layer } from "effect"
+import { Clock, Context, Effect, Layer, Schema } from "effect"
 import { isDay, isMonth } from "~/domain/dates"
 import { RECURRENCE_UNITS } from "~/domain/recurrence"
 import { FULL_SHARE, isShare } from "~/domain/wealth"
@@ -8,6 +8,7 @@ import { type BundleExtras, type BundleStructure, type IdMaps, orderStamps } fro
 import { bulkInsertStatements, chunkRows, Db, type DbError, newId } from "../db/client"
 import * as schema from "../db/schema"
 import { Invalid, type NotFound } from "../errors"
+import { AccountKind } from "../schemas"
 import { DEFAULT_WIDGETS, MAIN_DASHBOARD_ID, MAX_WIDGETS, validWidget } from "./dashboards"
 import { Payees } from "./payees"
 import { ruleInputError, Rules } from "./rules"
@@ -85,7 +86,7 @@ export type ExportCursor = Pick<ExportTransaction, "date" | "createdAt" | "id">
 
 const STAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/
 
-const ACCOUNT_KINDS = new Set<string>(["checking", "savings", "credit", "investment", "other"])
+const isAccountKind = Schema.is(AccountKind)
 
 type DedupeKey = {
   account: string
@@ -194,7 +195,7 @@ export class ImportExport extends Context.Service<
           const id = claim(a.id)
           accountMap[a.id] = id
           accountByName.set(normalizeText(a.name), id)
-          const kind = ACCOUNT_KINDS.has(a.kind ?? "") ? a.kind : a.offBudget ? "savings" : "checking"
+          const kind = isAccountKind(a.kind) ? a.kind : a.offBudget ? "savings" : "checking"
           newAccounts.push([
             id,
             a.name,

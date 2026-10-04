@@ -1,6 +1,9 @@
 import { Schema } from "effect"
+import { ACCOUNT_KINDS } from "~/domain/accounts"
 import { isDay, isMonth } from "~/domain/dates"
 import { RECURRENCE_UNITS } from "~/domain/recurrence"
+import { RULE_CONDITION_FIELDS, RULE_CONDITION_OPS, RULE_CONDITIONS_OPS, RULE_ORIGINS } from "~/domain/rules"
+import { ASSET_TYPES, RETAINED_KINDS } from "~/domain/wealth"
 
 // Upper bounds on free-form inputs. Import payloads keep their own, unbounded schemas: they
 // carry whatever the source app allowed and are already split into chunks by the client.
@@ -30,8 +33,8 @@ export const PayeeInput = Schema.Union([
 export const Recurrence = Schema.Struct({ unit: Schema.Literals(RECURRENCE_UNITS), interval: Schema.Int })
 
 export const RuleCondition = Schema.Struct({
-  field: Schema.Literals(["payee", "imported_payee", "notes", "amount", "account"]),
-  op: Schema.Literals(["is", "contains", "starts_with", "matches", "gt", "lt", "between"]),
+  field: Schema.Literals(RULE_CONDITION_FIELDS),
+  op: Schema.Literals(RULE_CONDITION_OPS),
   value: Schema.Union([Schema.String, Schema.Finite, Schema.Tuple([Schema.Finite, Schema.Finite])]),
 })
 
@@ -41,8 +44,9 @@ export const RuleAction = Schema.Union([
   Schema.Struct({ type: Schema.Literal("set_notes"), notes: Schema.String }),
 ])
 
-export const RulesOp = Schema.Literals(["and", "or"])
-export const RuleOrigin = Schema.Literals(["manual", "suggested", "imported"])
+export const RulesOp = Schema.Literals(RULE_CONDITIONS_OPS)
+export const RuleOrigin = Schema.Literals(RULE_ORIGINS)
 
-export const AssetType = Schema.Literals(["real_estate", "investment", "crypto", "vehicle", "watch", "art", "cash", "loan", "other"])
-export const RetainedValue = Schema.Literals(["purchase", "declared", "estimated"])
+export const AccountKind = Schema.Literals(ACCOUNT_KINDS)
+export const AssetType = Schema.Literals(ASSET_TYPES)
+export const RetainedValue = Schema.Literals(RETAINED_KINDS)
