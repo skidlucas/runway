@@ -1,0 +1,1 @@
+ALTER TABLE `assets` ADD `share` integer DEFAULT 10000 NOT NULL;

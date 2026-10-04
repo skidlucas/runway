@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest"
 import {
   allocation,
+  applyShare,
   assetTypeTotals,
   BUCKET_OF_TYPE,
   type AssetValues,
+  formatShare,
   historyChange,
   latestOn,
   loanBalance,
@@ -54,6 +56,20 @@ describe("latestOn", () => {
     expect(latestOn(estimates, "2026-01-14")).toBeNull()
     expect(latestOn(estimates, "2026-06-01")?.amount).toBe(9_800_00)
     expect(latestOn(estimates, "2030-01-01")?.amount).toBe(10_200_00)
+  })
+})
+
+describe("shared ownership", () => {
+  it("keeps the part owned, rounded to the cent", () => {
+    expect(applyShare(450_000_00, 10_000)).toBe(450_000_00)
+    expect(applyShare(450_000_00, 5_000)).toBe(225_000_00)
+    expect(applyShare(100_01, 3_333)).toBe(33_33)
+    expect(applyShare(-90_000_00, 5_000)).toBe(-45_000_00)
+  })
+
+  it("formats whole and fractional percentages", () => {
+    expect(formatShare(5_000)).toBe("50\u00a0%")
+    expect(formatShare(3_333)).toBe("33,33\u00a0%")
   })
 })
 

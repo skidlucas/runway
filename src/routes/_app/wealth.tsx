@@ -5,13 +5,16 @@ import * as React from "react"
 import { AssetDialog } from "~/components/asset-dialog"
 import { PageHeader } from "~/components/shell"
 import { toast } from "~/components/toast"
-import { Button, cx, DateInput, EmptyState, IconButton, Input, Menu, Money, Sheet, SkeletonRows, Tabs } from "~/components/ui"
+import { Button, Chip, cx, DateInput, EmptyState, IconButton, Input, Menu, Money, Sheet, SkeletonRows, Tabs } from "~/components/ui"
 import { formatDayLong, formatDayShort, formatMonthLong, formatMonthShort, type Month } from "~/domain/dates"
 import { formatMoney, formatPercent, parseAmount } from "~/domain/money"
 import {
   type AllocationSlice,
+  applyShare,
   type AssetType,
   assetTypeTotals,
+  FULL_SHARE,
+  formatShare,
   historyChange,
   loanEndMonth,
   loanMonthlyPayment,
@@ -288,6 +291,7 @@ function AssetTable({
       {items.map((item) => {
         const caption = estimateCaption(item, today)
         const sign = item.isLiability ? -1 : 1
+        const own = (amount: number) => applyShare(amount, item.share)
         return (
           <button
             key={item.id}
@@ -302,17 +306,20 @@ function AssetTable({
             )}
           >
             <span className="flex min-w-0 flex-col gap-0.5">
-              <span className="truncate">{item.name}</span>
+              <span className="flex min-w-0 items-center gap-1.5">
+                <span className="truncate">{item.name}</span>
+                {item.share === FULL_SHARE ? null : <Chip className="shrink-0">{formatShare(item.share)}</Chip>}
+              </span>
               <span className="truncate text-[11px] text-faint">
                 {item.isLiability ? "Passif" : TYPE_LABELS[item.type]}
                 {item.subtitle ? ` · ${item.subtitle}` : ""}
               </span>
             </span>
-            <span className="num text-right text-[12px] text-muted">{item.purchase ? euros(item.purchase.amount) : "—"}</span>
-            <span className="num text-right text-[12px] text-fg-2">{item.declared ? euros(item.declared.amount) : "—"}</span>
+            <span className="num text-right text-[12px] text-muted">{item.purchase ? euros(own(item.purchase.amount)) : "—"}</span>
+            <span className="num text-right text-[12px] text-fg-2">{item.declared ? euros(own(item.declared.amount)) : "—"}</span>
             <span className="flex min-w-0 flex-col items-end gap-0.5">
               <span className={cx("num text-[12px]", item.retainedUsed !== "estimated" && "text-muted")}>
-                {item.estimate ? euros(sign * item.estimate.amount) : "—"}
+                {item.estimate ? euros(sign * own(item.estimate.amount)) : "—"}
               </span>
               <span
                 className={cx(
@@ -343,8 +350,14 @@ function sourceDescription(item: WealthItem): string | null {
       return `${String(s.quantity).replace(".", ",")} × ${s.label ?? s.coinId}${unit ? ` à ${formatMoney(Math.round(unit * 100))}` : ""}`
     case "stock":
       return `${String(s.quantity).replace(".", ",")} parts de ${s.label ?? s.symbol}${unit ? ` à ${formatMoney(Math.round(unit * 100))}` : ""}`
-    case "loan":
-      return `${euros(s.principal)} à ${String(s.annualRatePct).replace(".", ",")} % sur ${s.months / 12} ans · mensualité ${formatMoney(Math.round(loanMonthlyPayment(s)))} · fin ${formatMonthLong(loanEndMonth(s)).toLowerCase()}`
+    case "loan": {
+      const payment = Math.round(loanMonthlyPayment(s))
+      const yours =
+        item.share === FULL_SHARE
+          ? `mensualité ${formatMoney(payment)}`
+          : `ta part de la mensualité ${formatMoney(applyShare(payment, item.share))} sur ${formatMoney(payment)}`
+      return `${euros(s.principal)} à ${String(s.annualRatePct).replace(".", ",")} % sur ${s.months / 12} ans · ${yours} · fin ${formatMonthLong(loanEndMonth(s)).toLowerCase()}`
+    }
     default:
       return null
   }
@@ -354,18 +367,26 @@ function Detail({ item, months, today, onEdit }: { item: WealthItem; months: Mon
   const remove = useAction(deleteAsset, { success: "Bien supprimé", invalidates: ["wealth"] })
   const setRetained = useAction(updateAsset, { success: "Valeur retenue modifiée", invalidates: ["wealth"] })
   const isAsset = item.kind === "asset"
-  const gain = item.purchase && !item.isLiability && item.retainedUsed !== "purchase" ? item.value - item.purchase.amount : null
+  const shared = item.share !== FULL_SHARE
+  const purchase = item.purchase ? applyShare(item.purchase.amount, item.share) : null
+  const gain = purchase !== null && !item.isLiability && item.retainedUsed !== "purchase" ? item.value - purchase : null
   const description = sourceDescription(item)
 
-  const values: Array<{ kind: RetainedKind; label: string; amount: number | null; caption: string }> = [
-    { kind: "purchase", label: "Achat", amount: item.purchase?.amount ?? null, caption: item.purchase?.date ? formatMonthLong(item.purchase.date.slice(0, 7)).toLowerCase() : "" },
-    { kind: "declared", label: "Déclarée", amount: item.declared?.amount ?? null, caption: item.declared?.date ? `saisie le ${formatDayLong(item.declared.date)}` : "" },
-    {
-      kind: "estimated",
-      label: "Estimée",
-      amount: item.estimate?.amount ?? null,
-      caption: item.estimate ? `${item.estimate.label} · ${formatDayShort(item.estimate.date)}${dataAge(item.estimate)}` : "aucune estimation",
-    },
+  const value = (kind: RetainedKind, label: string, whole: number | null, caption: string) => ({
+    kind,
+    label,
+    amount: whole === null ? null : applyShare(whole, item.share),
+    caption: shared && whole !== null ? [caption, `sur ${euros(whole)} au total`].filter(Boolean).join(" · ") : caption,
+  })
+  const values = [
+    value("purchase", "Achat", item.purchase?.amount ?? null, item.purchase?.date ? formatMonthLong(item.purchase.date.slice(0, 7)).toLowerCase() : ""),
+    value("declared", "Déclarée", item.declared?.amount ?? null, item.declared?.date ? `saisie le ${formatDayLong(item.declared.date)}` : ""),
+    value(
+      "estimated",
+      "Estimée",
+      item.estimate?.amount ?? null,
+      item.estimate ? `${item.estimate.label} · ${formatDayShort(item.estimate.date)}${dataAge(item.estimate)}` : "aucune estimation",
+    ),
   ]
 
   const choose = (kind: RetainedKind) => {
@@ -380,6 +401,7 @@ function Detail({ item, months, today, onEdit }: { item: WealthItem; months: Mon
           purchase: item.purchase,
           declared: item.declared,
           retained: kind,
+          share: item.share,
           source: item.source,
           notes: item.notes,
         },
@@ -415,11 +437,12 @@ function Detail({ item, months, today, onEdit }: { item: WealthItem; months: Mon
         <div className="flex flex-col gap-1">
           <span className="text-[12px] text-faint">
             Valeur retenue{item.retainedUsed ? ` · ${RETAINED_LABEL[item.retainedUsed]}` : ""}
+            {shared ? ` · ta part ${formatShare(item.share)}` : ""}
           </span>
           <span className="num text-[26px]">{euros(item.value)}</span>
-          {gain !== null && item.purchase!.amount > 0 ? (
+          {gain !== null && purchase! > 0 ? (
             <span className={gain >= 0 ? "text-positive" : "text-negative"}>
-              {formatMoney(gain, { sign: "always", decimals: 0 })} depuis l'achat ({formatPercent(gain / item.purchase!.amount, { sign: true, decimals: 0 })})
+              {formatMoney(gain, { sign: "always", decimals: 0 })} depuis l'achat ({formatPercent(gain / purchase!, { sign: true, decimals: 0 })})
             </span>
           ) : null}
         </div>
@@ -457,7 +480,7 @@ function Detail({ item, months, today, onEdit }: { item: WealthItem; months: Mon
 
         <HistoryBars values={item.history} months={months} />
 
-        {isAsset && item.source?.kind === "manual" ? <AddEstimate assetId={item.id} today={today} /> : null}
+        {isAsset && item.source?.kind === "manual" ? <AddEstimate assetId={item.id} today={today} shared={shared} /> : null}
 
         {description || item.notes || item.kind === "account" ? (
           <div className="flex flex-col gap-1.5 text-fg-3">
@@ -505,7 +528,7 @@ function HistoryBars({ values, months }: { values: number[]; months: Month[] }) 
   )
 }
 
-function AddEstimate({ assetId, today }: { assetId: string; today: string }) {
+function AddEstimate({ assetId, today, shared }: { assetId: string; today: string; shared: boolean }) {
   const [amount, setAmount] = React.useState("")
   const [date, setDate] = React.useState(today)
   const add = useAction(addAssetValuation, { success: "Estimation ajoutée", onSuccess: () => setAmount(""), invalidates: ["wealth"] })
@@ -518,7 +541,7 @@ function AddEstimate({ assetId, today }: { assetId: string; today: string }) {
         if (cents !== null) add.mutate({ data: { assetId, date, amount: cents } })
       }}
     >
-      <span className="text-[12px] text-faint">Nouvelle estimation</span>
+      <span className="text-[12px] text-faint">Nouvelle estimation{shared ? " du bien entier" : ""}</span>
       <div className="grid grid-cols-[1fr_130px_auto] gap-2">
         <Input value={amount} onChange={(e) => setAmount(e.target.value)} className="num" inputMode="decimal" placeholder="Montant" aria-label="Montant de l'estimation" />
         <DateInput value={date} max={localToday()} onChange={setDate} aria-label="Date de l'estimation" />

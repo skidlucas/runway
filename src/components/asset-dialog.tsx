@@ -1,5 +1,16 @@
 import * as React from "react"
-import { type AssetType, loanBalance, loanEndMonth, loanMonthlyPayment, type RetainedKind, TYPE_LABELS } from "~/domain/wealth"
+import {
+  type AssetType,
+  applyShare,
+  FULL_SHARE,
+  formatShare,
+  isShare,
+  loanBalance,
+  loanEndMonth,
+  loanMonthlyPayment,
+  type RetainedKind,
+  TYPE_LABELS,
+} from "~/domain/wealth"
 import { formatMonthLong } from "~/domain/dates"
 import { formatMoney, parseAmount } from "~/domain/money"
 import { localToday } from "~/lib/hooks"
@@ -31,6 +42,7 @@ type Draft = {
   name: string
   type: AssetType
   subtitle: string
+  share: string
   purchase: string
   purchaseDate: string
   declared: string
@@ -60,6 +72,7 @@ const draftOf = (item: WealthItem | null): Draft => {
     name: item?.name ?? "",
     type: item?.type ?? "real_estate",
     subtitle: item?.subtitle ?? "",
+    share: String((item?.share ?? FULL_SHARE) / 100).replace(".", ","),
     purchase: centsText(item?.purchase?.amount),
     purchaseDate: item?.purchase?.date ?? "",
     declared: centsText(item?.declared?.amount),
@@ -93,6 +106,9 @@ const toInput = (d: Draft): { error: string } | { input: Parameters<typeof creat
   const purchase = optionalAmount(d.purchase)
   const declared = optionalAmount(d.declared)
   const estimate = d.sourceKind === "manual" ? optionalAmount(d.estimate) : null
+  const percent = parseNumber(d.share)
+  const share = percent === null ? null : Math.round(percent * 100)
+  if (share === null || !isShare(share)) return { error: "La part détenue doit être comprise entre 0 et 100 %." }
   let source: ValuationSource
   switch (d.type === "loan" ? "loan" : d.sourceKind) {
     case "loan": {
@@ -138,6 +154,7 @@ const toInput = (d: Draft): { error: string } | { input: Parameters<typeof creat
       purchase: d.type === "loan" || purchase === null ? null : { amount: purchase, date: d.purchaseDate || null },
       declared: d.type === "loan" || declared === null ? null : { amount: declared, date: d.declaredDate || null },
       retained: d.type === "loan" ? "estimated" : d.retained,
+      share,
       source,
       notes: d.notes || null,
     },
@@ -188,7 +205,10 @@ export function AssetDialog({
   const loanPreview = (() => {
     if (d.type !== "loan" || "error" in parsed || parsed.input.source.kind !== "loan") return null
     const terms = parsed.input.source
-    return `Mensualité ${formatMoney(Math.round(loanMonthlyPayment(terms)))} · capital restant ${formatMoney(loanBalance(terms, localToday()))} · fin ${formatMonthLong(loanEndMonth(terms)).toLowerCase()}`
+    const share = parsed.input.share
+    const owned = (amount: number) => formatMoney(applyShare(amount, share))
+    const payment = share === FULL_SHARE ? "Mensualité" : `Ta part (${formatShare(share)}) : mensualité`
+    return `${payment} ${owned(Math.round(loanMonthlyPayment(terms)))} · capital restant ${owned(loanBalance(terms, localToday()))} · fin ${formatMonthLong(loanEndMonth(terms)).toLowerCase()}`
   })()
 
   return (
@@ -227,9 +247,19 @@ export function AssetDialog({
             />
           </Field>
         </div>
-        <Field label="Détail (facultatif)">
-          <Input value={d.subtitle} onChange={(e) => set("subtitle", e.target.value)} placeholder={SUBTITLE_HINTS[d.type] ?? ""} />
-        </Field>
+        <div className="grid grid-cols-[1fr_120px] gap-3">
+          <Field label="Détail (facultatif)">
+            <Input value={d.subtitle} onChange={(e) => set("subtitle", e.target.value)} placeholder={SUBTITLE_HINTS[d.type] ?? ""} />
+          </Field>
+          <Field label="Part détenue (%)">
+            <Input value={d.share} onChange={(e) => set("share", e.target.value)} className="num" inputMode="decimal" placeholder="100" />
+          </Field>
+        </div>
+        {"input" in parsed && parsed.input.share !== FULL_SHARE ? (
+          <p className="-mt-1 text-[12px] text-faint">
+            Saisis les montants du {d.type === "loan" ? "contrat" : "bien"} en entier : runway ne compte que ta part ({formatShare(parsed.input.share)}).
+          </p>
+        ) : null}
 
         {d.type === "loan" ? (
           <>

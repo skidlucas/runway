@@ -3,6 +3,7 @@
 // through `signed`.
 
 import { type Day, lastDay, type Month, monthOf, parseDay } from "./dates"
+import { formatPercent } from "./money"
 
 export type AssetType = "real_estate" | "investment" | "crypto" | "vehicle" | "watch" | "art" | "cash" | "loan" | "other"
 export type RetainedKind = "purchase" | "declared" | "estimated"
@@ -129,6 +130,18 @@ export const latestOn = <T extends { date: Day }>(sorted: ReadonlyArray<T>, day:
   }
   return found
 }
+
+// --- Shared ownership ----------------------------------------------------------------
+
+/** A share in basis points: 10 000 is the whole asset. */
+export const FULL_SHARE = 10_000
+
+export const isShare = (share: number): boolean => Number.isInteger(share) && share > 0 && share <= FULL_SHARE
+
+export const applyShare = (amount: number, share: number): number =>
+  share === FULL_SHARE ? amount : Math.round((amount * share) / FULL_SHARE)
+
+export const formatShare = (share: number): string => formatPercent(share / FULL_SHARE, { decimals: share % 100 === 0 ? 0 : 2 })
 
 // --- Loans -------------------------------------------------------------------------
 

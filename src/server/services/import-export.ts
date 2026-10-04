@@ -2,6 +2,7 @@ import { sql } from "drizzle-orm"
 import { Clock, Context, Effect, Layer } from "effect"
 import { isDay, isMonth } from "~/domain/dates"
 import { RECURRENCE_UNITS } from "~/domain/recurrence"
+import { FULL_SHARE, isShare } from "~/domain/wealth"
 import { normalizeText, type RuleAction, type RuleSubject } from "~/domain/rules"
 import { type BundleExtras, type BundleStructure, type IdMaps, orderStamps } from "~/lib/import-bundle"
 import { bulkInsertStatements, chunkRows, Db, type DbError, newId } from "../db/client"
@@ -59,7 +60,8 @@ export type ExportMeta = {
   budgetMonths: Array<typeof schema.budgetMonths.$inferSelect>
   rules: Array<typeof schema.rules.$inferSelect>
   schedules: Array<typeof schema.schedules.$inferSelect>
-  assets: Array<typeof schema.assets.$inferSelect>
+  /** `share` is missing from backups made before shared ownership existed. */
+  assets: Array<Omit<typeof schema.assets.$inferSelect, "share"> & { share?: number | undefined }>
   valuations: Array<typeof schema.assetValuations.$inferSelect>
   savedViews: Array<typeof schema.savedViews.$inferSelect>
   /** Missing from backups made before dashboards existed. */
@@ -561,7 +563,7 @@ export class ImportExport extends Context.Service<
           ...bulkInsertStatements(
             db.d1,
             "assets",
-            ["id", "name", "type", "is_liability", "subtitle", "purchase_amount", "purchase_date", "declared_amount", "declared_date", "retained", "source", "notes", "archived", "created_at"],
+            ["id", "name", "type", "is_liability", "subtitle", "purchase_amount", "purchase_date", "declared_amount", "declared_date", "retained", "share", "source", "notes", "archived", "created_at"],
             extras.assets.map((a) => [
               a.id,
               a.name,
@@ -573,6 +575,7 @@ export class ImportExport extends Context.Service<
               a.declaredAmount,
               a.declaredDate,
               a.retained,
+              a.share !== undefined && isShare(a.share) ? a.share : FULL_SHARE,
               JSON.stringify(a.source),
               a.notes,
               a.archived ? 1 : 0,

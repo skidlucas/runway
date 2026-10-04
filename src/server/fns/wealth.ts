@@ -37,6 +37,7 @@ const AssetInput = Schema.Struct({
   purchase: DatedAmount,
   declared: DatedAmount,
   retained: RetainedValue,
+  share: Schema.Int,
   source: AssetSource,
   notes: Schema.NullOr(Schema.String),
 })

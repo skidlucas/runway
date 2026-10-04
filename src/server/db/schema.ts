@@ -186,6 +186,8 @@ export const assets = sqliteTable("assets", {
   retained: text("retained", { enum: ["purchase", "declared", "estimated"] })
     .notNull()
     .default("estimated"),
+  /** Part owned, in basis points (5 000 = 50 %). Amounts are stored for the whole asset. */
+  share: integer("share").notNull().default(10000),
   source: text("source", { mode: "json" }).$type<ValuationSource>().notNull(),
   notes: text("notes"),
   archived: integer("archived", { mode: "boolean" }).notNull().default(false),

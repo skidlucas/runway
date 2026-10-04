@@ -94,6 +94,7 @@ const Extras = Schema.Struct({
       declaredAmount: Schema.NullOr(Schema.Int),
       declaredDate: NStr,
       retained: RetainedValue,
+      share: Opt(Schema.Int),
       source: AssetSource,
       notes: NStr,
       archived: Schema.Boolean,

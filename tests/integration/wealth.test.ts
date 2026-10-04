@@ -18,6 +18,7 @@ const manual = (overrides: Partial<AssetInput> = {}): AssetInput => ({
   purchase: { amount: 6_800_00, date: "2015-03-10" },
   declared: { amount: 9_500_00, date: `${addMonths(month, -2)}-12` },
   retained: "declared",
+  share: 10_000,
   source: { kind: "manual" },
   notes: null,
   ...overrides,
@@ -177,6 +178,37 @@ describe("Wealth", () => {
     })
   })
 
+  it("counts only the part owned, from amounts entered for the whole asset", async () => {
+    const flat = await h.run(
+      Wealth.use((w) =>
+        w.create(manual({ name: "Appartement à deux", type: "real_estate", share: 5_000, declared: null, retained: "purchase", purchase: { amount: 300_000_00, date: "2020-01-01" } })),
+      ),
+    )
+    const loan = await h.run(
+      Wealth.use((w) =>
+        w.create(
+          manual({
+            name: "Prêt à deux",
+            type: "loan",
+            share: 5_000,
+            purchase: null,
+            declared: null,
+            retained: "estimated",
+            source: { kind: "loan", principal: 100_000_00, annualRatePct: 0, months: 100, startDate: `${addMonths(month, -10)}-01` },
+          }),
+        ),
+      ),
+    )
+    const overview = await h.run(Wealth.use((w) => w.overview))
+    const byId = new Map(overview.items.map((i) => [i.id, i]))
+    expect(byId.get(flat)).toMatchObject({ share: 5_000, value: 150_000_00, purchase: { amount: 300_000_00 } })
+    expect(byId.get(flat)!.history.at(-1)).toBe(150_000_00)
+    expect(byId.get(loan)).toMatchObject({ value: -45_000_00, estimate: { amount: 90_000_00 } })
+    expect(byId.get(loan)!.history.at(-1)).toBe(-45_000_00)
+    await h.run(Wealth.use((w) => w.remove(flat)))
+    await h.run(Wealth.use((w) => w.remove(loan)))
+  })
+
   it("flags manual estimates older than six months", async () => {
     const id = await h.run(Wealth.use((w) => w.create(manual({ name: "Tableau", type: "art", retained: "estimated" }))))
     await h.run(Wealth.use((w) => w.addValuation({ assetId: id, date: `${addMonths(month, -8)}-01`, amount: 4_000_00 })))
@@ -187,6 +219,8 @@ describe("Wealth", () => {
   it("rejects invalid input", async () => {
     await expect(h.run(Wealth.use((w) => w.create(manual({ name: " " }))))).rejects.toThrow(/nom/)
     await expect(h.run(Wealth.use((w) => w.create(manual({ type: "loan" }))))).rejects.toThrow(/capital/)
+    await expect(h.run(Wealth.use((w) => w.create(manual({ share: 0 }))))).rejects.toThrow(/part détenue/)
+    await expect(h.run(Wealth.use((w) => w.create(manual({ share: 12_000 }))))).rejects.toThrow(/part détenue/)
     await expect(
       h.run(Wealth.use((w) => w.create(manual({ type: "crypto", source: { kind: "crypto", coinId: "bitcoin", quantity: 0 } })))),
     ).rejects.toThrow(/quantité/)

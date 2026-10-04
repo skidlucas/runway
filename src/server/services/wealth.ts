@@ -4,10 +4,13 @@ import { addMonths, type Day, diffDays, isDay, lastDay, type Month, monthOf, mon
 import {
   type AllocationSlice,
   allocation,
+  applyShare,
   type AssetType,
   type AssetValues,
   BUCKET_OF_TYPE,
   type DatedAmount,
+  FULL_SHARE,
+  isShare,
   latestOn,
   loanBalance,
   type RetainedKind,
@@ -47,6 +50,11 @@ export type WealthItem = {
   retained: RetainedKind
   /** The value actually used, after falling back when the retained one is missing. */
   retainedUsed: RetainedKind | null
+  /**
+   * Part owned, in basis points. `purchase`, `declared` and `estimate` are for the whole asset;
+   * `value` and `history` are already reduced to this part.
+   */
+  share: number
   /** Signed contribution to the net worth (liabilities are negative). */
   value: number
   /** Retained value at each month end of `WealthOverview.months` (signed). */
@@ -82,6 +90,7 @@ export type AssetInput = {
   purchase: DatedAmount | null
   declared: DatedAmount | null
   retained: RetainedKind
+  share: number
   source: ValuationSource
   notes: string | null
 }
@@ -252,6 +261,7 @@ export class Wealth extends Context.Service<
             retained: a.retained,
           }
           const sign = a.isLiability ? -1 : 1
+          const owned = (amount: number | undefined) => sign * applyShare(amount ?? 0, a.share)
           const now = retainedValueAt(values, today)
           const latest = source.kind === "loan" ? null : own.at(-1)
           const estimate: EstimateDto | null =
@@ -280,8 +290,9 @@ export class Wealth extends Context.Service<
             estimate,
             retained: a.retained,
             retainedUsed: now?.kind ?? null,
-            value: sign * (now?.amount ?? 0),
-            history: days.map((d) => sign * (retainedValueAt(values, d)?.amount ?? 0)),
+            share: a.share,
+            value: owned(now?.amount),
+            history: days.map((d) => owned(retainedValueAt(values, d)?.amount)),
             stale: !isAutomatic(source) && source.kind !== "loan" && estimate !== null && diffDays(estimate.date, today) > STALE_MANUAL_DAYS,
             source,
             notes: a.notes,
@@ -323,6 +334,7 @@ export class Wealth extends Context.Service<
             estimate: { amount: account.balance, date: today, label: "Compte suivi", automatic: true, unitPrice: null, asOf: null },
             retained: "estimated",
             retainedUsed: "estimated",
+            share: FULL_SHARE,
             value: account.balance,
             history,
             stale: false,
@@ -373,6 +385,7 @@ export class Wealth extends Context.Service<
           if (v && (!Number.isInteger(v.amount) || v.amount < 0)) return fail("Les montants doivent être positifs.")
           if (v?.date && !isDay(v.date)) return fail("Date invalide.")
         }
+        if (!isShare(input.share)) return fail("La part détenue doit être comprise entre 0 et 100 %.")
         const problem = sourceProblem(input.type, input.source)
         if (problem) return fail(problem)
         return Effect.succeed({ ...input, name, subtitle: input.subtitle?.trim() || null, notes: input.notes?.trim() || null })
@@ -388,6 +401,7 @@ export class Wealth extends Context.Service<
         declaredAmount: input.declared?.amount ?? null,
         declaredDate: input.declared?.date ?? null,
         retained: input.retained,
+        share: input.share,
         source: input.source,
         notes: input.notes,
       })

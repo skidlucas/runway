@@ -62,6 +62,7 @@ describe("Runway backup", () => {
           purchase: { amount: 6_800_00, date: "2015-03-10" },
           declared: null,
           retained: "estimated",
+          share: 5_000,
           source: { kind: "manual" },
           notes: "Boîte et papiers",
         }),
@@ -86,7 +87,7 @@ describe("Runway backup", () => {
     expect(extras).toEqual({ assets: 1, views: 4 })
 
     const wealth = await target.run(Wealth.use((w) => w.overview))
-    expect(wealth.items.find((i) => i.name === "Rolex")).toMatchObject({ value: 9_900_00, notes: "Boîte et papiers" })
+    expect(wealth.items.find((i) => i.name === "Rolex")).toMatchObject({ share: 5_000, value: 4_950_00, notes: "Boîte et papiers" })
     expect(wealth.netWorth).toBe((await source.run(Wealth.use((w) => w.overview))).netWorth)
 
     const tree = await target.run(Categories.use((c) => c.tree))
@@ -108,6 +109,17 @@ describe("Runway backup", () => {
     const watch = wealth.items.find((i) => i.name === "Rolex")!
     expect(await target.run(Wealth.use((w) => w.valuations(watch.id)))).toHaveLength(1)
     expect(await target.run(Insights.use((i) => i.savedViews))).toHaveLength(4)
+  })
+
+  it("restores assets from older backups as wholly owned", async () => {
+    const fresh = await createHarness()
+    try {
+      await restore(fresh, { ...backup, assets: backup.assets.map(({ share: _, ...asset }) => asset) as RunwayBackup["assets"] })
+      const wealth = await fresh.run(Wealth.use((w) => w.overview))
+      expect(wealth.items.find((i) => i.name === "Rolex")).toMatchObject({ share: 10_000, value: 9_900_00 })
+    } finally {
+      await fresh.dispose()
+    }
   })
 
   it("drops invalid widgets and keeps the default dashboard when restoring dashboards", async () => {
