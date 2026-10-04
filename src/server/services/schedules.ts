@@ -409,7 +409,7 @@ export class Schedules extends Context.Service<
           const inserts = transactionInsertStatements(
             d1,
             bookings.flatMap((b) => b.rows),
-            { where: stillDue("value ->> '$[#-1].s'", "value ->> '$[#-1].from'"), of: (r) => guards.get(r.id) },
+            { guard: { where: stillDue("value ->> '$[#-1].s'", "value ->> '$[#-1].from'"), of: (r) => guards.get(r.id) } },
           )
           const firstClaim = inserts.length + links.length
           const results = await d1.batch([

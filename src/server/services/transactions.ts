@@ -75,20 +75,26 @@ const insertValues = (r: NewTxRow): unknown[] => [
  * INSERT statements for prepared rows, through json_each: drizzle's multi-row insert binds every
  * column of every row and hits D1's 100-parameter limit from the 7th split line. With `guard`, a
  * row is only written when `guard.where` holds; that SQL reads `guard.of(row)` as `value -> '$[#-1]'`.
+ * `mode: "ignore"` skips rows whose id already exists instead of failing the batch.
  */
 export const transactionInsertStatements = (
   d1: D1Database,
   rows: ReadonlyArray<NewTxRow>,
-  guard?: { readonly where: string; readonly of: (row: NewTxRow) => unknown },
-) =>
-  bulkInsertStatements(
+  options: {
+    readonly guard?: { readonly where: string; readonly of: (row: NewTxRow) => unknown }
+    readonly mode?: "insert" | "ignore"
+  } = {},
+) => {
+  const { guard, mode = "insert" } = options
+  return bulkInsertStatements(
     d1,
     "transactions",
     INSERT_COLUMNS,
     rows.map((r) => (guard ? [...insertValues(r), guard.of(r)] : insertValues(r))),
-    "insert",
+    mode,
     guard?.where,
   )
+}
 
 export type PreparedTx = { readonly id: string; readonly rows: ReadonlyArray<NewTxRow> }
 

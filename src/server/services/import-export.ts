@@ -12,6 +12,7 @@ import { DEFAULT_WIDGETS, MAIN_DASHBOARD_ID, MAX_WIDGETS, validWidget } from "./
 import { Payees } from "./payees"
 import { ruleInputError, Rules } from "./rules"
 import { Settings } from "./settings"
+import { type NewTxRow, transactionInsertStatements } from "./transactions"
 import { sourceProblem } from "./wealth"
 
 export type ImportRow = {
@@ -81,26 +82,6 @@ export type ExportMeta = {
 export type ExportTransaction = typeof schema.transactions.$inferSelect
 
 export type ExportCursor = Pick<ExportTransaction, "date" | "createdAt" | "id">
-
-const TX_COLUMNS = [
-  "id",
-  "account_id",
-  "date",
-  "amount",
-  "payee_id",
-  "category_id",
-  "notes",
-  "cleared",
-  "reconciled",
-  "transfer_id",
-  "is_parent",
-  "parent_id",
-  "imported_id",
-  "imported_payee",
-  "starting_balance",
-  "schedule_id",
-  "created_at",
-] as const
 
 const STAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/
 
@@ -537,26 +518,28 @@ export class ImportExport extends Context.Service<
         }
 
         const fallback = orderStamps(kept.map((_, i) => i))
-        const values = kept.map((r, i) => [
-          r.id,
-          r.accountId,
-          r.date,
-          r.amount,
-          r.payeeId ?? null,
-          r.isParent ? null : (r.categoryId ?? null),
-          r.notes ?? null,
-          r.cleared ? 1 : 0,
-          r.reconciled ? 1 : 0,
-          r.transferId ?? null,
-          r.isParent ? 1 : 0,
-          r.parentId ?? null,
-          r.importedId ?? null,
-          r.importedPayee ?? null,
-          r.startingBalance ? 1 : 0,
-          r.scheduleId && schedules.has(r.scheduleId) ? r.scheduleId : null,
-          r.createdAt && STAMP.test(r.createdAt) ? r.createdAt : fallback[i],
-        ])
-        yield* db.batch(bulkInsertStatements(db.d1, "transactions", TX_COLUMNS, values, "ignore"))
+        const newRows = kept.map(
+          (r, i): NewTxRow => ({
+            id: r.id,
+            accountId: r.accountId,
+            date: r.date,
+            amount: r.amount,
+            payeeId: r.payeeId ?? null,
+            categoryId: r.isParent ? null : (r.categoryId ?? null),
+            notes: r.notes ?? null,
+            cleared: r.cleared ?? false,
+            reconciled: r.reconciled ?? false,
+            transferId: r.transferId ?? null,
+            isParent: r.isParent ?? false,
+            parentId: r.parentId ?? null,
+            importedId: r.importedId ?? null,
+            importedPayee: r.importedPayee ?? null,
+            startingBalance: r.startingBalance ?? false,
+            scheduleId: r.scheduleId && schedules.has(r.scheduleId) ? r.scheduleId : null,
+            createdAt: r.createdAt && STAMP.test(r.createdAt) ? r.createdAt : fallback[i]!,
+          }),
+        )
+        yield* db.batch(transactionInsertStatements(db.d1, newRows, { mode: "ignore" }))
         const skipped = input.filter((r) => !r.parentId && !known.accounts.has(r.accountId)).length
         return { inserted: kept.filter((r) => !r.parentId).length, duplicates, skipped }
       })
