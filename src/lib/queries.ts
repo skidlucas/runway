@@ -15,7 +15,7 @@ import { getForecast, getScheduledRows, getSchedules, getScheduleSuggestions, ge
 import { getCashFlow, getCategorySpending, getDashboards, getNetWorth, getSpendingComparison } from "~/server/fns/reports"
 import type { InsightViewConfig } from "~/server/db/schema"
 import type { AccountDto } from "~/server/services/accounts"
-import type { TxFilter } from "~/server/services/transactions"
+import type { TxCursor, TxFilter } from "~/server/services/transactions"
 import { toast, toastError } from "~/components/toast"
 
 export const TX_PAGE = 200
@@ -37,14 +37,14 @@ export const q = {
     queryOptions({ queryKey: ["budget", month], queryFn: () => getBudgetMonth({ data: { month } }) }),
   ageOfMoney: (month: string) =>
     queryOptions({ queryKey: ["ageOfMoney", month], queryFn: () => getAgeOfMoney({ data: { month } }) }),
-  transactions: (filter: Omit<TxFilter, "limit" | "offset">) =>
+  transactions: (filter: Omit<TxFilter, "limit" | "after">) =>
     infiniteQueryOptions({
       queryKey: ["transactions", filter],
-      queryFn: ({ pageParam }) => listTransactions({ data: { ...filter, limit: TX_PAGE, offset: pageParam } }),
-      initialPageParam: 0,
+      queryFn: ({ pageParam }) => listTransactions({ data: { ...filter, limit: TX_PAGE, ...(pageParam ? { after: pageParam } : {}) } }),
+      initialPageParam: null as TxCursor | null,
       getNextPageParam: (last, pages) => {
         const loaded = pages.reduce((n, p) => n + p.rows.length, 0)
-        return last.rows.length > 0 && loaded < (pages[0]?.total ?? 0) ? loaded : undefined
+        return last.next && loaded < (pages[0]?.total ?? 0) ? last.next : undefined
       },
       placeholderData: (prev) => prev,
     }),

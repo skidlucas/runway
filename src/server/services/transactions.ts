@@ -154,11 +154,21 @@ export type TxFilter = {
   readonly search?: string
   readonly uncategorized?: boolean
   readonly limit?: number
-  readonly offset?: number
+  /** Continues after this row of the previous page (its `next`). */
+  readonly after?: TxCursor
 }
 
-/** `total` is only counted for the first page: the register keeps it while scrolling, and a count over the whole filter costs as much as the page itself. */
-export type TxPage = { rows: TxRow[]; total: number | null; children: Record<string, TxRow[]> }
+/**
+ * Where the next page starts, in display order. Pages follow one another by position rather than
+ * by offset, and carry the running balance so that only the first page sums the history.
+ */
+export type TxCursor = { readonly date: string; readonly createdAt: string; readonly id: string; readonly balance: number | null }
+
+/**
+ * `total` is only counted for the first page: the register keeps it while scrolling, and a count
+ * over the whole filter costs as much as the page itself. `next` is null on the last page.
+ */
+export type TxPage = { rows: TxRow[]; total: number | null; children: Record<string, TxRow[]>; next: TxCursor | null }
 
 const SELECT_ROW = `
   t.id, t.account_id AS accountId, a.name AS accountName, t.date, t.amount,
@@ -175,6 +185,7 @@ const FROM_ROW = `
   LEFT JOIN categories c ON c.id = t.category_id`
 
 type RawRow = Omit<TxRow, "cleared" | "reconciled" | "isParent"> & {
+  createdAt?: string
   cleared: number
   reconciled: number
   isParent: number
@@ -274,42 +285,47 @@ export class Transactions extends Context.Service<
           !filter.month &&
           !filter.from &&
           !filter.to
+        // The count reads the filter's rows without the cursor.
+        const countWhere = where.length ? `WHERE ${where.join(" AND ")}` : ""
+        const countParams = [...params]
+        const after = filter.after
+        if (after) {
+          where.push("(t.date, t.created_at, t.id) < (?, ?, ?)")
+          params.push(after.date, after.createdAt, after.id)
+        }
         const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : ""
         const limit = Math.min(Math.max(filter.limit ?? 200, 1), 1000)
-        const offset = Math.max(filter.offset ?? 0, 0)
         // Only search and "uncategorized" filter on joined columns: otherwise count the bare table.
         const countFrom = search || filter.uncategorized ? FROM_ROW : "FROM transactions t"
 
-        const { rows, upTo, total } = yield* db.use(async (_, d1) => {
-          const [page, balance, count] = await d1.batch([
+        const { rows, total, sum } = yield* db.use(async (_, d1) => {
+          const [page, count] = await d1.batch([
             d1
               .prepare(
                 `SELECT ${SELECT_ROW}, t.created_at AS createdAt, NULL AS balance ${FROM_ROW} ${whereSql}
-                 ORDER BY t.date DESC, t.created_at DESC, t.id DESC LIMIT ? OFFSET ?`,
+                 ORDER BY t.date DESC, t.created_at DESC, t.id DESC LIMIT ?`,
               )
-              .bind(...params, limit, offset),
-            // Running balance: the first row's balance is the sum of everything up to it, then each
-            // row below is the one above minus its amount. One indexed sum instead of a window
-            // function over the account's whole history, sent with the page to save a round trip.
-            withBalance
-              ? d1
-                  .prepare(
-                    `SELECT COALESCE(SUM(amount), 0) AS n FROM transactions
-                     WHERE account_id = ?1 AND parent_id IS NULL AND (date, created_at, id) <= (
-                       SELECT date, created_at, id FROM transactions WHERE account_id = ?1 AND parent_id IS NULL
-                       ORDER BY date DESC, created_at DESC, id DESC LIMIT 1 OFFSET ?2)`,
-                  )
-                  .bind(filter.accountId, offset)
-              : d1.prepare("SELECT NULL AS n"),
-            ...(offset === 0 ? [d1.prepare(`SELECT COUNT(*) AS n ${countFrom} ${whereSql}`).bind(...params)] : []),
+              .bind(...params, limit),
+            // On an account's first page the count goes over its whole history: the same pass sums
+            // it, which is the balance after the latest operation.
+            ...(after
+              ? []
+              : [
+                  d1
+                    .prepare(`SELECT COUNT(*) AS n${withBalance ? ", COALESCE(SUM(t.amount), 0) AS sum" : ""} ${countFrom} ${countWhere}`)
+                    .bind(...countParams),
+                ]),
           ])
+          const counted = count?.results?.[0] as { n: number; sum?: number } | undefined
           return {
             rows: (page?.results as RawRow[] | undefined) ?? [],
-            upTo: (balance?.results?.[0] as { n: number | null } | undefined)?.n ?? null,
-            total: count ? (((count.results?.[0] as { n: number } | undefined)?.n ?? 0) as number) : null,
+            total: count ? (counted?.n ?? 0) : null,
+            sum: counted?.sum ?? null,
           }
         })
 
+        // Running balance: each row is the one above minus its amount.
+        const upTo = !withBalance ? null : after ? after.balance : sum
         if (upTo !== null) {
           let balance = upTo
           for (const row of rows) {
@@ -317,6 +333,11 @@ export class Transactions extends Context.Service<
             balance -= row.amount
           }
         }
+        const last = rows.at(-1)
+        const next: TxCursor | null =
+          last && rows.length === limit
+            ? { date: last.date, createdAt: last.createdAt ?? "", id: last.id, balance: upTo === null ? null : last.balance! - last.amount }
+            : null
 
         const parentIds = rows.filter((r) => r.isParent === 1).map((r) => r.id)
         const children: Record<string, TxRow[]> = {}
@@ -336,7 +357,7 @@ export class Transactions extends Context.Service<
           const key = child.parentId ?? ""
           ;(children[key] ??= []).push(toRow(child))
         }
-        return { rows: rows.map(toRow), total, children }
+        return { rows: rows.map(toRow), total, children, next }
       })
 
       const get = Effect.fn("Transactions.get")(function* (id: string) {

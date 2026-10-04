@@ -181,7 +181,9 @@ export const listTransactions = createServerFn({ method: "GET" })
         search: Schema.optional(SearchText),
         uncategorized: Schema.optional(Schema.Boolean),
         limit: Schema.optional(Schema.Int),
-        offset: Schema.optional(Schema.Int),
+        after: Schema.optional(
+          Schema.Struct({ date: Schema.String, createdAt: Schema.String, id: Schema.String, balance: Schema.NullOr(Schema.Int) }),
+        ),
       }),
     ),
   )

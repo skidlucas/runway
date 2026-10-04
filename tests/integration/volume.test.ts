@@ -81,7 +81,7 @@ describe("Volume", () => {
     expect(register.rows[0]!.balance).toBe(accounts.find((a) => a.id === account)!.balance)
     const last = register.rows.at(-1)!
     expect(register.rows.at(-2)!.balance! - register.rows.at(-2)!.amount).toBe(last.balance)
-    await time("register deep page", () => h.run(Transactions.use((t) => t.list({ limit: 200, offset: 50_000 }))))
+    await time("register next page", () => h.run(Transactions.use((t) => t.list({ accountId: account, limit: 200, after: register.next! }))))
     const exported = await time("export", async () => {
       let count = 0
       for (let cursor: ExportCursor | null = null; ; ) {

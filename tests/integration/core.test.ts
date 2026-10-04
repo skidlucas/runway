@@ -151,12 +151,26 @@ describe("core flows on D1", () => {
 
   it("counts the register only on its first page and carries the balance across pages", async () => {
     const first = await h.run(Transactions.use((t) => t.list({ accountId: ids.checking, limit: 2 })))
-    const next = await h.run(Transactions.use((t) => t.list({ accountId: ids.checking, limit: 2, offset: 2 })))
+    const next = await h.run(Transactions.use((t) => t.list({ accountId: ids.checking, limit: 2, after: first.next! })))
     expect(first.total).toBeGreaterThan(2)
     expect(next.rows).toHaveLength(2)
     expect(next.total).toBeNull()
     // The running balance carries over from one page to the next.
     expect(next.rows[0]?.balance).toBe(first.rows[1]!.balance! - first.rows[1]!.amount)
+  })
+
+  it("pages through a register in the same order and with the same balances as one long page", async () => {
+    for (const filter of [{ accountId: ids.checking }, {}, { categoryId: ids.courses }]) {
+      const whole = await h.run(Transactions.use((t) => t.list({ ...filter, limit: 1000 })))
+      const paged: typeof whole.rows = []
+      for (let after = undefined as (typeof whole)["next"] | undefined; ; ) {
+        const page: typeof whole = await h.run(Transactions.use((t) => t.list({ ...filter, limit: 2, ...(after ? { after } : {}) })))
+        paged.push(...page.rows)
+        if (!page.next) break
+        after = page.next
+      }
+      expect(paged.map((r) => [r.id, r.balance])).toEqual(whole.rows.map((r) => [r.id, r.balance]))
+    }
   })
 
   it("reconciles an account and books the difference", async () => {
