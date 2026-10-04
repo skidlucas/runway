@@ -1,7 +1,7 @@
 import { env } from "./env"
 import { Cause, type Effect, Exit, type Layer, ManagedRuntime, Option } from "effect"
 import { makeAppLayer } from "./app-layer"
-import { clientError, ExternalError, Invalid, NotFound } from "./errors"
+import { clientError, ExternalError, Invalid, NotFound, userMessageOf } from "./errors"
 
 type AppServices = Layer.Success<ReturnType<typeof makeAppLayer>>
 
@@ -13,9 +13,6 @@ const getRuntime = () => {
   return runtime
 }
 
-const isUserFacing = (error: unknown): error is NotFound | Invalid | ExternalError =>
-  error instanceof NotFound || error instanceof Invalid || error instanceof ExternalError
-
 /**
  * Runs an effect for a server function. Business errors keep their French message;
  * anything else is logged and replaced by a generic message.
@@ -23,13 +20,10 @@ const isUserFacing = (error: unknown): error is NotFound | Invalid | ExternalErr
 export const runApp = async <A, E>(effect: Effect.Effect<A, E, AppServices>): Promise<A> => {
   const exit = await getRuntime().runPromiseExit(effect)
   if (Exit.isSuccess(exit)) return exit.value
-  const error = Cause.findErrorOption(exit.cause)
-  if (Option.isSome(error) && isUserFacing(error.value)) {
-    // The user only sees a French summary: the provider's own error (revoked key, rate limit,
-    // HTTP status) has to reach the Workers logs.
-    if (error.value instanceof ExternalError) console.warn(`[${error.value.service}] ${error.value.message}`, error.value.cause)
-    throw clientError(error.value.message)
-  }
-  console.error(Cause.pretty(exit.cause))
-  throw clientError("Une erreur inattendue est survenue")
+  const failure = Option.getOrUndefined(Cause.findErrorOption(exit.cause))
+  // The user only sees a French summary: the provider's own error (revoked key, rate limit,
+  // HTTP status) and database failures have to reach the Workers logs.
+  if (failure instanceof ExternalError) console.warn(`[${failure.service}] ${failure.message}`, failure.cause)
+  else if (!(failure instanceof NotFound || failure instanceof Invalid)) console.error(Cause.pretty(exit.cause))
+  throw clientError(userMessageOf(failure) ?? "Une erreur inattendue est survenue")
 }
