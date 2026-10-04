@@ -77,6 +77,10 @@ export const assetTypeTotals = (
   })
 }
 
+/** Valuation sources priced from an outside feed (crypto, stock quotes, DVF sales). */
+export const isAutomaticSource = (source: { kind: string } | null) =>
+  source?.kind === "crypto" || source?.kind === "stock" || source?.kind === "real_estate"
+
 export type WealthChange = { amount: number; ratio: number | null; since: Month }
 
 /** From the first month holding something to `now`; null when there is no earlier month to compare with. */

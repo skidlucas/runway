@@ -42,7 +42,7 @@ describe("Wealth with only a budget account", () => {
   it("lists budget accounts read-only and counts them in the net worth", async () => {
     const overview = await h.run(Wealth.use((w) => w.overview))
     expect(overview.items).toHaveLength(1)
-    expect(overview.items[0]).toMatchObject({ kind: "account", name: "Courant", value: 2_000_00, bucket: "cash" })
+    expect(overview.items[0]).toMatchObject({ kind: "account", name: "Courant", value: 2_000_00, bucket: "cash", estimate: { kind: "account" } })
     expect(overview.netWorth).toBe(2_000_00)
     expect(overview.history).toHaveLength(13)
     expect(overview.history.every((v) => v === 2_000_00)).toBe(true)
@@ -105,7 +105,7 @@ describe("Wealth", () => {
     expect(byName.get("Rolex Submariner")).toMatchObject({ value: 9_500_00, retainedUsed: "declared", bucket: "objects" })
     // 10 installments of 1 000 € paid on a zero-rate loan.
     expect(byName.get("Crédit immo")).toMatchObject({ value: -90_000_00, isLiability: true, bucket: "real_estate" })
-    expect(byName.get("Crédit immo")!.estimate).toMatchObject({ label: "Tableau d'amortissement", automatic: true })
+    expect(byName.get("Crédit immo")!.estimate).toMatchObject({ kind: "loan", label: "Tableau d'amortissement", automatic: true })
     expect(overview.netWorth).toBe(before + 9_500_00 - 90_000_00)
     const assets = await h.run(Wealth.use((w) => w.assetsOverview))
     expect(assets.items).toEqual(overview.items.filter((i) => i.kind === "asset"))
@@ -119,7 +119,7 @@ describe("Wealth", () => {
     const after = await h.run(Wealth.use((w) => w.overview))
     expect(after.items.find((i) => i.id === watch)).toMatchObject({
       value: 10_200_00,
-      estimate: { amount: 10_200_00, label: "Saisie manuelle", automatic: false },
+      estimate: { kind: "valuation", amount: 10_200_00, label: "Saisie manuelle", automatic: false },
     })
   })
 

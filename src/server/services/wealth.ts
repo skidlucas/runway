@@ -15,6 +15,7 @@ import {
   loanBalance,
   type RetainedKind,
   historyChange,
+  isAutomaticSource,
   retainedValueAt,
   type WealthBucket,
   type WealthChange,
@@ -27,6 +28,11 @@ import { MarketData } from "./market-data"
 import { Settings } from "./settings"
 
 type EstimateDto = {
+  /**
+   * `valuation`: the asset's latest recorded value, dated. `loan`: today's remaining capital from the
+   * amortization schedule. `account`: a tracked account's balance today.
+   */
+  kind: "valuation" | "loan" | "account"
   amount: number
   date: Day
   /** Where the number comes from, shown under it ("Estimation DVF", "Cours en direct"…). */
@@ -100,6 +106,8 @@ export type RefreshResult = { updated: number; failures: Array<{ assetId: string
 
 
 type AssetRow = typeof assets.$inferSelect
+type AccountRow = { id: string; name: string; kind: string; offBudget: number; closed: number; balance: number; opening: number }
+type MonthlyTotal = { accountId: string; month: Month; total: number }
 type ValuationRow = {
   assetId: string
   date: Day
@@ -124,10 +132,8 @@ const SOURCE_LABELS: Record<string, string> = {
   manual: "Saisie manuelle",
 }
 
-const isAutomatic = (source: ValuationSource) => source.kind === "crypto" || source.kind === "stock" || source.kind === "real_estate"
-
 const refreshDue = (source: ValuationSource, lastAutomatic: Day | null, today: Day) =>
-  isAutomatic(source) &&
+  isAutomaticSource(source) &&
   (lastAutomatic === null || (source.kind === "real_estate" ? diffDays(lastAutomatic, today) >= DVF_REFRESH_DAYS : lastAutomatic < today))
 
 /**
@@ -137,6 +143,118 @@ const refreshDue = (source: ValuationSource, lastAutomatic: Day | null, today: D
 const lacksHistory = (asset: { purchaseDate: string | null }, firstAutomatic: Day | null, today: Day) => {
   const monthStart = firstDay(monthOf(today))
   return (firstAutomatic === null || firstAutomatic >= monthStart) && (asset.purchaseDate === null || asset.purchaseDate < monthStart)
+}
+
+const groupBy = <T>(rows: ReadonlyArray<T>, key: (row: T) => string) => {
+  const groups = new Map<string, T[]>()
+  for (const row of rows) {
+    const group = groups.get(key(row))
+    if (group) group.push(row)
+    else groups.set(key(row), [row])
+  }
+  return groups
+}
+
+const estimateOf = (source: ValuationSource, latest: ValuationRow | undefined, today: Day): EstimateDto | null => {
+  if (source.kind === "loan") {
+    return { kind: "loan", amount: loanBalance(source, today), date: today, label: "Tableau d'amortissement", automatic: true, unitPrice: null, asOf: null }
+  }
+  if (!latest) return null
+  return {
+    kind: "valuation",
+    amount: latest.amount,
+    date: latest.date,
+    label: SOURCE_LABELS[latest.source] ?? latest.source,
+    automatic: latest.automatic === 1,
+    unitPrice: latest.unitPrice,
+    asOf: latest.asOf,
+  }
+}
+
+/** `valuations`: the asset's own, by ascending date. `days`: the day each history month is read at. */
+const assetItem = (asset: AssetRow, valuations: ReadonlyArray<ValuationRow>, days: ReadonlyArray<Day>, today: Day): WealthItem => {
+  const source = asset.source
+  const values: AssetValues = {
+    purchase: asset.purchaseAmount === null ? null : { amount: asset.purchaseAmount, date: asset.purchaseDate },
+    declared: asset.declaredAmount === null ? null : { amount: asset.declaredAmount, date: asset.declaredDate },
+    estimateAt:
+      source.kind === "loan"
+        ? (day) => (day < source.startDate ? null : { amount: loanBalance(source, day), date: day })
+        : (day) => latestOn(valuations, day),
+    retained: asset.retained,
+  }
+  const sign = asset.isLiability ? -1 : 1
+  const ownedPart = (amount: number | undefined) => sign * applyShare(amount ?? 0, asset.share)
+  const retainedToday = retainedValueAt(values, today)
+  const estimate = estimateOf(source, valuations.at(-1), today)
+  return {
+    id: asset.id,
+    kind: "asset",
+    name: asset.name,
+    type: asset.type,
+    bucket: BUCKET_OF_TYPE[asset.type],
+    subtitle: asset.subtitle,
+    isLiability: asset.isLiability,
+    purchase: values.purchase,
+    declared: values.declared,
+    estimate,
+    retained: asset.retained,
+    retainedUsed: retainedToday?.kind ?? null,
+    share: asset.share,
+    value: ownedPart(retainedToday?.amount),
+    history: days.map((d) => ownedPart(retainedValueAt(values, d)?.amount)),
+    stale: source.kind === "manual" && estimate !== null && diffDays(estimate.date, today) > STALE_MANUAL_DAYS,
+    source,
+    notes: asset.notes,
+  }
+}
+
+/**
+ * The open accounts' lines, and the history of the closed ones: a closed account leaves the list
+ * but still counts in the months it held money. Past months read the balance at their end, the
+ * current one today's.
+ */
+const accountItems = (accounts: ReadonlyArray<AccountRow>, monthly: ReadonlyArray<MonthlyTotal>, months: ReadonlyArray<Month>, today: Day) => {
+  const current = monthOf(today)
+  const totalsByAccount = groupBy(monthly, (r) => r.accountId)
+  const open: WealthItem[] = []
+  const closed: WealthOverview["closed"] = []
+  for (const account of accounts) {
+    let running = account.opening
+    let i = 0
+    const totals = totalsByAccount.get(account.id) ?? []
+    const history = months.map((m) => {
+      if (m === current) return account.balance
+      while (i < totals.length && totals[i]!.month <= m) running += totals[i++]!.total
+      return running
+    })
+    const type: AssetType = account.kind === "investment" ? "investment" : "cash"
+    if (account.closed) {
+      closed.push({ type, history })
+      continue
+    }
+    open.push({
+      id: account.id,
+      kind: "account",
+      name: account.name,
+      type,
+      bucket: BUCKET_OF_TYPE[type],
+      subtitle: account.offBudget ? "Compte hors budget" : "Compte du budget",
+      isLiability: false,
+      purchase: null,
+      declared: null,
+      estimate: { kind: "account", amount: account.balance, date: today, label: "Compte suivi", automatic: true, unitPrice: null, asOf: null },
+      retained: "estimated",
+      retainedUsed: "estimated",
+      share: FULL_SHARE,
+      value: account.balance,
+      history,
+      stale: false,
+      source: null,
+      notes: null,
+    })
+  }
+  return { open, closed }
 }
 
 /** Why an asset's valuation source cannot be used, or null. Also guards restored backups. */
@@ -238,16 +356,8 @@ export class Wealth extends Context.Service<
               .bind(since, today),
           ])
           return {
-            accounts: (accounts?.results ?? []) as Array<{
-              id: string
-              name: string
-              kind: string
-              offBudget: number
-              closed: number
-              balance: number
-              opening: number
-            }>,
-            monthly: (monthly?.results ?? []) as Array<{ accountId: string; month: Month; total: number }>,
+            accounts: (accounts?.results ?? []) as AccountRow[],
+            monthly: (monthly?.results ?? []) as MonthlyTotal[],
           }
         })
 
@@ -267,108 +377,10 @@ export class Wealth extends Context.Service<
           { concurrency: "unbounded" },
         )
 
-        const byAsset = new Map<string, ValuationRow[]>()
-        for (const v of valuations) {
-          const own = byAsset.get(v.assetId)
-          if (own) own.push(v)
-          else byAsset.set(v.assetId, [v])
-        }
-
-        const items: WealthItem[] = rows.map((a) => {
-          const own = byAsset.get(a.id) ?? []
-          const source = a.source
-          const estimateAt =
-            source.kind === "loan"
-              ? (day: Day): DatedAmount | null => (day < source.startDate ? null : { amount: loanBalance(source, day), date: day })
-              : (day: Day) => latestOn(own, day)
-          const values: AssetValues = {
-            purchase: a.purchaseAmount === null ? null : { amount: a.purchaseAmount, date: a.purchaseDate },
-            declared: a.declaredAmount === null ? null : { amount: a.declaredAmount, date: a.declaredDate },
-            estimateAt,
-            retained: a.retained,
-          }
-          const sign = a.isLiability ? -1 : 1
-          const owned = (amount: number | undefined) => sign * applyShare(amount ?? 0, a.share)
-          const now = retainedValueAt(values, today)
-          const latest = source.kind === "loan" ? null : own.at(-1)
-          const estimate: EstimateDto | null =
-            source.kind === "loan"
-              ? { amount: loanBalance(source, today), date: today, label: "Tableau d'amortissement", automatic: true, unitPrice: null, asOf: null }
-              : latest
-                ? {
-                    amount: latest.amount,
-                    date: latest.date,
-                    label: SOURCE_LABELS[latest.source] ?? latest.source,
-                    automatic: latest.automatic === 1,
-                    unitPrice: latest.unitPrice,
-                    asOf: latest.asOf,
-                  }
-                : null
-          return {
-            id: a.id,
-            kind: "asset",
-            name: a.name,
-            type: a.type,
-            bucket: BUCKET_OF_TYPE[a.type],
-            subtitle: a.subtitle,
-            isLiability: a.isLiability,
-            purchase: values.purchase,
-            declared: values.declared,
-            estimate,
-            retained: a.retained,
-            retainedUsed: now?.kind ?? null,
-            share: a.share,
-            value: owned(now?.amount),
-            history: days.map((d) => owned(retainedValueAt(values, d)?.amount)),
-            stale: !isAutomatic(source) && source.kind !== "loan" && estimate !== null && diffDays(estimate.date, today) > STALE_MANUAL_DAYS,
-            source,
-            notes: a.notes,
-          }
-        })
-
-        const monthlyByAccount = new Map<string, Array<{ month: Month; total: number }>>()
-        for (const r of accountData.monthly) {
-          const own = monthlyByAccount.get(r.accountId)
-          if (own) own.push(r)
-          else monthlyByAccount.set(r.accountId, [r])
-        }
-        // A closed account leaves the list but still counts in the months it held money.
-        const closed: WealthOverview["closed"] = []
-        for (const account of accountData.accounts) {
-          let running = account.opening
-          let i = 0
-          const sums = monthlyByAccount.get(account.id) ?? []
-          const history = months.map((m) => {
-            if (m === current) return account.balance
-            while (i < sums.length && sums[i]!.month <= m) running += sums[i++]!.total
-            return running
-          })
-          const type: AssetType = account.kind === "investment" ? "investment" : "cash"
-          if (account.closed) {
-            closed.push({ type, history })
-            continue
-          }
-          items.push({
-            id: account.id,
-            kind: "account",
-            name: account.name,
-            type,
-            bucket: BUCKET_OF_TYPE[type],
-            subtitle: account.offBudget ? "Compte hors budget" : "Compte du budget",
-            isLiability: false,
-            purchase: null,
-            declared: null,
-            estimate: { amount: account.balance, date: today, label: "Compte suivi", automatic: true, unitPrice: null, asOf: null },
-            retained: "estimated",
-            retainedUsed: "estimated",
-            share: FULL_SHARE,
-            value: account.balance,
-            history,
-            stale: false,
-            source: null,
-            notes: null,
-          })
-        }
+        const byAsset = groupBy(valuations, (v) => v.assetId)
+        const accounts = accountItems(accountData.accounts, accountData.monthly, months, today)
+        const items = [...rows.map((a) => assetItem(a, byAsset.get(a.id) ?? [], days, today)), ...accounts.open]
+        const closed = accounts.closed
 
         const history = months.map(
           (_, i) => items.reduce((sum, item) => sum + item.history[i]!, 0) + closed.reduce((sum, c) => sum + c.history[i]!, 0),
@@ -473,7 +485,7 @@ export class Wealth extends Context.Service<
         const [rows, spans] = yield* Effect.all([loadAssets, automaticSpans], { concurrency: "unbounded" })
         const wanted = options.ids ? new Set(options.ids) : null
         const due = rows.filter((a) =>
-          wanted ? wanted.has(a.id) && isAutomatic(a.source) : refreshDue(a.source, spans.get(a.id)?.last ?? null, today),
+          wanted ? wanted.has(a.id) && isAutomaticSource(a.source) : refreshDue(a.source, spans.get(a.id)?.last ?? null, today),
         )
         const failures: RefreshResult["failures"] = []
         const estimates: Array<{ assetId: string; amount: number; source: string; unitPrice: number; asOf?: Month }> = []
@@ -560,7 +572,7 @@ export class Wealth extends Context.Service<
         yield* db.use((orm) => orm.insert(assets).values({ id, ...columns(input) }))
         // Best effort: once the asset is inserted, nothing may fail the creation, or a retry would
         // add it a second time. The wealth page fetches the missing estimate on its next refresh.
-        if (isAutomatic(input.source)) {
+        if (isAutomaticSource(input.source)) {
           yield* refresh({ ids: [id] }).pipe(
             Effect.catchCause((cause) => Effect.logWarning("Première estimation impossible", { id, cause })),
           )
@@ -573,7 +585,7 @@ export class Wealth extends Context.Service<
         const [before] = yield* db.use((orm) => orm.select({ source: assets.source }).from(assets).where(eq(assets.id, id)))
         if (!before) return yield* new NotFound({ entity: "Bien", id })
         yield* db.use((orm) => orm.update(assets).set(columns(input)).where(eq(assets.id, id)))
-        if (isAutomatic(input.source) && JSON.stringify(before.source) !== JSON.stringify(input.source)) {
+        if (isAutomaticSource(input.source) && JSON.stringify(before.source) !== JSON.stringify(input.source)) {
           yield* refresh({ ids: [id] })
         }
       })

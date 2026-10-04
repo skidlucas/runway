@@ -7,6 +7,7 @@ import {
   type AssetValues,
   formatShare,
   historyChange,
+  isAutomaticSource,
   latestOn,
   loanBalance,
   loanEndMonth,
@@ -177,5 +178,13 @@ describe("historyChange", () => {
   it("is null without an earlier month to compare with", () => {
     expect(historyChange([0, 0, 0], months, 0)).toBeNull()
     expect(historyChange([0, 0, 150_00], months, 150_00)).toBeNull()
+  })
+})
+
+describe("isAutomaticSource", () => {
+  it("is true for the sources priced from an outside feed only", () => {
+    expect(["crypto", "stock", "real_estate"].map((kind) => isAutomaticSource({ kind }))).toEqual([true, true, true])
+    expect(["manual", "loan"].map((kind) => isAutomaticSource({ kind }))).toEqual([false, false])
+    expect(isAutomaticSource(null)).toBe(false)
   })
 })
