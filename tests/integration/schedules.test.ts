@@ -339,7 +339,7 @@ describe("Schedule suggestions", () => {
   let other: string
 
   beforeAll(async () => {
-    h = await createHarness()
+    h = await createHarness({ now: NOW })
     other = await h.run(Accounts.use((a) => a.create({ name: "Carte", kind: "checking", offBudget: false, startingBalance: 0, startingDate: "2020-01-01" })))
   }, 60_000)
   afterAll(() => h?.dispose())

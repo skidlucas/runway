@@ -7,6 +7,8 @@ import { ImportExport } from "~/server/services/import-export"
 import { Wealth } from "~/server/services/wealth"
 import { createHarness, type Harness } from "./harness"
 
+const NOW = "2026-10-04T10:00:00Z"
+
 // The import endpoints validate their payload with these schemas, which drop unknown keys: a
 // field the bundle carries but the schema forgets would be silently lost on restore.
 describe("Import payload schemas", () => {
@@ -14,7 +16,7 @@ describe("Import payload schemas", () => {
   let backup: RunwayBackup
 
   beforeAll(async () => {
-    h = await createHarness()
+    h = await createHarness({ now: NOW })
     await h.run(Demo.use((d) => d.seed))
     await h.run(
       Wealth.use((w) =>

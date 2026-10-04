@@ -353,7 +353,7 @@ describe("Budget amounts shown per category", () => {
     (await h.run(Budget.use((s) => s.month("2026-04")))).groups.flatMap((g) => g.categories).find((x) => x.id === id)!
 
   beforeAll(async () => {
-    h = await createHarness()
+    h = await createHarness({ now: NOW })
     await h.run(Categories.use((s) => s.createStarterSet))
     const tree = await h.run(Categories.use((s) => s.tree))
     food = tree.find((g) => !g.isIncome)!.categories[0]!.id
