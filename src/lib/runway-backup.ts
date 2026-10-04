@@ -3,8 +3,31 @@ import type { ImportBundle } from "./import-bundle"
 
 export type RunwayBackup = ExportMeta & { format: "runway-backup"; transactions: ExportTransaction[] }
 
-export const isRunwayBackup = (value: unknown): value is RunwayBackup =>
-  typeof value === "object" && value !== null && (value as { format?: unknown }).format === "runway-backup"
+const BACKUP_LISTS = [
+  "accounts",
+  "groups",
+  "categories",
+  "payees",
+  "budgets",
+  "budgetMonths",
+  "rules",
+  "schedules",
+  "assets",
+  "valuations",
+  "savedViews",
+  "transactions",
+] as const satisfies ReadonlyArray<keyof RunwayBackup>
+
+/** A truncated or hand-edited file with the right `format` would otherwise fail deep in the import. */
+export const isRunwayBackup = (value: unknown): value is RunwayBackup => {
+  if (typeof value !== "object" || value === null) return false
+  const backup = value as Record<string, unknown>
+  return (
+    backup.format === "runway-backup" &&
+    BACKUP_LISTS.every((key) => Array.isArray(backup[key])) &&
+    (backup.dashboards === undefined || Array.isArray(backup.dashboards))
+  )
+}
 
 /** Turns a Runway JSON backup into the generic import bundle. */
 export const backupToBundle = (backup: RunwayBackup): ImportBundle => ({
