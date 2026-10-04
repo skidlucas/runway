@@ -1,7 +1,6 @@
 import { sql } from "drizzle-orm"
 import { Clock, Context, Effect, Layer, Option, Schema } from "effect"
 import { isDay, isMonth } from "~/domain/dates"
-import { RECURRENCE_UNITS } from "~/domain/recurrence"
 import { FULL_SHARE, isShare } from "~/domain/wealth"
 import { normalizeText, type RuleAction, ruleProblem, type RuleSubject } from "~/domain/rules"
 import { type BundleExtras, type BundleStructure, type IdMaps, orderStamps } from "~/lib/import-bundle"
@@ -9,7 +8,7 @@ import { bulkInsertStatements, chunkRows, Db, type DbError, newId } from "../db/
 import { readInsightConfig, readRule, readSource, readWidgets } from "../db/json-columns"
 import * as schema from "../db/schema"
 import { Invalid, type NotFound } from "../errors"
-import { AccountKind, DuplicateProbe as DuplicateProbeSchema, ImportRow as ImportRowSchema } from "../schemas"
+import { AccountKind, DuplicateProbe as DuplicateProbeSchema, ImportRow as ImportRowSchema, Recurrence } from "../schemas"
 import { DEFAULT_WIDGETS, MAIN_DASHBOARD_ID, MAX_WIDGETS, validWidget } from "./dashboards"
 import { Payees } from "./payees"
 import { Rules } from "./rules"
@@ -58,6 +57,7 @@ export type ExportCursor = Pick<ExportTransaction, "date" | "createdAt" | "id">
 const STAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/
 
 const isAccountKind = Schema.is(AccountKind)
+const isRecurrence = Schema.is(Recurrence)
 
 type DedupeKey = {
   account: string
@@ -331,8 +331,7 @@ export class ImportExport extends Context.Service<
           const known = new Set(existing.schedules.map((s) => s.id))
           const newSchedules = structure.schedules.flatMap((s) => {
             const accountId = accountMap[s.accountId]
-            const rhythmOk = (RECURRENCE_UNITS as ReadonlyArray<string>).includes(s.recurrence.unit) && Number.isInteger(s.recurrence.interval) && s.recurrence.interval >= 1
-            if (!accountId || known.has(s.id) || !rhythmOk || !isDay(s.startDate) || !isDay(s.nextDate)) return []
+            if (!accountId || known.has(s.id) || !isRecurrence(s.recurrence) || !isDay(s.startDate) || !isDay(s.nextDate)) return []
             known.add(s.id)
             return [
               [

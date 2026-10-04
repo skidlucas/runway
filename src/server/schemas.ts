@@ -31,7 +31,10 @@ export const PayeeInput = Schema.Union([
   Schema.Struct({ kind: Schema.Literal("none") }),
 ])
 
-export const Recurrence = Schema.Struct({ unit: Schema.Literals(RECURRENCE_UNITS), interval: Schema.Int })
+export const Recurrence = Schema.Struct({
+  unit: Schema.Literals(RECURRENCE_UNITS),
+  interval: Schema.Int.check(Schema.isGreaterThanOrEqualTo(1, { message: "Le rythme doit être d'au moins 1" })),
+})
 
 export const RuleCondition = Schema.Struct({
   field: Schema.Literals(RULE_CONDITION_FIELDS),
@@ -106,8 +109,8 @@ export const DashboardWidget = Schema.Struct({
 })
 
 // --- Imports (Actual files, bank files, runway backups) ----------------------------
-// Ids are the source's ids. Months and dates the import skips row by row (budgets, schedules)
-// stay plain strings: one bad row must not reject a whole file.
+// Ids are the source's ids. Months, dates and rhythms the import skips row by row (budgets,
+// schedules) are only loosely typed here: one bad row must not reject a whole file.
 
 const NullableString = Schema.NullOr(Schema.String)
 
@@ -162,7 +165,7 @@ export const BundleStructure = Schema.Struct({
       accountId: Schema.String,
       categoryId: NullableString,
       amount: Schema.Int,
-      recurrence: Recurrence,
+      recurrence: Schema.Struct({ unit: Schema.String, interval: Schema.Number }),
       startDate: Schema.String,
       nextDate: Schema.String,
       endDate: NullableString,
