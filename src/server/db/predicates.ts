@@ -16,6 +16,12 @@ export const IS_INTERNAL_TRANSFER = `EXISTS (
 export const BUDGET_LINE = "a.off_budget = 0 AND t.is_parent = 0"
 
 /**
+ * BUDGET_LINE without joining the account: SQLite then reads each line once, where a join reads
+ * the account again for every line.
+ */
+export const BUDGET_LINE_ALONE = "t.account_id IN (SELECT id FROM accounts WHERE off_budget = 0) AND t.is_parent = 0"
+
+/**
  * "Counts for the budget": a budget line that moves money in or out of the budget. A transfer
  * between two budgeted accounts moves nothing; one to an off-budget account (savings kept apart,
  * a broker, a loan) is spent or earned like a purchase or a salary, and needs a category like

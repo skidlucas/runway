@@ -4,7 +4,7 @@ import { type BudgetCell, type BudgetInputs, type BudgetMonth, computeBudget } f
 import { addMonths, type Day, isMonth, lastDay, type Month } from "~/domain/dates"
 import { type PlannedCategory, plannedByCategory } from "~/domain/planned"
 import { Db, type DbError } from "../db/client"
-import { BUDGET_LINE, UNCATEGORIZED } from "../db/predicates"
+import { BUDGET_LINE_ALONE, UNCATEGORIZED } from "../db/predicates"
 import { Invalid } from "../errors"
 import { Categories, type CategoryGroupDto } from "./categories"
 import { type ScheduleDto, Schedules } from "./schedules"
@@ -99,10 +99,15 @@ export class Budget extends Context.Service<
             const [activity, cells, buffers] = await d1.batch([
               d1
                 .prepare(
-                  `SELECT substr(t.date, 1, 7) AS month, t.category_id AS categoryId, SUM(t.amount) AS total
-                   FROM transactions t JOIN accounts a ON a.id = t.account_id
-                   WHERE ${BUDGET_LINE} AND t.category_id IS NOT NULL AND t.date <= ?
-                   GROUP BY month, t.category_id`,
+                  // Totals per day first, walking the (date, category) index in order: grouping the
+                  // lines by month directly sorts them in a temporary table, which D1 counts as
+                  // reading every line a second time.
+                  `SELECT substr(date, 1, 7) AS month, categoryId, SUM(total) AS total FROM (
+                     SELECT t.date, t.category_id AS categoryId, SUM(t.amount) AS total
+                     FROM transactions t INDEXED BY tx_date_category_idx
+                     WHERE ${BUDGET_LINE_ALONE} AND t.category_id IS NOT NULL AND t.date <= ?
+                     GROUP BY t.date, t.category_id)
+                   GROUP BY month, categoryId`,
                 )
                 .bind(lastDay(until)),
               d1
@@ -146,12 +151,14 @@ export class Budget extends Context.Service<
           Effect.withSpan("Budget.compute"),
         )
 
-      // Money entering or leaving the budget: transfers between budget accounts move nothing.
-      const BUDGET_FLOWS = `FROM transactions t JOIN accounts a ON a.id = t.account_id
-         LEFT JOIN payees p ON p.id = t.payee_id
-         LEFT JOIN accounts o ON o.id = p.transfer_account_id
-         WHERE a.off_budget = 0 AND t.parent_id IS NULL AND t.date <= ?
-           AND (p.transfer_account_id IS NULL OR o.off_budget = 1)`
+      // Money entering or leaving the budget: transfers between budget accounts move nothing. The
+      // accounts and payees are looked up once in subqueries rather than joined to every line (the
+      // payee of a line always exists: payee_id is a foreign key).
+      const BUDGET_FLOWS = `t.account_id IN (SELECT id FROM accounts WHERE off_budget = 0)
+         AND t.parent_id IS NULL AND t.date <= ?
+         AND (t.payee_id IS NULL OR t.payee_id IN (
+           SELECT p.id FROM payees p LEFT JOIN accounts o ON o.id = p.transfer_account_id
+           WHERE p.transfer_account_id IS NULL OR o.off_budget = 1))`
       const AGE_SAMPLE = 10
 
       const ageAt = (until: Day) =>
@@ -159,16 +166,17 @@ export class Budget extends Context.Service<
           .use((_, d1) =>
             d1.batch([
             d1
+              // In date order through the index, so grouping by day needs no temporary sort.
               .prepare(
                 `SELECT t.date AS date,
                    SUM(CASE WHEN t.amount > 0 THEN t.amount ELSE 0 END) AS inflow,
                    SUM(CASE WHEN t.amount < 0 THEN -t.amount ELSE 0 END) AS outflow
-                 ${BUDGET_FLOWS} GROUP BY t.date`,
+                 FROM transactions t INDEXED BY tx_date_category_idx WHERE ${BUDGET_FLOWS} GROUP BY t.date`,
               )
               .bind(until),
             d1
               .prepare(
-                `SELECT t.date AS date, -t.amount AS amount ${BUDGET_FLOWS} AND t.amount < 0
+                `SELECT t.date AS date, -t.amount AS amount FROM transactions t WHERE ${BUDGET_FLOWS} AND t.amount < 0
                  ORDER BY t.date DESC, t.created_at DESC, t.id DESC LIMIT ${AGE_SAMPLE}`,
               )
               .bind(until),
