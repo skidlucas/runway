@@ -234,7 +234,7 @@ export function Fab() {
       type="button"
       onClick={() => openNewTransaction()}
       aria-label="Nouvelle opération"
-      className="fixed bottom-[calc(84px+env(safe-area-inset-bottom))] right-5 z-40 flex h-12 w-12 items-center justify-center rounded-full bg-accent text-white shadow-[0_10px_30px_rgba(0,0,0,0.35)] md:hidden"
+      className="fixed bottom-[calc(84px+env(safe-area-inset-bottom))] right-5 z-40 flex h-12 w-12 items-center justify-center rounded-full bg-accent-solid text-white shadow-[0_10px_30px_rgba(0,0,0,0.35)] md:hidden"
     >
       <Plus size={22} />
     </button>

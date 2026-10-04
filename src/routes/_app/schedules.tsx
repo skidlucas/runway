@@ -132,7 +132,7 @@ function ScheduleRow({ schedule: s, onEdit }: { schedule: ScheduleDto; onEdit: (
       data-testid="schedule-row"
       className={cx(
         "grid grid-cols-[90px_minmax(0,1fr)_170px_120px_190px] items-center gap-3 border-b border-line-subtle px-5 py-2 hover:bg-hover max-md:grid-cols-[minmax(0,1fr)_auto]",
-        !s.active && "opacity-60",
+        !s.active && "text-muted",
       )}
     >
       <span className="num text-[12px] text-muted max-md:hidden">

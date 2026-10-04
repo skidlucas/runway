@@ -18,7 +18,7 @@ export const cx = clsx
 type ButtonVariant = "primary" | "secondary" | "ghost" | "danger" | "inverse"
 
 const buttonVariants: Record<ButtonVariant, string> = {
-  primary: "bg-accent text-white hover:bg-accent-hover font-medium",
+  primary: "bg-accent-solid text-white hover:bg-accent-solid-hover font-medium",
   secondary: "border border-line-control text-fg-2 hover:bg-hover hover:text-fg",
   ghost: "text-muted hover:bg-hover hover:text-fg",
   danger: "border border-negative/40 text-negative hover:bg-negative-soft",
@@ -318,7 +318,7 @@ export function Calendar({ value, onSelect, min, max }: { value: Day | ""; onSel
               onClick={() => onSelect(day)}
               className={cx(
                 "num h-8 rounded-[6px] text-[12px] outline-none transition-colors focus-visible:ring-2 focus-visible:ring-accent-line disabled:opacity-30",
-                selected ? "bg-accent font-medium text-white" : "text-fg-2 hover:bg-hover",
+                selected ? "bg-accent-solid font-medium text-white" : "text-fg-2 hover:bg-hover",
                 !selected && day === today && "font-medium text-accent",
               )}
             >
@@ -455,7 +455,7 @@ export const Switch = ({
     onCheckedChange={(c) => onCheckedChange(c)}
     aria-label={label}
     disabled={disabled}
-    className="relative inline-flex h-[18px] w-[30px] shrink-0 items-center rounded-full bg-bar transition-colors duration-[120ms] data-[checked]:bg-accent data-[disabled]:opacity-50"
+    className="relative inline-flex h-[18px] w-[30px] shrink-0 items-center rounded-full bg-control-off transition-colors duration-[120ms] data-[checked]:bg-accent data-[disabled]:opacity-50"
   >
     <BSwitch.Thumb className="block h-[14px] w-[14px] translate-x-[2px] rounded-full bg-white transition-transform duration-[120ms] data-[checked]:translate-x-[14px]" />
   </BSwitch.Root>
@@ -474,7 +474,7 @@ export const Checkbox = ({
     checked={checked}
     onCheckedChange={(c) => onCheckedChange(c)}
     aria-label={label}
-    className="flex h-4 w-4 shrink-0 items-center justify-center rounded-[4px] border border-line-strong data-[checked]:border-accent data-[checked]:bg-accent"
+    className="flex h-4 w-4 shrink-0 items-center justify-center rounded-[4px] border border-control-off data-[checked]:border-accent data-[checked]:bg-accent"
   >
     <BCheckbox.Indicator>
       <Check size={11} strokeWidth={2.5} className="text-white" />

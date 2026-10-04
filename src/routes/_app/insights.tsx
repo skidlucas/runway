@@ -521,7 +521,7 @@ function AiPanel({ mobile }: { mobile?: boolean }) {
               </span>
             </div>
           ))}
-          <p className={cx("pb-4 pt-2 text-[11px] text-ghost", mobile ? "px-5" : "px-[18px]")}>
+          <p className={cx("pb-4 pt-2 text-[11px] text-faint", mobile ? "px-5" : "px-[18px]")}>
             Rédigé par {ai.data?.model ?? "l'IA"} à partir de tes chiffres ; peut se tromper.
           </p>
         </div>

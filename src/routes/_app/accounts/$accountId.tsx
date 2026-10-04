@@ -778,7 +778,7 @@ const TransactionRow = React.memo(function TransactionRow({
         {tx.reconciled ? (
           <Lock size={11} className="text-faint" />
         ) : (
-          <span className={cx("h-2 w-2 rounded-full border", tx.cleared ? "border-positive bg-positive" : "border-line-strong")} />
+          <span className={cx("h-2 w-2 rounded-full border", tx.cleared ? "border-positive bg-positive" : "border-control-off")} />
         )}
       </button>
       <Menu
@@ -1080,7 +1080,7 @@ function SwipeRow({
               setOffset(0)
               a.run()
             }}
-            className={cx("w-24 text-[13px] font-medium text-white", a.tone === "danger" ? "bg-[var(--negative)]" : "bg-accent")}
+            className={cx("w-24 text-[13px] font-medium text-white", a.tone === "danger" ? "bg-negative-solid" : "bg-accent-solid")}
           >
             {a.label}
           </button>

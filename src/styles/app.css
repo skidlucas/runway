@@ -23,14 +23,18 @@
   --border-subtle: rgba(255, 255, 255, 0.04);
   --border-control: rgba(255, 255, 255, 0.1);
   --border-strong: rgba(255, 255, 255, 0.16);
+  /* Outline of an unchecked checkbox or switch: must stand out 3:1 from the surface. */
+  --control-off: rgba(255, 255, 255, 0.38);
   --text: #e6e7ea;
   --text-2: #c3c6cc;
   --text-3: #9ba0a9;
   --text-muted: #8a8f98;
-  --text-faint: #6b707a;
+  --text-faint: #7d828c;
   --text-ghost: #4b4f57;
   --accent: oklch(0.62 0.17 275);
-  --accent-hover: oklch(0.66 0.17 275);
+  /* Fills that carry white text (primary button, selected day): darker than --accent in both themes for 4.5:1. */
+  --accent-solid: oklch(0.55 0.18 275);
+  --accent-solid-hover: oklch(0.5 0.18 275);
   --accent-soft-bg: oklch(0.62 0.17 275 / 0.14);
   --accent-soft-border: oklch(0.62 0.17 275 / 0.35);
   --accent-text: #b8bdf5;
@@ -40,6 +44,7 @@
   --positive-bg: oklch(0.72 0.14 155 / 0.13);
   --negative: oklch(0.78 0.13 25);
   --negative-bg: oklch(0.68 0.16 25 / 0.16);
+  --negative-solid: oklch(0.55 0.17 25);
   --warning: oklch(0.82 0.12 70);
   --warning-bg: oklch(0.75 0.14 70 / 0.12);
   --warning-border: oklch(0.75 0.14 70 / 0.25);
@@ -72,14 +77,14 @@
   --border-subtle: #f0f0f3;
   --border-control: #dcdde3;
   --border-strong: #c9cad0;
+  --control-off: #868b94;
   --text: #17181b;
   --text-2: #2c2e33;
   --text-3: #55585f;
-  --text-muted: #6b707a;
-  --text-faint: #8a8f98;
+  --text-muted: #5f636b;
+  --text-faint: #6b707a;
   --text-ghost: #b4b7be;
   --accent: oklch(0.55 0.18 275);
-  --accent-hover: oklch(0.5 0.18 275);
   --accent-soft-bg: oklch(0.62 0.17 275 / 0.1);
   --accent-soft-border: oklch(0.62 0.17 275 / 0.3);
   --accent-text: oklch(0.45 0.17 275);
@@ -115,6 +120,7 @@
   --color-line-subtle: var(--border-subtle);
   --color-line-control: var(--border-control);
   --color-line-strong: var(--border-strong);
+  --color-control-off: var(--control-off);
   --color-fg: var(--text);
   --color-fg-2: var(--text-2);
   --color-fg-3: var(--text-3);
@@ -122,7 +128,8 @@
   --color-faint: var(--text-faint);
   --color-ghost: var(--text-ghost);
   --color-accent: var(--accent);
-  --color-accent-hover: var(--accent-hover);
+  --color-accent-solid: var(--accent-solid);
+  --color-accent-solid-hover: var(--accent-solid-hover);
   --color-accent-soft: var(--accent-soft-bg);
   --color-accent-line: var(--accent-soft-border);
   --color-accent-fg: var(--accent-text);
@@ -130,6 +137,7 @@
   --color-positive-soft: var(--positive-bg);
   --color-negative: var(--negative);
   --color-negative-soft: var(--negative-bg);
+  --color-negative-solid: var(--negative-solid);
   --color-warning: var(--warning);
   --color-warning-soft: var(--warning-bg);
   --color-warning-line: var(--warning-border);
@@ -187,12 +195,13 @@ body {
 }
 
 :focus-visible {
-  outline: 2px solid oklch(0.62 0.17 275 / 0.6);
+  outline: 2px solid var(--accent);
   outline-offset: 1px;
 }
 
 ::selection {
-  background: oklch(0.62 0.17 275 / 0.35);
+  background: var(--accent-solid);
+  color: #fff;
 }
 
 /* Amounts fade from the old to the new value instead of counting up. */

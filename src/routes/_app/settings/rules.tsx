@@ -151,14 +151,14 @@ function RuleRow({
   const remove = useAction(deleteRule, { success: "Règle supprimée" })
   const apply = useAction(applyRule, { success: (n) => `${count(n, "opération")} ${plural(n, "mise")} à jour` })
   return (
-    <div data-testid="rule-row" className={cx("group flex items-center gap-3 border-t border-line-subtle px-5 py-2.5 hover:bg-hover", !rule.enabled && "opacity-50")}>
+    <div data-testid="rule-row" className={cx("group flex items-center gap-3 border-t border-line-subtle px-5 py-2.5 hover:bg-hover", !rule.enabled && "text-muted")}>
       <Switch
         checked={rule.enabled}
         label="Activer la règle"
         onCheckedChange={(enabled) => update.mutate({ data: { id: rule.id, rule: { ...rule, enabled } } })}
       />
       <button type="button" onClick={onEdit} className="flex min-w-0 flex-1 flex-col text-left">
-        <span className="truncate text-fg-2">{text.conditions},</span>
+        <span className={cx("truncate", rule.enabled && "text-fg-2")}>{text.conditions},</span>
         <span className="truncate">{text.actions}.</span>
       </button>
       {rule.origin !== "manual" ? <Chip>{rule.origin === "imported" ? "importée" : "suggérée"}</Chip> : null}
