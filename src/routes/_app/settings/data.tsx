@@ -359,16 +359,14 @@ function BundleImportDialog({ fileName, bundle, onClose }: { fileName: string; b
 function BankImportDialog({ pending, onClose }: { pending: Extract<Pending, { kind: "bank" }>; onClose: () => void }) {
   const client = useQueryClient()
   const accounts = useQuery(q.accounts())
-  const [accountId, setAccountId] = React.useState("")
+  const [chosenAccountId, setAccountId] = React.useState("")
+  const accountId = chosenAccountId || (accounts.data?.find((a) => !a.closed)?.id ?? "")
   const guessed = React.useMemo(() => (pending.rows ? guessCsvMapping(pending.rows) : null), [pending.rows])
   const [mapping, setMapping] = React.useState<CsvMapping | null>(guessed?.mapping ?? null)
   const [applyRules, setApplyRules] = React.useState(true)
   const [running, setRunning] = React.useState(false)
   const [progress, setProgress] = React.useState<{ done: number; total: number } | null>(null)
 
-  React.useEffect(() => {
-    if (!accountId && accounts.data?.length) setAccountId(accounts.data.find((a) => !a.closed)?.id ?? "")
-  }, [accounts.data, accountId])
 
   const parsed = React.useMemo(() => {
     if (pending.parsed) return pending.parsed

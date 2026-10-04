@@ -57,7 +57,9 @@ export function ScheduleDialog({
     : (initial ?? {})
   const [name, setName] = React.useState(base.name ?? "")
   const [payee, setPayee] = React.useState<PayeeValue>(base.payee ?? { kind: "none" })
-  const [accountId, setAccountId] = React.useState(base.accountId ?? "")
+  const accounts = useQuery(q.accounts())
+  const [chosenAccountId, setAccountId] = React.useState(base.accountId ?? "")
+  const accountId = chosenAccountId || ((accounts.data?.find((a) => !a.closed && !a.offBudget) ?? accounts.data?.[0])?.id ?? "")
   const [categoryId, setCategoryId] = React.useState<string | null>(base.categoryId ?? null)
   const [kind, setKind] = React.useState<"expense" | "income">((base.amount ?? -1) > 0 ? "income" : "expense")
   const [amount, setAmount] = React.useState(base.amount ? amountInput(Math.abs(base.amount)) : "")
@@ -72,12 +74,6 @@ export function ScheduleDialog({
   const [endDate, setEndDate] = React.useState(schedule?.endDate ?? "")
   const [autoPost, setAutoPost] = React.useState(schedule?.autoPost ?? false)
 
-  const accounts = useQuery(q.accounts())
-  React.useEffect(() => {
-    if (accountId) return
-    const first = accounts.data?.find((a) => !a.closed && !a.offBudget) ?? accounts.data?.[0]
-    if (first) setAccountId(first.id)
-  }, [accountId, accounts.data])
 
   const create = useAction(createSchedule, { success: "Échéance créée", onSuccess: onClose })
   const update = useAction(updateSchedule, { success: "Échéance modifiée", onSuccess: onClose })

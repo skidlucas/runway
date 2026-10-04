@@ -290,9 +290,12 @@ function SaveViewDialog({
   defaultName: string
 }) {
   const [name, setName] = React.useState(defaultName)
-  React.useEffect(() => {
+  // The name is suggested on each opening only: a refetch while typing must not overwrite it.
+  const [wasOpen, setWasOpen] = React.useState(open)
+  if (open !== wasOpen) {
+    setWasOpen(open)
     if (open) setName(defaultName)
-  }, [open, defaultName])
+  }
   const save = useAction((input: { name: string; config: InsightViewConfig }) => saveView({ data: input }), {
     success: "Vue enregistrée",
     onSuccess: () => onOpenChange(false),

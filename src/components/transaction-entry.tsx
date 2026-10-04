@@ -43,11 +43,14 @@ function useEntryState(open: boolean, defaults: EntryDefaults) {
     }),
     [defaults.accountId, defaults.categoryId, firstAccount?.id, today],
   )
-  const [draft, setDraft] = React.useState<Draft>(blank)
-
-  React.useEffect(() => {
+  const [stored, setDraft] = React.useState<Draft>(blank)
+  // Each opening starts from a blank draft; data that loads while the form is open never resets it.
+  const [wasOpen, setWasOpen] = React.useState(open)
+  if (open !== wasOpen) {
+    setWasOpen(open)
     if (open) setDraft(blank())
-  }, [open, blank])
+  }
+  const draft = stored.accountId || !firstAccount ? stored : { ...stored, accountId: firstAccount.id }
 
   const month = monthOf(draft.date || today)
   const budget = useQuery({ ...q.budget(month), enabled: open })
@@ -127,7 +130,7 @@ export function TransactionEntry({
     if (!submitQueued) return
     setSubmitQueued(false)
     submit()
-  })
+  }, [submitQueued])
 
   if (mobile) {
     return (
