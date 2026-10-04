@@ -78,6 +78,7 @@ const setAsideNeed = (lines: ReadonlyArray<PlannedLine>, saved: number) => {
   for (const line of lines) {
     cumulated += line.amount
     const months = line.monthsLeft ?? 1
+    // Due this month: the exact amount, not rounded up to the euro like a monthly share.
     need = Math.max(need, months === 1 ? cumulated - saved : ceilToEuro((cumulated - saved) / months))
   }
   return need

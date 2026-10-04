@@ -41,6 +41,7 @@ export type BudgetMonth = {
   /** Signed sum of expense activity (negative when money was spent). */
   readonly totalActivity: number
   readonly totalAvailable: number
+  /** Income held for next month: taken out of this month's `toBudget`, added to next month's. */
   readonly buffered: number
   readonly toBudget: number
 }

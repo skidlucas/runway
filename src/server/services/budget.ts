@@ -50,6 +50,7 @@ export type BudgetMonthDto = {
   available: number
   fromLastMonth: number
   lastMonthOverspent: number
+  /** Income held for next month: taken out of this month's `toBudget`, added to next month's. */
   buffered: number
   overspentCount: number
   uncategorized: { count: number; amount: number }
@@ -159,6 +160,7 @@ export class Budget extends Context.Service<
          AND (t.payee_id IS NULL OR t.payee_id IN (
            SELECT p.id FROM payees p LEFT JOIN accounts o ON o.id = p.transfer_account_id
            WHERE p.transfer_account_id IS NULL OR o.off_budget = 1))`
+      // YNAB averages the age over the last 10 outflows.
       const AGE_SAMPLE = 10
 
       const ageAt = (until: Day) =>
@@ -224,7 +226,7 @@ export class Budget extends Context.Service<
             .first<{ count: number; amount: number }>(),
         )
 
-      const monthAge = Effect.fn("Budget.ageOfMoney")(function* (m: Month) {
+      const ageOfMoneyIn = Effect.fn("Budget.ageOfMoney")(function* (m: Month) {
         yield* checkMonth(m)
         const today = yield* settings.today
         return yield* ageAt(lastDay(m) < today ? lastDay(m) : today)
@@ -362,6 +364,7 @@ export class Budget extends Context.Service<
             case "spent":
               return [c.id, Math.max(0, -(months.get(m)?.categories.get(c.id)?.activity ?? 0))]
             case "average": {
+              // The budget page offers 3, 6 and 12 months; the API accepts more but averages two years at most.
               const n = Math.min(Math.max(mode.months, 1), 24)
               let total = 0
               for (let i = 1; i <= n; i++) total += months.get(addMonths(m, -i))?.categories.get(c.id)?.activity ?? 0
@@ -399,7 +402,7 @@ export class Budget extends Context.Service<
         )
       })
 
-      return Budget.of({ compute, month, ageOfMoney: monthAge, setAmount, setCarryover, fill, move })
+      return Budget.of({ compute, month, ageOfMoney: ageOfMoneyIn, setAmount, setCarryover, fill, move })
     }),
   )
 }

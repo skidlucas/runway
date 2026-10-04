@@ -83,11 +83,11 @@ export const isAutomaticSource = (source: { kind: string } | null) =>
 
 export type WealthChange = { amount: number; ratio: number | null; since: Month }
 
-/** From the first month holding something to `now`; null when there is no earlier month to compare with. */
-export const historyChange = (history: ReadonlyArray<number>, months: ReadonlyArray<Month>, now: number): WealthChange | null => {
+/** From the first month holding something to `currentValue`; null when there is no earlier month to compare with. */
+export const historyChange = (history: ReadonlyArray<number>, months: ReadonlyArray<Month>, currentValue: number): WealthChange | null => {
   const first = history.findIndex((v) => v !== 0)
   if (first === -1 || first === history.length - 1) return null
-  return { amount: now - history[first]!, ratio: relativeChange(history[first]!, now), since: months[first]! }
+  return { amount: currentValue - history[first]!, ratio: relativeChange(history[first]!, currentValue), since: months[first]! }
 }
 
 export type AssetValues = {

@@ -59,7 +59,7 @@ const STAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/
 const isAccountKind = Schema.is(AccountKind)
 const isRecurrence = Schema.is(Recurrence)
 
-type DedupeKey = {
+type DedupeFields = {
   account: string
   date: string
   amount: number
@@ -68,8 +68,8 @@ type DedupeKey = {
   importedPayee?: string | null
 }
 
-const signature = (k: DedupeKey) => `${k.account}|${k.date}|${k.amount}|${k.payee ?? ""}`
-const labelSignature = (k: DedupeKey, label: string) => `${k.account}|${k.date}|${k.amount}|label:${label.trim()}`
+const dedupeKey = (k: DedupeFields) => `${k.account}|${k.date}|${k.amount}|${k.payee ?? ""}`
+const labelDedupeKey = (k: DedupeFields, label: string) => `${k.account}|${k.date}|${k.amount}|label:${label.trim()}`
 
 /**
  * Decides which incoming rows already exist, for the import and for its preview alike.
@@ -78,17 +78,17 @@ const labelSignature = (k: DedupeKey, label: string) => `${k.account}|${k.date}|
  * is matched on that label (a rule may have renamed its payee since), and a known bank id always
  * marks a duplicate. Each call to the returned function consumes the existing row it matched.
  */
-const duplicateMatcher = (existing: Iterable<DedupeKey>) => {
+const duplicateMatcher = (existing: Iterable<DedupeFields>) => {
   const counts = new Map<string, number>()
   const bankIds = new Set<string>()
   for (const x of existing) {
-    const key = x.importedPayee ? labelSignature(x, x.importedPayee) : signature(x)
+    const key = x.importedPayee ? labelDedupeKey(x, x.importedPayee) : dedupeKey(x)
     counts.set(key, (counts.get(key) ?? 0) + 1)
     if (x.importedId) bankIds.add(`${x.account}|${x.importedId}`)
   }
-  return (row: DedupeKey) => {
-    const byLabel = row.importedPayee ? labelSignature(row, row.importedPayee) : null
-    const key = byLabel && counts.get(byLabel) ? byLabel : signature(row)
+  return (row: DedupeFields) => {
+    const byLabel = row.importedPayee ? labelDedupeKey(row, row.importedPayee) : null
+    const key = byLabel && counts.get(byLabel) ? byLabel : dedupeKey(row)
     const left = counts.get(key) ?? 0
     if (left > 0) counts.set(key, left - 1)
     return left > 0 || (row.importedId ? bankIds.has(`${row.account}|${row.importedId}`) : false)
@@ -490,7 +490,7 @@ export class ImportExport extends Context.Service<
                 JSON.stringify([...new Set(top.map((r) => r.accountId))]),
                 JSON.stringify(top.flatMap((r) => (r.importedId ? [r.importedId] : []))),
               )
-              .all<DedupeKey>()
+              .all<DedupeFields>()
             return results
           })
           const isDuplicate = duplicateMatcher(existing)
@@ -690,12 +690,12 @@ export class ImportExport extends Context.Service<
               JSON.stringify(accountIds),
               JSON.stringify(probes.flatMap((p) => (p.importedId ? [p.importedId] : []))),
             )
-            .all<DedupeKey & { id: string }>()
+            .all<DedupeFields & { id: string }>()
           return results
         })
         // The preview runs before the file's accounts and payees are matched to ids: it compares
         // names, the way the import will match them.
-        const byName = (k: DedupeKey): DedupeKey => ({ ...k, account: normalizeText(k.account), payee: normalizeText(k.payee ?? "") })
+        const byName = (k: DedupeFields): DedupeFields => ({ ...k, account: normalizeText(k.account), payee: normalizeText(k.payee ?? "") })
         const ids = new Set(existing.map((e) => e.id))
         const isDuplicate = duplicateMatcher(existing.map(byName))
         let n = 0

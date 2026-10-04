@@ -272,7 +272,7 @@ export class Schedules extends Context.Service<
         return id
       })
 
-      const readable = (row: Row) =>
+      const requireReadableRecurrence = (row: Row) =>
         isRecurrence(row.recurrence)
           ? Effect.succeed(row)
           : Effect.fail(new Invalid({ message: "Le rythme enregistré de cette échéance est illisible : redéfinis-le" }))
@@ -345,7 +345,7 @@ export class Schedules extends Context.Service<
       }
 
       const skip = Effect.fn("Schedules.skip")(function* (id: string) {
-        const row = yield* find(id).pipe(Effect.flatMap(readable))
+        const row = yield* find(id).pipe(Effect.flatMap(requireReadableRecurrence))
         if (!row.active) return
         const next = advance(row, row.nextDate)
         yield* db.use((_, d1) =>
@@ -445,7 +445,7 @@ export class Schedules extends Context.Service<
 
       const post = Effect.fn("Schedules.post")(function* (id: string, date?: Day) {
         if (date !== undefined && !isDay(date)) return yield* new Invalid({ message: "Date invalide" })
-        const row = yield* find(id).pipe(Effect.flatMap(readable))
+        const row = yield* find(id).pipe(Effect.flatMap(requireReadableRecurrence))
         if (!row.active) return yield* new Invalid({ message: "Cette échéance est terminée" })
         const today = yield* settings.today
         const posts = [date ?? (row.nextDate <= today ? row.nextDate : today)]
