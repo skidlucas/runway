@@ -229,5 +229,7 @@ describe("Wealth", () => {
     expect(after.netWorth).toBe(before.netWorth + 400_00)
     expect(after.history.slice(0, 10)).toEqual(before.history.slice(0, 10).map((v) => v + 400_00))
     expect(after.history[12]).toBe(after.netWorth)
+    expect(after.closed).toEqual([{ type: "investment", history: expect.arrayContaining([400_00, 0]) }])
+    expect(after.closed[0]!.history[0]).toBe(400_00)
   })
 })

@@ -69,6 +69,8 @@ export type WealthOverview = {
   allocation: AllocationSlice[]
   history: number[]
   items: WealthItem[]
+  /** Closed accounts, left out of `items` but still counted in the months they held money. */
+  closed: Array<{ type: AssetType; history: number[] }>
   /** Some automatic estimates are out of date: the page refreshes them in the background. */
   needsRefresh: boolean
 }
@@ -293,7 +295,7 @@ export class Wealth extends Context.Service<
           else monthlyByAccount.set(r.accountId, [r])
         }
         // A closed account leaves the list but still counts in the months it held money.
-        const closedHistories: number[][] = []
+        const closed: WealthOverview["closed"] = []
         for (const account of accountData.accounts) {
           let running = account.opening
           let i = 0
@@ -303,11 +305,11 @@ export class Wealth extends Context.Service<
             while (i < sums.length && sums[i]!.month <= m) running += sums[i++]!.total
             return running
           })
+          const type: AssetType = account.kind === "investment" ? "investment" : "cash"
           if (account.closed) {
-            closedHistories.push(history)
+            closed.push({ type, history })
             continue
           }
-          const type: AssetType = account.kind === "investment" ? "investment" : "cash"
           items.push({
             id: account.id,
             kind: "account",
@@ -330,7 +332,7 @@ export class Wealth extends Context.Service<
         }
 
         const history = months.map(
-          (_, i) => items.reduce((sum, item) => sum + item.history[i]!, 0) + closedHistories.reduce((sum, h) => sum + h[i]!, 0),
+          (_, i) => items.reduce((sum, item) => sum + item.history[i]!, 0) + closed.reduce((sum, c) => sum + c.history[i]!, 0),
         )
         const netWorth = items.reduce((sum, item) => sum + item.value, 0)
         const change = historyChange(history, months, netWorth)
@@ -342,6 +344,7 @@ export class Wealth extends Context.Service<
           allocation: allocation(items),
           history,
           items,
+          closed,
           needsRefresh: rows.some((a) => refreshDue(a.source, lastAuto.get(a.id) ?? null, today)),
         } satisfies WealthOverview
       }).pipe(Effect.withSpan("Wealth.overview"))

@@ -142,7 +142,7 @@ function WealthPage() {
                 className="pt-1"
               />
             ) : null}
-            {type ? <TypeSummary type={type} items={shown} months={data.months} /> : <Summary data={data} />}
+            {type ? <TypeSummary type={type} items={shown} closed={data.closed.filter((c) => c.type === type)} months={data.months} /> : <Summary data={data} />}
             {shown.length === 0 ? (
               <EmptyState
                 title="Aucun bien pour l'instant."
@@ -194,9 +194,19 @@ function Change({ change, months, className }: { change: WealthChange | null; mo
   )
 }
 
-function TypeSummary({ type, items, months }: { type: AssetType; items: ReadonlyArray<WealthItem>; months: ReadonlyArray<Month> }) {
+function TypeSummary({
+  type,
+  items,
+  closed,
+  months,
+}: {
+  type: AssetType
+  items: ReadonlyArray<WealthItem>
+  closed: WealthOverview["closed"]
+  months: ReadonlyArray<Month>
+}) {
   const total = items.reduce((sum, i) => sum + i.value, 0)
-  const history = months.map((_, m) => items.reduce((sum, i) => sum + i.history[m]!, 0))
+  const history = months.map((_, m) => [...items, ...closed].reduce((sum, i) => sum + i.history[m]!, 0))
   return (
     <div className="flex items-baseline gap-3 border-b border-line px-5 pb-4 pt-5">
       <span className="num text-[30px] font-medium tracking-[-0.02em]">{euros(total)}</span>
