@@ -11,9 +11,10 @@ import {
   latestOn,
   loanBalance,
   type RetainedKind,
-  relativeChange,
+  historyChange,
   retainedValueAt,
   type WealthBucket,
+  type WealthChange,
 } from "~/domain/wealth"
 import { bulkInsertStatements, Db, type DbError, newId } from "../db/client"
 import { assets, assetValuations, type ValuationSource } from "../db/schema"
@@ -64,7 +65,7 @@ export type WealthOverview = {
    * Change over the history window, measured from its first non-zero month: with less than a
    * year of data, "since March" is honest where "over 12 months" would compare against nothing.
    */
-  change: { amount: number; ratio: number | null; since: Month } | null
+  change: WealthChange | null
   allocation: AllocationSlice[]
   history: number[]
   items: WealthItem[]
@@ -332,11 +333,7 @@ export class Wealth extends Context.Service<
           (_, i) => items.reduce((sum, item) => sum + item.history[i]!, 0) + closedHistories.reduce((sum, h) => sum + h[i]!, 0),
         )
         const netWorth = items.reduce((sum, item) => sum + item.value, 0)
-        const first = history.findIndex((v) => v !== 0)
-        const change =
-          first === -1 || first === history.length - 1
-            ? null
-            : { amount: netWorth - history[first]!, ratio: relativeChange(history[first]!, netWorth), since: months[first]! }
+        const change = historyChange(history, months, netWorth)
         return {
           today,
           months,

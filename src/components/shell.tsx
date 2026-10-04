@@ -16,6 +16,7 @@ import {
 } from "lucide-react"
 import * as React from "react"
 import { formatMoney } from "~/domain/money"
+import { assetTypeTotals, TYPE_PLURAL_LABELS } from "~/domain/wealth"
 import { q } from "~/lib/queries"
 import { Logo } from "./logo"
 import { cx, Kbd } from "./ui"
@@ -76,6 +77,7 @@ export function Sidebar() {
 
       <AccountSection title="Comptes" accounts={budgeted} path={path} />
       {tracked.length > 0 ? <AccountSection title="Hors budget" accounts={tracked} path={path} /> : null}
+      <AssetTypeSection path={path} />
 
       <div className="mt-auto flex flex-col gap-px">
         <SidebarLink
@@ -84,6 +86,44 @@ export function Sidebar() {
         />
       </div>
     </aside>
+  )
+}
+
+function AssetTypeSection({ path }: { path: string }) {
+  const wealth = useQuery(q.wealth())
+  const activeType = useRouterState({ select: (s) => (s.location.search as { type?: string }).type })
+  const types = assetTypeTotals(wealth.data?.items ?? [])
+  if (types.length === 0) return null
+  return (
+    <div className="flex flex-col gap-px max-[1100px]:hidden">
+      <div className="flex items-center justify-between px-2 py-1">
+        <Link to="/wealth" className="text-[11px] font-medium text-faint hover:text-fg-3">
+          Biens
+        </Link>
+        <Link to="/wealth" search={{ new: true }} className="text-faint hover:text-fg" aria-label="Ajouter un bien">
+          <Plus size={13} />
+        </Link>
+      </div>
+      {types.map((t) => {
+        const active = path === "/wealth" && activeType === t.type
+        return (
+          <Link
+            key={t.type}
+            to="/wealth"
+            search={{ type: t.type }}
+            className={cx(
+              "flex items-center justify-between gap-2 rounded-[6px] px-2 py-1.5 transition-colors duration-[120ms]",
+              active ? "bg-active text-fg" : "text-fg-2 hover:bg-hover",
+            )}
+          >
+            <span className="truncate">{TYPE_PLURAL_LABELS[t.type]}</span>
+            <span className={cx("num shrink-0 text-[12px]", t.total < 0 ? "text-negative" : "text-muted")}>
+              {formatMoney(t.total, { decimals: 0 })}
+            </span>
+          </Link>
+        )
+      })}
+    </div>
   )
 }
 

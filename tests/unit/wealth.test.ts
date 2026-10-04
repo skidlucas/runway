@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest"
 import {
   allocation,
+  assetTypeTotals,
   type AssetValues,
+  historyChange,
   latestOn,
   loanBalance,
   loanEndMonth,
@@ -116,5 +118,35 @@ describe("relativeChange", () => {
     expect(relativeChange(0, 10)).toBeNull()
     expect(relativeChange(100, 104.2)).toBeCloseTo(0.042)
     expect(relativeChange(-100, -50)).toBeCloseTo(0.5)
+  })
+})
+
+describe("assetTypeTotals", () => {
+  it("sums assets by type in a fixed order, leaving accounts and empty types out", () => {
+    const totals = assetTypeTotals([
+      { kind: "asset", type: "crypto", value: 7_000_00 },
+      { kind: "asset", type: "loan", value: -150_000_00 },
+      { kind: "account", type: "investment", value: 40_000_00 },
+      { kind: "asset", type: "crypto", value: 1_500_00 },
+      { kind: "asset", type: "real_estate", value: 250_000_00 },
+    ])
+    expect(totals).toEqual([
+      { type: "real_estate", total: 250_000_00, count: 1 },
+      { type: "loan", total: -150_000_00, count: 1 },
+      { type: "crypto", total: 8_500_00, count: 2 },
+    ])
+  })
+})
+
+describe("historyChange", () => {
+  const months = ["2026-01", "2026-02", "2026-03"]
+
+  it("compares now with the first month holding something", () => {
+    expect(historyChange([0, 100_00, 150_00], months, 150_00)).toEqual({ amount: 50_00, ratio: 0.5, since: "2026-02" })
+  })
+
+  it("is null without an earlier month to compare with", () => {
+    expect(historyChange([0, 0, 0], months, 0)).toBeNull()
+    expect(historyChange([0, 0, 150_00], months, 150_00)).toBeNull()
   })
 })

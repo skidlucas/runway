@@ -33,6 +33,21 @@ test("adds a manual asset and switches its retained value", async ({ page }) => 
   await expect.poll(async () => cents(await netWorth.innerText())).toBe(before + 10_200_00)
 })
 
+test("the sidebar sums assets by type and opens the page on that type", async ({ page }) => {
+  await open(page, "/budget")
+  const sidebar = page.getByRole("complementary").first()
+  await expect(sidebar.getByRole("link", { name: /^Montres/ })).toContainText("10 200 €")
+  await sidebar.getByRole("link", { name: /^Montres/ }).click()
+  await expect(page).toHaveURL(/\/wealth\?type=watch/)
+  await expect(page.getByTestId("asset-row")).toHaveCount(1)
+  await page.getByRole("tab", { name: "Tout" }).click()
+  await expect(page).not.toHaveURL(/type=/)
+  await expect(page.getByTestId("net-worth")).toBeVisible()
+
+  await sidebar.getByRole("link", { name: "Ajouter un bien" }).click()
+  await expect(page.getByRole("dialog", { name: "Ajouter un bien" })).toBeVisible()
+})
+
 test("adds a loan and nets it against real estate", async ({ page }) => {
   await open(page, "/wealth")
   const netWorth = visible(page.getByTestId("net-worth"))

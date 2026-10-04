@@ -2,7 +2,7 @@
 // picks which one counts. Amounts are positive cents; liabilities are subtracted by the caller
 // through `signed`.
 
-import { type Day, lastDay, monthOf, parseDay } from "./dates"
+import { type Day, lastDay, type Month, monthOf, parseDay } from "./dates"
 
 export type AssetType = "real_estate" | "investment" | "crypto" | "vehicle" | "watch" | "art" | "cash" | "loan" | "other"
 export type RetainedKind = "purchase" | "declared" | "estimated"
@@ -41,6 +41,43 @@ export const TYPE_LABELS: Record<AssetType, string> = {
   cash: "Liquidités",
   loan: "Emprunt",
   other: "Autre",
+}
+
+export const TYPE_PLURAL_LABELS: Record<AssetType, string> = {
+  real_estate: "Immobilier",
+  investment: "Placements",
+  crypto: "Crypto",
+  vehicle: "Véhicules",
+  watch: "Montres",
+  art: "Art",
+  cash: "Liquidités",
+  loan: "Emprunts",
+  other: "Autres",
+}
+
+export const TYPE_ORDER: ReadonlyArray<AssetType> = ["real_estate", "loan", "investment", "crypto", "vehicle", "watch", "art", "cash", "other"]
+
+/** Assets (accounts left out) summed by type, in `TYPE_ORDER`; values are signed, so loans are negative. */
+export const assetTypeTotals = (items: ReadonlyArray<{ kind: "asset" | "account"; type: AssetType; value: number }>) => {
+  const totals = new Map<AssetType, { total: number; count: number }>()
+  for (const item of items) {
+    if (item.kind !== "asset") continue
+    const t = totals.get(item.type) ?? { total: 0, count: 0 }
+    totals.set(item.type, { total: t.total + item.value, count: t.count + 1 })
+  }
+  return TYPE_ORDER.flatMap((type) => {
+    const t = totals.get(type)
+    return t ? [{ type, ...t }] : []
+  })
+}
+
+export type WealthChange = { amount: number; ratio: number | null; since: Month }
+
+/** From the first month holding something to `now`; null when there is no earlier month to compare with. */
+export const historyChange = (history: ReadonlyArray<number>, months: ReadonlyArray<Month>, now: number): WealthChange | null => {
+  const first = history.findIndex((v) => v !== 0)
+  if (first === -1 || first === history.length - 1) return null
+  return { amount: now - history[first]!, ratio: relativeChange(history[first]!, now), since: months[first]! }
 }
 
 export type AssetValues = {

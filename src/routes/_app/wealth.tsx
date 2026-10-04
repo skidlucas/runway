@@ -1,20 +1,26 @@
 import { useQuery } from "@tanstack/react-query"
-import { createFileRoute, Link } from "@tanstack/react-router"
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router"
 import { MoreHorizontal, Pencil, Plus, RefreshCw, Trash2 } from "lucide-react"
 import * as React from "react"
 import { AssetDialog } from "~/components/asset-dialog"
 import { PageHeader } from "~/components/shell"
 import { toast } from "~/components/toast"
-import { Button, cx, DateInput, EmptyState, IconButton, Input, Menu, Money, Sheet, SkeletonRows } from "~/components/ui"
+import { Button, cx, DateInput, EmptyState, IconButton, Input, Menu, Money, Sheet, SkeletonRows, Tabs } from "~/components/ui"
 import { formatDayLong, formatDayShort, formatMonthLong, formatMonthShort, type Month } from "~/domain/dates"
 import { formatMoney, formatPercent, parseAmount } from "~/domain/money"
 import {
   type AllocationSlice,
+  type AssetType,
+  assetTypeTotals,
+  historyChange,
   loanEndMonth,
   loanMonthlyPayment,
   type RetainedKind,
   TYPE_LABELS,
+  TYPE_ORDER,
+  TYPE_PLURAL_LABELS,
   type WealthBucket,
+  type WealthChange,
 } from "~/domain/wealth"
 import { localToday, useIsMobile } from "~/lib/hooks"
 import { q, useAction } from "~/lib/queries"
@@ -22,7 +28,16 @@ import { addAssetValuation, deleteAsset, refreshValuations, updateAsset } from "
 import type { WealthItem, WealthOverview } from "~/server/services/wealth"
 import { count, plural } from "~/domain/text"
 
+/** `type` narrows the page to one kind of asset; `new` opens the dialog to add one. */
+type Search = { type?: AssetType; new?: boolean }
+
+const isAssetType = (v: unknown): v is AssetType => TYPE_ORDER.includes(v as AssetType)
+
 export const Route = createFileRoute("/_app/wealth")({
+  validateSearch: (s: Record<string, unknown>): Search => ({
+    ...(isAssetType(s.type) ? { type: s.type } : {}),
+    ...(s.new ? { new: true } : {}),
+  }),
   loader: ({ context }) => context.queryClient.ensureQueryData(q.wealth()),
   component: WealthPage,
 })
@@ -51,12 +66,18 @@ const sortItems = (items: ReadonlyArray<WealthItem>) =>
 
 function WealthPage() {
   const wealth = useQuery(q.wealth())
+  const search = Route.useSearch()
+  const navigate = useNavigate({ from: "/wealth" })
   const mobile = useIsMobile()
   const [selectedId, setSelectedId] = React.useState<string | null>(null)
   const [dialog, setDialog] = React.useState<null | { item: WealthItem | null }>(null)
   const data = wealth.data
   const items = React.useMemo(() => sortItems(data?.items ?? []), [data])
-  const selected = items.find((i) => i.id === selectedId) ?? items.find((i) => i.kind === "asset") ?? items[0] ?? null
+  const type = mobile ? undefined : search.type
+  const shown = type ? items.filter((i) => i.kind === "asset" && i.type === type) : items
+  const selected = shown.find((i) => i.id === selectedId) ?? shown.find((i) => i.kind === "asset") ?? shown[0] ?? null
+  const types = assetTypeTotals(items)
+  const editing = dialog ?? (search.new ? { item: null } : null)
 
   const refresh = useAction(refreshValuations, { invalidates: ["wealth"] })
   // Automatic estimates are fetched lazily, once per visit, when some are out of date.
@@ -111,8 +132,17 @@ function WealthPage() {
       ) : (
         <div className="grid min-h-[calc(100vh-48px)] grid-cols-[minmax(0,1fr)_340px] max-[1100px]:grid-cols-1">
           <div className="flex min-w-0 flex-col border-r border-line max-[1100px]:border-r-0">
-            <Summary data={data} />
-            {items.length === 0 ? (
+            {types.length > 0 ? (
+              <Tabs
+                label="Type de bien"
+                value={type ?? "all"}
+                onChange={(v) => void navigate({ search: v === "all" ? {} : { type: v } })}
+                items={[{ value: "all" as const, label: "Tout" }, ...types.map((t) => ({ value: t.type, label: TYPE_PLURAL_LABELS[t.type] }))]}
+                className="pt-1"
+              />
+            ) : null}
+            {type ? <TypeSummary type={type} items={shown} months={data.months} /> : <Summary data={data} />}
+            {shown.length === 0 ? (
               <EmptyState
                 title="Aucun bien pour l'instant."
                 action={
@@ -122,7 +152,7 @@ function WealthPage() {
                 }
               />
             ) : (
-              <AssetTable items={items} selectedId={selected?.id ?? null} onSelect={(i) => setSelectedId(i.id)} today={data.today} />
+              <AssetTable items={shown} selectedId={selected?.id ?? null} onSelect={(i) => setSelectedId(i.id)} today={data.today} />
             )}
           </div>
           <aside className="bg-panel max-[1100px]:border-t max-[1100px]:border-line">
@@ -130,8 +160,15 @@ function WealthPage() {
           </aside>
         </div>
       )}
-      {dialog ? (
-        <AssetDialog item={dialog.item} onClose={() => setDialog(null)} onSaved={(id) => setSelectedId(id)} />
+      {editing ? (
+        <AssetDialog
+          item={editing.item}
+          onClose={() => {
+            setDialog(null)
+            if (search.new) void navigate({ search: { type: search.type } })
+          }}
+          onSaved={(id) => setSelectedId(id)}
+        />
       ) : null}
     </>
   )
@@ -142,10 +179,10 @@ const isAutomaticSource = (item: WealthItem) =>
 
 // --- Summary ---------------------------------------------------------------------
 
-function Change({ data, className }: { data: WealthOverview; className?: string }) {
-  if (!data.change) return null
-  const { amount, ratio, since } = data.change
-  const period = since === data.months[0] ? "sur 12 mois" : `depuis ${formatMonthShort(since).replace(".", "")}`
+function Change({ change, months, className }: { change: WealthChange | null; months: ReadonlyArray<Month>; className?: string }) {
+  if (!change) return null
+  const { amount, ratio, since } = change
+  const period = since === months[0] ? "sur 12 mois" : `depuis ${formatMonthShort(since).replace(".", "")}`
   if (amount === 0) return <span className={cx("text-muted", className)}>Stable {period}</span>
   return (
     <span className={cx(amount > 0 ? "text-positive" : "text-negative", className)}>
@@ -153,6 +190,18 @@ function Change({ data, className }: { data: WealthOverview; className?: string 
       {/* Against a near-empty starting point the ratio (+1 500 %) says nothing. */}
       {ratio !== null && Math.abs(ratio) < 10 ? ` · ${formatPercent(ratio, { sign: true })}` : ""} {period}
     </span>
+  )
+}
+
+function TypeSummary({ type, items, months }: { type: AssetType; items: ReadonlyArray<WealthItem>; months: ReadonlyArray<Month> }) {
+  const total = items.reduce((sum, i) => sum + i.value, 0)
+  const history = months.map((_, m) => items.reduce((sum, i) => sum + i.history[m]!, 0))
+  return (
+    <div className="flex items-baseline gap-3 border-b border-line px-5 pb-4 pt-5">
+      <span className="num text-[30px] font-medium tracking-[-0.02em]">{euros(total)}</span>
+      <Change change={historyChange(history, months, total)} months={months} />
+      <span className="ml-auto text-faint">{TYPE_PLURAL_LABELS[type]}</span>
+    </div>
   )
 }
 
@@ -175,7 +224,7 @@ function Summary({ data }: { data: WealthOverview }) {
         <span className="num text-[30px] font-medium tracking-[-0.02em]" data-testid="net-worth">
           {euros(data.netWorth)}
         </span>
-        <Change data={data} />
+        <Change change={data.change} months={data.months} />
         <span className="ml-auto text-faint">Patrimoine net</span>
       </div>
       <AllocationBar slices={data.allocation} />
@@ -504,7 +553,7 @@ function MobileWealth({
     <div className="flex flex-col pb-8">
       <span className="px-5 pt-2 text-[13px] text-muted">Patrimoine net</span>
       <span className="num px-5 pt-1 text-[36px] font-medium tracking-[-0.03em]">{euros(data.netWorth)}</span>
-      <Change data={data} className="px-5 pt-1 text-[13px]" />
+      <Change change={data.change} months={data.months} className="px-5 pt-1 text-[13px]" />
       <AllocationBar slices={data.allocation} className="mx-5 mt-4" />
       <div className="mt-4 flex gap-1.5 overflow-x-auto px-5 text-[13px]">
         {MOBILE_FILTERS.filter((f) => f.value === "all" || present.has(f.value)).map((f) => (
