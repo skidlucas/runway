@@ -81,6 +81,10 @@ export const transactions = sqliteTable(
     transferId: text("transfer_id"),
     // Split transactions: the parent carries the total, children carry the categories.
     // Budget aggregates must skip parents to avoid double counting.
+    // A split is a parent row holding the bank amount plus child lines (parent_id set) that carry
+    // the categories. Queries pick their side once: `is_parent = 0` keeps the lines (what the
+    // budget reads, categories and amounts), `parent_id IS NULL` keeps the bank rows (balances,
+    // the register, duplicates and transfers). Both add up to the same total.
     isParent: integer("is_parent", { mode: "boolean" }).notNull().default(false),
     parentId: text("parent_id"),
     importedId: text("imported_id"),
