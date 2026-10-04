@@ -13,12 +13,12 @@ import {
   type PayeeTotal,
 } from "~/domain/insights"
 import { Db, type DbError, newId } from "../db/client"
-import { COUNTS_FOR_BUDGET } from "../db/predicates"
+import { BUDGET_LINE, COUNTS_FOR_BUDGET } from "../db/predicates"
 import { dashboards, type InsightViewConfig, savedViews } from "../db/schema"
 import { type ExternalError, Invalid, NotFound } from "../errors"
 import { normalizeText } from "~/domain/rules"
 import { Ai } from "./ai"
-import { Budget } from "./budget"
+import { Categories } from "./categories"
 import { Schedules } from "./schedules"
 import { Settings } from "./settings"
 
@@ -109,7 +109,7 @@ export class Insights extends Context.Service<
     Effect.gen(function* () {
       const db = yield* Db
       const settings = yield* Settings
-      const budget = yield* Budget
+      const categoriesService = yield* Categories
       const schedules = yield* Schedules
       const ai = yield* Ai
 
@@ -131,6 +131,23 @@ export class Insights extends Context.Service<
           .pipe(Effect.map((row) => row?.name ?? MISSING_TARGET[target.kind]))
       }
 
+      // What the budget engine reports as budgeted: the budget rows of expense categories (it
+      // reads income categories as never budgeted).
+      const budgetedIn = (month: Month, target: Exclude<InsightQuery["target"], { kind: "payee" }>) =>
+        db
+          .use((_, d1) =>
+            d1
+              .prepare(
+                `SELECT COALESCE(SUM(b.amount), 0) AS amount FROM budgets b
+                 JOIN categories c ON c.id = b.category_id JOIN category_groups g ON g.id = c.group_id
+                 WHERE b.month = ? AND c.is_income = 0
+                   AND ${target.kind === "category" ? "c.id = ?" : target.kind === "group" ? "g.is_income = 0 AND g.id = ?" : "g.is_income = 0"}`,
+              )
+              .bind(month, ...(target.kind === "all" ? [] : [target.id]))
+              .first<{ amount: number }>(),
+          )
+          .pipe(Effect.map((row) => row?.amount ?? 0))
+
       const view = Effect.fn("Insights.view")(function* (query: InsightQuery) {
         yield* validate(query)
         const today = yield* settings.today
@@ -143,7 +160,7 @@ export class Insights extends Context.Service<
         const dayOfMonth = parseDay(today).d
         const breakdownBy = query.target.kind === "payee" ? "category" : "payee"
 
-        const [label, raw, computed] = yield* Effect.all([
+        const [label, raw, budgetAmount] = yield* Effect.all([
           targetLabel(query),
           db.use(async (_, d1) => {
             const [series, breakdown] = await d1.batch([
@@ -178,20 +195,8 @@ export class Insights extends Context.Service<
               breakdown: (breakdown?.results ?? []) as BreakdownRow[],
             }
           }),
-          query.measure === "expenses" && query.target.kind !== "payee" ? budget.compute(month) : Effect.succeed(null),
+          query.measure === "expenses" && query.target.kind !== "payee" ? budgetedIn(month, query.target) : Effect.succeed(null),
         ], { concurrency: "unbounded" })
-
-        let budgetAmount: number | null = null
-        if (computed) {
-          const cells = computed.months.get(month)?.categories
-          const ids =
-            query.target.kind === "category"
-              ? [query.target.id]
-              : computed.tree
-                  .filter((g) => !g.isIncome && (query.target.kind === "all" || g.id === (query.target as { id: string }).id))
-                  .flatMap((g) => g.categories.map((c) => c.id))
-          budgetAmount = ids.reduce((s, id) => s + (cells?.get(id)?.budgeted ?? 0), 0)
-        }
 
         const byMonth = new Map(raw.series.map((r) => [r.month, r]))
         const totals: MonthTotals[] = months.map((m) => {
@@ -217,9 +222,9 @@ export class Insights extends Context.Service<
         const expense = measureSql("expenses")
         const dayOfMonth = parseDay(today).d
 
-        const [raw, computed, suggestions] = yield* Effect.all([
+        const [raw, tree, suggestions] = yield* Effect.all([
           db.use(async (_, d1) => {
-            const [series, payeesByCategory, topPayees, monthTotal] = await d1.batch([
+            const [series, payeesByCategory, topPayees, monthTotal, budgets, income] = await d1.batch([
               d1
                 .prepare(
                   `SELECT substr(t.date, 1, 7) AS month, t.category_id AS categoryId, SUM(-t.amount) AS total,
@@ -253,15 +258,26 @@ export class Insights extends Context.Service<
                    WHERE ${COMMON_WHERE} AND t.date BETWEEN ? AND ? AND ${expense.where}`,
                 )
                 .bind(`${month}-01`, lastDay(month)),
+              d1.prepare("SELECT month, category_id AS categoryId, amount FROM budgets WHERE month BETWEEN ? AND ?").bind(first, month),
+              // The budget's income: what its income categories received this month.
+              d1
+                .prepare(
+                  `SELECT COALESCE(SUM(t.amount), 0) AS total FROM transactions t
+                   JOIN accounts a ON a.id = t.account_id JOIN categories c ON c.id = t.category_id
+                   WHERE ${BUDGET_LINE} AND c.is_income = 1 AND t.date BETWEEN ? AND ?`,
+                )
+                .bind(`${month}-01`, lastDay(month)),
             ])
             return {
               series: (series?.results ?? []) as Array<{ month: string; categoryId: string; total: number; toDate: number; count: number }>,
               payeesByCategory: (payeesByCategory?.results ?? []) as Array<{ categoryId: string; name: string; amount: number }>,
               topPayees: (topPayees?.results ?? []) as PayeeTotal[],
               monthTotal: ((monthTotal?.results?.[0] as { total: number } | undefined)?.total ?? 0) as number,
+              budgets: (budgets?.results ?? []) as Array<{ month: Month; categoryId: string; amount: number }>,
+              income: ((income?.results?.[0] as { total: number } | undefined)?.total ?? 0) as number,
             }
           }),
-          budget.compute(month),
+          categoriesService.tree,
           schedules.suggestions,
         ], { concurrency: "unbounded" })
 
@@ -277,16 +293,20 @@ export class Insights extends Context.Service<
           if (!current || r.amount > current.amount) topPayee.set(r.categoryId, { name: r.name, amount: r.amount })
         }
 
-        const categories: CategoryInsightInput[] = computed.tree
+        const budgeted = new Map(raw.budgets.map((b) => [`${b.month}|${b.categoryId}`, b.amount]))
+        // Income categories are never budgeted, as in the budget engine.
+        const budgetedOf = (m: Month, c: { id: string; isIncome: boolean }) => (c.isIncome ? 0 : (budgeted.get(`${m}|${c.id}`) ?? 0))
+
+        const categories: CategoryInsightInput[] = tree
           .filter((g) => !g.isIncome)
           .flatMap((g) => g.categories)
-          .filter((c) => series.has(c.id) || (computed.months.get(month)?.categories.get(c.id)?.budgeted ?? 0) > 0)
+          .filter((c) => series.has(c.id) || budgetedOf(month, c) > 0)
           .map((c) => {
             const rows = series.get(c.id)
             return {
               id: c.id,
               name: c.name,
-              budgeted: computed.months.get(month)?.categories.get(c.id)?.budgeted ?? 0,
+              budgeted: budgetedOf(month, c),
               topPayee: topPayee.get(c.id) ?? null,
               history: months.map((m) => {
                 const r = rows?.get(m)
@@ -295,7 +315,7 @@ export class Insights extends Context.Service<
                   total: r?.total ?? 0,
                   toDate: r?.toDate ?? 0,
                   count: r?.count ?? 0,
-                  budgeted: computed.months.get(m)?.categories.get(c.id)?.budgeted ?? 0,
+                  budgeted: budgetedOf(m, c),
                 }
               }),
             }
@@ -319,7 +339,7 @@ export class Insights extends Context.Service<
           topPayees: raw.topPayees.filter((p) => p.amount > 0),
           monthTotal: raw.monthTotal,
           newRecurring,
-          income: computed.months.get(month)?.income ?? 0,
+          income: raw.income,
         }
       })
 

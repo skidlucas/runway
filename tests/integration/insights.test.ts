@@ -81,8 +81,10 @@ describe("insights view", () => {
     )
     expect(group.periodTotal).toBe(34_000)
     expect(group.average).toBeNull()
+    expect(group.budget).toBe(12_000)
     const all = await h.run(Insights.use((s) => s.view({ measure: "expenses", target: { kind: "all" }, months: 6, rolling: 0 })))
     expect(all.periodTotal).toBe(3 * 45_000 + 4000)
+    expect(all.budget).toBe(12_000)
     const income = await h.run(Insights.use((s) => s.view({ measure: "income", target: { kind: "all" }, months: 6, rolling: 0 })))
     expect(income.periodTotal).toBe(0)
 
