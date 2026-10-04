@@ -122,19 +122,24 @@ describe("relativeChange", () => {
 })
 
 describe("assetTypeTotals", () => {
+  const items = [
+    { kind: "asset", type: "crypto", value: 7_000_00 },
+    { kind: "asset", type: "loan", value: -150_000_00 },
+    { kind: "account", type: "investment", value: 40_000_00 },
+    { kind: "asset", type: "crypto", value: 1_500_00 },
+    { kind: "asset", type: "real_estate", value: 250_000_00 },
+  ] as const
+
   it("sums assets by type in a fixed order, leaving accounts and empty types out", () => {
-    const totals = assetTypeTotals([
-      { kind: "asset", type: "crypto", value: 7_000_00 },
-      { kind: "asset", type: "loan", value: -150_000_00 },
-      { kind: "account", type: "investment", value: 40_000_00 },
-      { kind: "asset", type: "crypto", value: 1_500_00 },
-      { kind: "asset", type: "real_estate", value: 250_000_00 },
-    ])
-    expect(totals).toEqual([
+    expect(assetTypeTotals(items, { accounts: false })).toEqual([
       { type: "real_estate", total: 250_000_00, count: 1 },
       { type: "loan", total: -150_000_00, count: 1 },
       { type: "crypto", total: 8_500_00, count: 2 },
     ])
+  })
+
+  it("counts accounts under their type when asked", () => {
+    expect(assetTypeTotals(items, { accounts: true }).map((t) => t.type)).toEqual(["real_estate", "loan", "investment", "crypto"])
   })
 })
 

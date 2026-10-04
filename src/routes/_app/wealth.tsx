@@ -74,9 +74,9 @@ function WealthPage() {
   const data = wealth.data
   const items = React.useMemo(() => sortItems(data?.items ?? []), [data])
   const type = mobile ? undefined : search.type
-  const shown = type ? items.filter((i) => i.kind === "asset" && i.type === type) : items
+  const shown = type ? items.filter((i) => i.type === type) : items
   const selected = shown.find((i) => i.id === selectedId) ?? shown.find((i) => i.kind === "asset") ?? shown[0] ?? null
-  const types = assetTypeTotals(items)
+  const types = assetTypeTotals(items, { accounts: true })
   const editing = dialog ?? (search.new ? { item: null } : null)
 
   const refresh = useAction(refreshValuations, { invalidates: ["wealth"] })

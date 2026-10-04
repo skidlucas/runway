@@ -57,11 +57,14 @@ export const TYPE_PLURAL_LABELS: Record<AssetType, string> = {
 
 export const TYPE_ORDER: ReadonlyArray<AssetType> = ["real_estate", "loan", "investment", "crypto", "vehicle", "watch", "art", "cash", "other"]
 
-/** Assets (accounts left out) summed by type, in `TYPE_ORDER`; values are signed, so loans are negative. */
-export const assetTypeTotals = (items: ReadonlyArray<{ kind: "asset" | "account"; type: AssetType; value: number }>) => {
+/** Items summed by type, in `TYPE_ORDER`; values are signed, so loans are negative. */
+export const assetTypeTotals = (
+  items: ReadonlyArray<{ kind: "asset" | "account"; type: AssetType; value: number }>,
+  { accounts }: { accounts: boolean },
+) => {
   const totals = new Map<AssetType, { total: number; count: number }>()
   for (const item of items) {
-    if (item.kind !== "asset") continue
+    if (!accounts && item.kind !== "asset") continue
     const t = totals.get(item.type) ?? { total: 0, count: 0 }
     totals.set(item.type, { total: t.total + item.value, count: t.count + 1 })
   }
