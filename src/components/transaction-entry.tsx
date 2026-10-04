@@ -28,7 +28,7 @@ type Draft = {
 function useEntryState(open: boolean, defaults: EntryDefaults) {
   const today = useToday()
   const accounts = useQuery(q.accounts())
-  const payees = useQuery({ ...q.payees(), enabled: open })
+  const payees = useQuery({ ...q.payeeNames(), enabled: open })
   const firstAccount = (accounts.data ?? []).find((a) => !a.closed && !a.offBudget) ?? accounts.data?.[0]
   const blank = React.useCallback(
     (): Draft => ({

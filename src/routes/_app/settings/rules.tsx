@@ -20,7 +20,7 @@ export const Route = createFileRoute("/_app/settings/rules")({
 
 const useNames = () => {
   const categories = useQuery(q.categories())
-  const payees = useQuery(q.payees())
+  const payees = useQuery(q.payeeNames())
   const accounts = useQuery(q.accounts())
   return React.useMemo(() => {
     const cats = new Map((categories.data ?? []).flatMap((g) => g.categories.map((c) => [c.id, c.name] as const)))

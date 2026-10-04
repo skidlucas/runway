@@ -4,6 +4,7 @@ import {
   getAgeOfMoney,
   getBudgetMonth,
   getCategories,
+  getPayeeNames,
   getPayees,
   getRules,
   getRuleSuggestions,
@@ -32,7 +33,9 @@ const REPORT_STALE = 5 * 60_000
 export const q = {
   accounts: () => queryOptions({ queryKey: ["accounts"], queryFn: () => getAccounts() }),
   categories: () => queryOptions({ queryKey: ["categories"], queryFn: () => getCategories() }),
+  /** Payees with their usage counts, which read every transaction. */
   payees: () => queryOptions({ queryKey: ["payees"], queryFn: () => getPayees() }),
+  payeeNames: () => queryOptions({ queryKey: ["payeeNames"], queryFn: () => getPayeeNames() }),
   budget: (month: string) =>
     queryOptions({ queryKey: ["budget", month], queryFn: () => getBudgetMonth({ data: { month } }) }),
   ageOfMoney: (month: string) =>

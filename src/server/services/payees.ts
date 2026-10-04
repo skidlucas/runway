@@ -6,20 +6,30 @@ import { payees, rules } from "../db/schema"
 import { Invalid, NotFound } from "../errors"
 import { retargetViews } from "./saved-views"
 
-export type PayeeDto = {
+export type PayeeNameDto = {
   id: string
   name: string
   transferAccountId: string | null
-  transactionCount: number
   lastCategoryId: string | null
+}
+
+export type PayeeDto = PayeeNameDto & {
+  transactionCount: number
   lastUsed: string | null
 }
+
+// A payee's last category, read from the end of its (payee, date) index: a few rows per payee.
+const LAST_CATEGORY = `(SELECT t2.category_id FROM transactions t2
+  WHERE t2.payee_id = p.id AND t2.category_id IS NOT NULL
+  ORDER BY t2.date DESC LIMIT 1)`
 
 export class Payees extends Context.Service<
   Payees,
   {
     /** Every payee, with usage stats. Transfer payees are named after their account. */
     readonly list: Effect.Effect<PayeeDto[], DbError>
+    /** Every payee without the usage counts, which read every transaction: what pickers need. */
+    readonly names: Effect.Effect<PayeeNameDto[], DbError>
     /** Finds payees by name (case and accent insensitive) and creates the missing ones, in bulk. */
     resolveNames(names: ReadonlyArray<string>): Effect.Effect<Map<string, string>, DbError>
     rename(id: string, name: string): Effect.Effect<void, DbError | Invalid | NotFound>
@@ -40,10 +50,7 @@ export class Payees extends Context.Service<
         const { results } = await d1
           .prepare(
             `SELECT p.id, COALESCE(a.name, p.name) AS name, p.transfer_account_id AS transferAccountId,
-                    COUNT(t.id) AS transactionCount, MAX(t.date) AS lastUsed,
-                    (SELECT t2.category_id FROM transactions t2
-                      WHERE t2.payee_id = p.id AND t2.category_id IS NOT NULL
-                      ORDER BY t2.date DESC LIMIT 1) AS lastCategoryId
+                    COUNT(t.id) AS transactionCount, MAX(t.date) AS lastUsed, ${LAST_CATEGORY} AS lastCategoryId
              FROM payees p
              LEFT JOIN accounts a ON a.id = p.transfer_account_id
              LEFT JOIN transactions t ON t.payee_id = p.id AND t.is_parent = 0
@@ -51,6 +58,18 @@ export class Payees extends Context.Service<
              ORDER BY p.transfer_account_id IS NOT NULL, name COLLATE NOCASE`,
           )
           .all<PayeeDto>()
+        return results
+      })
+
+      const names = db.use(async (_, d1) => {
+        const { results } = await d1
+          .prepare(
+            `SELECT p.id, COALESCE(a.name, p.name) AS name, p.transfer_account_id AS transferAccountId, ${LAST_CATEGORY} AS lastCategoryId
+             FROM payees p
+             LEFT JOIN accounts a ON a.id = p.transfer_account_id
+             ORDER BY p.transfer_account_id IS NOT NULL, name COLLATE NOCASE`,
+          )
+          .all<PayeeNameDto>()
         return results
       })
 
@@ -181,7 +200,7 @@ export class Payees extends Context.Service<
       const suggestCategory = (payeeId: string) =>
         suggestCategories([payeeId]).pipe(Effect.map((found) => found.get(payeeId) ?? null))
 
-      return Payees.of({ list, resolveNames, rename, merge, deleteUnused, suggestCategory, suggestCategories })
+      return Payees.of({ list, names, resolveNames, rename, merge, deleteUnused, suggestCategory, suggestCategories })
     }),
   )
 }

@@ -133,6 +133,10 @@ export const getPayees = createServerFn({ method: "GET" })
   .middleware([authMiddleware])
   .handler(() => runApp(Payees.use((s) => s.list)))
 
+export const getPayeeNames = createServerFn({ method: "GET" })
+  .middleware([authMiddleware])
+  .handler(() => runApp(Payees.use((s) => s.names)))
+
 export const renamePayee = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
   .validator(v(Schema.Struct({ id: Id, name: Name })))

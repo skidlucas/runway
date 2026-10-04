@@ -218,7 +218,7 @@ function PayeeOptions({
   onPick: (value: PayeeValue) => void
   currentAccountId: string | undefined
 }) {
-  const payees = useQuery(q.payees())
+  const payees = useQuery(q.payeeNames())
   const accounts = useQuery(q.accounts())
   const [search, setSearch] = React.useState("")
   const indexed = React.useMemo(

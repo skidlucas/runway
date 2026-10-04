@@ -173,6 +173,13 @@ describe("core flows on D1", () => {
     }
   })
 
+  it("lists payee names with their last category, as the full payee list does", async () => {
+    const full = await h.run(Payees.use((p) => p.list))
+    const names = await h.run(Payees.use((p) => p.names))
+    expect(names).toEqual(full.map(({ id, name, transferAccountId, lastCategoryId }) => ({ id, name, transferAccountId, lastCategoryId })))
+    expect(names.some((p) => p.lastCategoryId !== null)).toBe(true)
+  })
+
   it("reconciles an account and books the difference", async () => {
     await h.run(Transactions.use((t) => t.list({ accountId: ids.checking })).pipe(Effect.flatMap((p) => Transactions.use((t) => t.setCleared(p.rows.map((r) => r.id), true)))))
     const before = (await h.run(Accounts.use((a) => a.list))).find((a) => a.id === ids.checking)!
