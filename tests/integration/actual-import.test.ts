@@ -144,10 +144,12 @@ describe("Actual import", () => {
       const cats = new Map(got.groups.flatMap((g) => g.categories.map((c) => [c.name, c] as const)))
       for (const [name, c] of Object.entries(exp.categories)) {
         const mine = cats.get(name)
-        if (!mine || mine.isIncome) continue
-        expect(mine.budgeted, `${month} ${name} budgeted`).toBe(c.budgeted)
-        expect(-mine.spent, `${month} ${name} spent`).toBe(c.spent)
-        expect(mine.available, `${month} ${name} balance`).toBe(c.balance)
+        expect(mine, `${month} ${name}`).toBeDefined()
+        // Actual's income rows hold no budgeted, spent or balance: the month's income is checked above.
+        if (mine!.isIncome) continue
+        expect(mine!.budgeted, `${month} ${name} budgeted`).toBe(c.budgeted)
+        expect(-mine!.spent, `${month} ${name} spent`).toBe(c.spent)
+        expect(mine!.available, `${month} ${name} balance`).toBe(c.balance)
       }
     }
   })
