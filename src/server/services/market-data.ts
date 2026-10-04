@@ -22,7 +22,6 @@ export class MarketData extends Context.Service<
   {
     /** Euros per unit, by CoinGecko id. Unknown ids are missing from the map. */
     cryptoPrices(ids: ReadonlyArray<string>): Effect.Effect<Map<string, number>, ExternalError>
-    /** Euros per unit (converted from the quote currency), by Yahoo symbol. */
     /** Euro price of each symbol, or why it could not be priced (unknown symbol, Yahoo down, no exchange rate). */
     quotes(symbols: ReadonlyArray<string>): Effect.Effect<Map<string, Result.Result<number, ExternalError>>>
     dvfPricePerM2(inseeCode: string, propertyType: "apartment" | "house"): Effect.Effect<DvfPrice, ExternalError>
@@ -87,15 +86,15 @@ export const makeLiveMarketData = (fetchFn: typeof fetch): MarketData["Service"]
 
   const Chart = Schema.Struct({
     chart: Schema.Struct({
-      result: Schema.NullOr(Schema.Array(Schema.Struct({ meta: Schema.Struct({ currency: Schema.String, regularMarketPrice: Schema.Number }) }))),
+      result: Schema.NullOr(Schema.Array(Schema.Struct({ meta: Schema.Struct({ currency: Schema.String, regularMarketPrice: Schema.optional(Schema.Number) }) }))),
     }),
   })
   const rawQuote = (symbol: string) =>
     getJson("Yahoo Finance", `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?range=1d&interval=1d`, Chart).pipe(
       Effect.flatMap((body) => {
         const meta = body.chart.result?.[0]?.meta
-        return meta && typeof meta.regularMarketPrice === "number"
-          ? Effect.succeed(meta)
+        return meta?.regularMarketPrice !== undefined
+          ? Effect.succeed({ currency: meta.currency, price: meta.regularMarketPrice })
           : Effect.fail(new ExternalError({ service: "Yahoo Finance", message: `Cours introuvable pour ${symbol}` }))
       }),
     )
@@ -107,7 +106,7 @@ export const makeLiveMarketData = (fetchFn: typeof fetch): MarketData["Service"]
   const euroRates = (currencies: ReadonlyArray<string>) =>
     Effect.forEach(
       [...new Set(currencies)].filter((c) => c !== "EUR"),
-      (c) => rawQuote(`${c}EUR=X`).pipe(Effect.map((fx) => fx.regularMarketPrice), Effect.result, Effect.map((r) => [c, r] as const)),
+      (c) => rawQuote(`${c}EUR=X`).pipe(Effect.map((fx) => fx.price), Effect.result, Effect.map((r) => [c, r] as const)),
       { concurrency: 3 },
     ).pipe(Effect.map((found) => new Map<string, Result.Result<number, ExternalError>>([["EUR", Result.succeed(1)], ...found])))
 
@@ -124,7 +123,7 @@ export const makeLiveMarketData = (fetchFn: typeof fetch): MarketData["Service"]
         if (rate === undefined || rate._tag === "Failure") {
           return [symbol, Result.fail(new ExternalError({ service: "Yahoo Finance", message: `Taux de change ${currency} → EUR indisponible` }))]
         }
-        return [symbol, Result.succeed(meta.success.regularMarketPrice * factor * rate.success)]
+        return [symbol, Result.succeed(meta.success.price * factor * rate.success)]
       }),
     )
   })
