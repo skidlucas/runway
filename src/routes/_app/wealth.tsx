@@ -29,7 +29,7 @@ import {
 import { localToday, useIsMobile } from "~/lib/hooks"
 import { q, useAction } from "~/lib/queries"
 import { addAssetValuation, deleteAsset, refreshValuations, updateAsset } from "~/server/fns/wealth"
-import type { WealthItem, WealthOverview } from "~/server/services/wealth"
+import type { RefreshResult, WealthItem, WealthOverview } from "~/server/services/wealth"
 import { count, plural } from "~/domain/text"
 
 /** `type` narrows the page to one kind of asset; `new` opens the dialog to add one. */
@@ -96,18 +96,7 @@ function WealthPage() {
   }, [data?.needsRefresh, refresh])
 
   const refreshAll = () =>
-    refresh.mutate(
-      { data: { ids: items.filter((i) => i.source && isAutomaticSource(i)).map((i) => i.id) } },
-      {
-        onSuccess: (r) =>
-          toast(
-            r.failures.length === 0
-              ? `${count(r.updated, "estimation")} ${plural(r.updated, "mise")} à jour`
-              : `${r.updated} à jour · échec pour ${r.failures.map((f) => f.name).join(", ")} : ${r.failures[0]!.message}`,
-            { duration: r.failures.length ? 7000 : 3500 },
-          ),
-      },
-    )
+    refresh.mutate({ data: { ids: items.filter((i) => i.source && isAutomaticSource(i)).map((i) => i.id) } }, { onSuccess: toastRefresh })
 
   return (
     <>
@@ -185,6 +174,14 @@ function WealthPage() {
     </>
   )
 }
+
+const toastRefresh = (r: RefreshResult) =>
+  toast(
+    r.failures.length === 0
+      ? `${count(r.updated, "estimation")} ${plural(r.updated, "mise")} à jour`
+      : `${r.updated} à jour · échec pour ${r.failures.map((f) => f.name).join(", ")} : ${r.failures[0]!.message}`,
+    { duration: r.failures.length ? 7000 : 3500 },
+  )
 
 const isAutomaticSource = (item: WealthItem) =>
   item.source?.kind === "crypto" || item.source?.kind === "stock" || item.source?.kind === "real_estate"
@@ -375,6 +372,7 @@ function Detail({ item, months, today, onEdit }: { item: WealthItem; months: Mon
   const remove = useAction(deleteAsset, { success: "Bien supprimé", invalidates: ["wealth"] })
   const { confirm, dialog: confirmDialog } = useConfirm()
   const setRetained = useAction(updateAsset, { success: "Valeur retenue modifiée", invalidates: ["wealth"] })
+  const refresh = useAction(refreshValuations, { invalidates: ["wealth"] })
   const isAsset = item.kind === "asset"
   const shared = item.share !== FULL_SHARE
   const purchase = item.purchase ? applyShare(item.purchase.amount, item.share) : null
@@ -423,6 +421,16 @@ function Detail({ item, months, today, onEdit }: { item: WealthItem; months: Mon
     <div className="flex flex-col" data-testid="asset-detail">
       <div className="flex h-12 items-center gap-2 border-b border-line px-[18px]">
         <span className="min-w-0 flex-1 truncate font-medium" title={item.name}>{item.name}</span>
+        {isAutomaticSource(item) ? (
+          <IconButton
+            label="Mettre à jour l'estimation"
+            size="sm"
+            onClick={() => refresh.mutate({ data: { ids: [item.id] } }, { onSuccess: toastRefresh })}
+            disabled={refresh.isPending}
+          >
+            <RefreshCw size={14} className={cx(refresh.isPending && "animate-spin")} />
+          </IconButton>
+        ) : null}
         {isAsset ? (
           <Menu
             trigger={
