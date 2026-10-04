@@ -101,7 +101,7 @@ export const ruleProblem = (rule: {
   if (rule.conditions.length === 0) return "Ajoute au moins une condition"
   if (rule.actions.length === 0) return "Ajoute au moins une action"
   for (const c of rule.conditions) {
-    if (!RULE_OPS_BY_FIELD[c.field].includes(c.op) || !valueFits(c)) return `Condition impossible sur ${FIELD_LABEL[c.field]}`
+    if (!RULE_OPS_BY_FIELD[c.field].includes(c.op) || !valueFits(c)) return `Condition impossible sur ${RULE_FIELD_LABELS[c.field]}`
     if (c.op === "matches") {
       const problem = patternProblem(c.value as string)
       if (problem) return problem
@@ -239,7 +239,7 @@ export type RuleNames = {
   account: (id: string) => string | undefined
 }
 
-const FIELD_LABEL: Record<RuleConditionField, string> = {
+export const RULE_FIELD_LABELS: Record<RuleConditionField, string> = {
   payee: "le bénéficiaire",
   imported_payee: "le libellé bancaire",
   notes: "la note",
@@ -247,30 +247,31 @@ const FIELD_LABEL: Record<RuleConditionField, string> = {
   account: "le compte",
 }
 
+const OP_LABELS: Record<RuleConditionOp, string> = {
+  is: "est",
+  contains: "contient",
+  starts_with: "commence par",
+  matches: "correspond à",
+  gt: "dépasse",
+  lt: "est inférieur à",
+  between: "est entre",
+}
+
+/** The operator as it reads after the field: "le montant vaut", "le bénéficiaire est". */
+export const ruleOpLabel = (field: RuleConditionField, op: RuleConditionOp): string =>
+  field === "amount" && op === "is" ? "vaut" : OP_LABELS[op]
+
 const describeCondition = (c: RuleCondition, names: RuleNames): string => {
-  const field = FIELD_LABEL[c.field]
-  if (c.field === "account") return `${field} est « ${names.account(String(c.value)) ?? "?"} »`
+  const subject = `${RULE_FIELD_LABELS[c.field]} ${ruleOpLabel(c.field, c.op)}`
+  if (c.field === "account") return `${subject} « ${names.account(String(c.value)) ?? "?"} »`
   if (c.field === "amount") {
     if (c.op === "between" && Array.isArray(c.value)) {
       const [min, max] = c.value as readonly [number, number]
-      return `${field} est entre ${formatMoney(min)} et ${formatMoney(max)}`
+      return `${subject} ${formatMoney(min)} et ${formatMoney(max)}`
     }
-    const v = formatMoney(Number(c.value))
-    return c.op === "gt" ? `${field} dépasse ${v}` : c.op === "lt" ? `${field} est inférieur à ${v}` : `${field} vaut ${v}`
+    return `${subject} ${formatMoney(Number(c.value))}`
   }
-  const v = `« ${String(c.value)} »`
-  switch (c.op) {
-    case "is":
-      return `${field} est ${v}`
-    case "contains":
-      return `${field} contient ${v}`
-    case "starts_with":
-      return `${field} commence par ${v}`
-    case "matches":
-      return `${field} correspond à ${v}`
-    default:
-      return `${field} ${c.op} ${v}`
-  }
+  return `${subject} « ${String(c.value)} »`
 }
 
 const describeAction = (a: RuleAction, names: RuleNames): string => {

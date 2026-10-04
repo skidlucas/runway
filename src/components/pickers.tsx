@@ -162,6 +162,7 @@ export function PayeePicker({
   triggerClassName,
   placeholder = "Bénéficiaire",
   variant = "field",
+  transfers = true,
 }: {
   value: PayeeValue
   onChange: (value: PayeeValue) => void
@@ -170,6 +171,8 @@ export function PayeePicker({
   triggerClassName?: string
   placeholder?: string
   variant?: "field" | "inline"
+  /** Offers the other accounts, to turn the operation into a transfer. */
+  transfers?: boolean
 }) {
   const [open, setOpen] = React.useState(false)
   const label = payeeLabel(value)
@@ -198,7 +201,7 @@ export function PayeePicker({
           </button>
         }
       >
-        <PayeeOptions value={value} onPick={pick} currentAccountId={currentAccountId} />
+        <PayeeOptions value={value} onPick={pick} currentAccountId={currentAccountId} transfers={transfers} />
       </Popover>
     </div>
   )
@@ -213,10 +216,12 @@ function PayeeOptions({
   value,
   onPick,
   currentAccountId,
+  transfers,
 }: {
   value: PayeeValue
   onPick: (value: PayeeValue) => void
   currentAccountId: string | undefined
+  transfers: boolean
 }) {
   const payees = useQuery(q.payeeNames())
   const accounts = useQuery(q.accounts())
@@ -229,9 +234,11 @@ function PayeeOptions({
   const parts = needle.split(" ").filter(Boolean)
   const matches = parts.length === 0 ? indexed : indexed.filter((p) => parts.every((part) => p.key.includes(part)))
   const exact = needle !== "" && indexed.some((p) => p.key === needle)
-  const transferAccounts = (accounts.data ?? []).filter(
-    (a) => !a.closed && a.id !== currentAccountId && parts.every((part) => normalizeText(`virement ${a.name}`).includes(part)),
-  )
+  const transferAccounts = transfers
+    ? (accounts.data ?? []).filter(
+        (a) => !a.closed && a.id !== currentAccountId && parts.every((part) => normalizeText(`virement ${a.name}`).includes(part)),
+      )
+    : []
 
   return (
     <Command shouldFilter={false} loop>
