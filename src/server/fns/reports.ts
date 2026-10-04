@@ -10,10 +10,10 @@ const v = Schema.toStandardSchemaV1
 
 const Months = Schema.Struct({ months: MonthCount })
 
-export const getNetWorth = createServerFn({ method: "GET" })
+export const getAccountsTotal = createServerFn({ method: "GET" })
   .middleware([authMiddleware])
   .validator(v(Months))
-  .handler(({ data }) => runApp(Reports.use((r) => r.netWorth(data.months))))
+  .handler(({ data }) => runApp(Reports.use((r) => r.accountsTotal(data.months))))
 
 export const getCashFlow = createServerFn({ method: "GET" })
   .middleware([authMiddleware])

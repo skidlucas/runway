@@ -30,6 +30,12 @@ export const BUDGET_LINE_ALONE = "t.account_id IN (SELECT id FROM accounts WHERE
 export const COUNTS_FOR_BUDGET = `${BUDGET_LINE}
   AND (p.transfer_account_id IS NULL OR EXISTS (SELECT 1 FROM accounts o WHERE o.id = p.transfer_account_id AND o.off_budget = 1))`
 
+/**
+ * A budget line that is money earned or spent in its month. A starting balance funds the budget
+ * (it is income there) but was not received that month. Needs `a`.
+ */
+export const BUDGET_CASH_FLOW = `${BUDGET_LINE} AND t.starting_balance = 0`
+
 /** Counts for the budget but has no category yet: what the budget asks to categorize. Needs `a` and `p`. */
 export const UNCATEGORIZED = `t.category_id IS NULL AND t.starting_balance = 0 AND ${COUNTS_FOR_BUDGET}`
 

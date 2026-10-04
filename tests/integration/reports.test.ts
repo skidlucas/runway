@@ -55,7 +55,7 @@ describe("Reports and dashboards", () => {
   })
 
   it("follows the balance of every account, off-budget ones included", async () => {
-    const worth = await h.run(Reports.use((r) => r.netWorth(3)))
+    const worth = await h.run(Reports.use((r) => r.accountsTotal(3)))
     expect(worth.current).toBe(100_000 + 1_000_000 + 250_000 - 97_000)
     expect(worth.months.at(-2)?.value).toBe(100_000 + 1_000_000 + 250_000 - 95_000)
     expect(worth.change).toBe(250_000 - 97_000)

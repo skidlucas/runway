@@ -18,7 +18,7 @@ import {
 } from "~/domain/insights"
 import { Db, type DbError, newId } from "../db/client"
 import { readInsightConfig, readWidgets } from "../db/json-columns"
-import { BUDGET_LINE, COUNTS_FOR_BUDGET } from "../db/predicates"
+import { BUDGET_CASH_FLOW, COUNTS_FOR_BUDGET } from "../db/predicates"
 import { dashboards, type InsightViewConfig, savedViews } from "../db/schema"
 import { type ExternalError, Invalid, NotFound } from "../errors"
 import { normalizeText } from "~/domain/rules"
@@ -66,7 +66,8 @@ const InterpretationSchema = Schema.Struct({
 export type Interpretation = { query: InsightQuery | null; message: string | null }
 
 // Shared SQL fragments. Amounts are flipped for expenses so every total is positive.
-// Uncategorized lines count towards "all expenses" / "all income" by their sign.
+// Uncategorized lines count towards "all expenses" / "all income" by their sign, where Reports
+// only counts categorized lines.
 const BASE_FROM = `FROM transactions t
   JOIN accounts a ON a.id = t.account_id
   LEFT JOIN categories c ON c.id = t.category_id
@@ -249,6 +250,7 @@ export class Insights extends Context.Service<
                 .prepare(
                   `SELECT t.payee_id AS id, p.name AS name, SUM(-t.amount) AS amount, COUNT(*) AS count
                    ${BASE_FROM}
+                   -- A transfer to an off-budget account counts in the month's total but is no merchant.
                    WHERE ${COMMON_WHERE} AND t.payee_id IS NOT NULL AND p.transfer_account_id IS NULL
                      AND t.date BETWEEN ? AND ? AND ${expense.where}
                    GROUP BY t.payee_id ORDER BY amount DESC LIMIT 5`,
@@ -261,12 +263,12 @@ export class Insights extends Context.Service<
                 )
                 .bind(`${month}-01`, lastDay(month)),
               d1.prepare("SELECT month, category_id AS categoryId, amount FROM budgets WHERE month BETWEEN ? AND ?").bind(first, month),
-              // The budget's income: what its income categories received this month.
+              // What the income categories received this month, as Reports counts it.
               d1
                 .prepare(
                   `SELECT COALESCE(SUM(t.amount), 0) AS total FROM transactions t
                    JOIN accounts a ON a.id = t.account_id JOIN categories c ON c.id = t.category_id
-                   WHERE ${BUDGET_LINE} AND c.is_income = 1 AND t.date BETWEEN ? AND ?`,
+                   WHERE ${BUDGET_CASH_FLOW} AND c.is_income = 1 AND t.date BETWEEN ? AND ?`,
                 )
                 .bind(`${month}-01`, lastDay(month)),
             ])

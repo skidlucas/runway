@@ -2,11 +2,11 @@ import { Context, Effect, Layer } from "effect"
 import { addMonths, type Day, type Month, monthRange } from "~/domain/dates"
 import { cumulativeByDay, type MonthValue, REPORT_MONTHS, runningBalances, topWithRest } from "~/domain/reports"
 import { Db, type DbError } from "../db/client"
-import { BUDGET_LINE } from "../db/predicates"
+import { BUDGET_CASH_FLOW } from "../db/predicates"
 import { Invalid } from "../errors"
 import { Settings } from "./settings"
 
-export type NetWorthReport = { months: MonthValue[]; current: number; change: number }
+export type AccountsTotalReport = { months: MonthValue[]; current: number; change: number }
 
 export type CashFlowReport = {
   months: Array<{ month: Month; income: number; expenses: number }>
@@ -35,15 +35,14 @@ export type CategorySpendingReport = {
   total: number
 }
 
-// Spending and income follow the budget: categorized lines of on-budget accounts. Transfers
-// between budget accounts have no category and starting balances are not income.
-const BUDGET_LINES = `${BUDGET_LINE} AND t.starting_balance = 0`
+// Spending and income follow the budget: categorized lines only (Insights also counts the lines
+// still to categorize). Transfers between budget accounts have no category.
 
 export class Reports extends Context.Service<
   Reports,
   {
-    /** Sum of every account balance at each month end. */
-    netWorth(months: number): Effect.Effect<NetWorthReport, DbError | Invalid>
+    /** Sum of every account balance at each month end. Wealth's net worth also counts assets and loans. */
+    accountsTotal(months: number): Effect.Effect<AccountsTotalReport, DbError | Invalid>
     cashFlow(months: number): Effect.Effect<CashFlowReport, DbError | Invalid>
     readonly spendingComparison: Effect.Effect<SpendingComparisonReport, DbError>
     categorySpending(months: number): Effect.Effect<CategorySpendingReport, DbError | Invalid>
@@ -64,7 +63,7 @@ export class Reports extends Context.Service<
         return { today, from, to, months: monthRange(from, to) }
       })
 
-      const netWorth = Effect.fn("Reports.netWorth")(function* (months: number) {
+      const accountsTotal = Effect.fn("Reports.accountsTotal")(function* (months: number) {
         const w = yield* window(months)
         const raw = yield* db.use(async (_, d1) => {
           const [opening, monthly] = await d1.batch([
@@ -82,7 +81,7 @@ export class Reports extends Context.Service<
         const series = runningBalances(raw.opening, new Map(raw.monthly.map((m) => [m.month, m.total])), w.months)
         const current = series.at(-1)?.value ?? raw.opening
         // Measured from the balance before the window, so a 1-month window still shows a change.
-        return { months: series, current, change: current - raw.opening } satisfies NetWorthReport
+        return { months: series, current, change: current - raw.opening } satisfies AccountsTotalReport
       })
 
       const cashFlow = Effect.fn("Reports.cashFlow")(function* (months: number) {
@@ -94,7 +93,7 @@ export class Reports extends Context.Service<
                       SUM(CASE WHEN c.is_income = 1 THEN t.amount ELSE 0 END) AS income,
                       SUM(CASE WHEN c.is_income = 0 THEN -t.amount ELSE 0 END) AS expenses
                FROM transactions t JOIN accounts a ON a.id = t.account_id JOIN categories c ON c.id = t.category_id
-               WHERE ${BUDGET_LINES} AND t.date >= ? AND t.date <= ?
+               WHERE ${BUDGET_CASH_FLOW} AND t.date >= ? AND t.date <= ?
                GROUP BY 1`,
             )
             .bind(`${w.from}-01`, w.today)
@@ -121,7 +120,7 @@ export class Reports extends Context.Service<
             .prepare(
               `SELECT t.date, SUM(-t.amount) AS total
                FROM transactions t JOIN accounts a ON a.id = t.account_id JOIN categories c ON c.id = t.category_id
-               WHERE ${BUDGET_LINES} AND c.is_income = 0 AND t.date >= ? AND t.date <= ?
+               WHERE ${BUDGET_CASH_FLOW} AND c.is_income = 0 AND t.date >= ? AND t.date <= ?
                GROUP BY t.date`,
             )
             .bind(`${previous}-01`, today)
@@ -145,7 +144,7 @@ export class Reports extends Context.Service<
               `SELECT c.id, c.name, g.name AS "group", SUM(-t.amount) AS amount
                FROM transactions t JOIN accounts a ON a.id = t.account_id
                JOIN categories c ON c.id = t.category_id JOIN category_groups g ON g.id = c.group_id
-               WHERE ${BUDGET_LINES} AND c.is_income = 0 AND t.date >= ? AND t.date <= ?
+               WHERE ${BUDGET_CASH_FLOW} AND c.is_income = 0 AND t.date >= ? AND t.date <= ?
                GROUP BY c.id HAVING SUM(-t.amount) > 0`,
             )
             .bind(`${w.from}-01`, w.today)
@@ -161,7 +160,7 @@ export class Reports extends Context.Service<
         return { from: w.from, to: w.to, rows: top, total: rows.reduce((sum, r) => sum + r.amount, 0) } satisfies CategorySpendingReport
       })
 
-      return Reports.of({ netWorth, cashFlow, spendingComparison, categorySpending })
+      return Reports.of({ accountsTotal, cashFlow, spendingComparison, categorySpending })
     }),
   )
 }

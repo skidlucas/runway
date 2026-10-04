@@ -13,7 +13,7 @@ import {
 import { getAiStatus, getFindings, getInsightView, getSavedViews } from "~/server/fns/insights"
 import { getWealth, getWealthAssets } from "~/server/fns/wealth"
 import { getForecast, getScheduledRows, getSchedules, getScheduleSuggestions, getUpcoming } from "~/server/fns/planning"
-import { getCashFlow, getCategorySpending, getDashboards, getNetWorth, getSpendingComparison } from "~/server/fns/reports"
+import { getCashFlow, getCategorySpending, getDashboards, getAccountsTotal, getSpendingComparison } from "~/server/fns/reports"
 import type { InsightViewConfig } from "~/server/db/schema"
 import type { AccountDto } from "~/server/services/accounts"
 import type { TxCursor, TxFilter } from "~/server/services/transactions"
@@ -75,8 +75,8 @@ export const q = {
   /** The assets of the wealth overview, without the accounts and their history. */
   wealthAssets: () => queryOptions({ queryKey: ["wealthAssets"], queryFn: () => getWealthAssets() }),
   dashboards: () => queryOptions({ queryKey: ["dashboards"], queryFn: () => getDashboards() }),
-  netWorth: (months: number) =>
-    queryOptions({ queryKey: ["netWorth", months], queryFn: () => getNetWorth({ data: { months } }), staleTime: REPORT_STALE }),
+  accountsTotal: (months: number) =>
+    queryOptions({ queryKey: ["accountsTotal", months], queryFn: () => getAccountsTotal({ data: { months } }), staleTime: REPORT_STALE }),
   cashFlow: (months: number) =>
     queryOptions({ queryKey: ["cashFlow", months], queryFn: () => getCashFlow({ data: { months } }), staleTime: REPORT_STALE }),
   spendingComparison: () =>
@@ -116,7 +116,7 @@ const READERS = {
     "insightView",
     "findings",
     "wealth",
-    "netWorth",
+    "accountsTotal",
     "cashFlow",
     "spendingComparison",
     "categorySpending",
@@ -155,7 +155,7 @@ const READERS = {
     "insightView",
     "findings",
     "wealth",
-    "netWorth",
+    "accountsTotal",
     "cashFlow",
     "spendingComparison",
     "categorySpending",

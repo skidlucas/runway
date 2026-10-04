@@ -231,6 +231,31 @@ describe("Ai with a language model only", () => {
   })
 })
 
+describe("Facts given to the analysis", () => {
+  let h: Harness
+  const model = fakeLanguageModel(() => ({ headline: "Mois calme.", points: [] }))
+  beforeAll(async () => {
+    h = await createHarness({ ai: { provider: "openai", model: "fake", languageModel: model.layer, decisionModel: null } })
+  })
+  afterAll(() => h?.dispose())
+
+  it("leaves a starting balance out of the month's income, as the reports do", async () => {
+    await h.run(Categories.use((c) => c.createStarterSet))
+    const account = await h.run(
+      Accounts.use((a) => a.create({ name: "Courant", kind: "checking", offBudget: false, startingBalance: 500_000, startingDate: `${month}-01` })),
+    )
+    const tree = await h.run(Categories.use((c) => c.tree))
+    const salary = tree.find((g) => g.isIncome)!.categories[0]!.id
+    await h.run(
+      Transactions.use((t) =>
+        t.create({ accountId: account, date: `${month}-01`, amount: 200_000, payee: { kind: "name", name: "Employeur" }, categoryId: salary }),
+      ),
+    )
+    await h.run(Insights.use((s) => s.analysis))
+    expect(model.calls.at(-1)).toMatch(/incomeThisMonth\\":2000[,}]/)
+  })
+})
+
 // Real providers, opt-in: RUNWAY_LIVE_AI=1 bunx vitest run tests/integration/ai.test.ts
 const live = process.env.RUNWAY_LIVE_AI === "1"
 describe.runIf(live)("live providers", () => {

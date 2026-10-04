@@ -38,7 +38,7 @@ export const Route = createFileRoute("/_app/dashboard")({
 const prefetchWidget = (client: QueryClient, widget: DashboardWidget) => {
   switch (widget.kind) {
     case "net_worth":
-      return client.prefetchQuery(q.netWorth(widget.months ?? 12))
+      return client.prefetchQuery(q.accountsTotal(widget.months ?? 12))
     case "wealth":
       return client.prefetchQuery(q.wealth())
     case "cash_flow":
@@ -464,7 +464,7 @@ const Headline = ({ value, children, negative }: { value: number; children?: Rea
 )
 
 function NetWorthWidget({ months }: { months: number }) {
-  const report = useQuery(q.netWorth(months))
+  const report = useQuery(q.accountsTotal(months))
   const r = report.data
   if (!r) return <Pending query={report} />
   return (
