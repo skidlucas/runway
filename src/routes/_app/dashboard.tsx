@@ -18,7 +18,7 @@ import { formatMoney } from "~/domain/money"
 import { REPORT_MONTHS, UPCOMING_DAYS } from "~/domain/reports"
 import { capitalize } from "~/domain/text"
 import { queryToSearch } from "~/lib/insight-search"
-import { q } from "~/lib/queries"
+import { q, useAction } from "~/lib/queries"
 import type { DashboardWidget, DashboardWidgetKind, InsightViewConfig } from "~/server/db/schema"
 import { createDashboard, deleteDashboard, saveDashboard } from "~/server/fns/reports"
 import type { CashFlowReport } from "~/server/services/reports"
@@ -125,7 +125,6 @@ function useSaveDashboard() {
 function DashboardPage() {
   const search = Route.useSearch()
   const navigate = useNavigate({ from: "/dashboard" })
-  const client = useQueryClient()
   const dashboards = useQuery(q.dashboards())
   const views = useQuery(q.savedViews())
   const list = dashboards.data ?? []
@@ -136,23 +135,17 @@ function DashboardPage() {
   const save = useSaveDashboard()
   const { confirm, dialog: confirmDialog } = useConfirm()
 
-  const create = useMutation({
-    mutationFn: (name: string) => createDashboard({ data: { name } }),
-    onSuccess: async (created) => {
-      await client.invalidateQueries({ queryKey: ["dashboards"] })
+  const create = useAction((name: string) => createDashboard({ data: { name } }), {
+    writes: ["dashboards"],
+    onSuccess: (created) => {
       setNaming(null)
       setEditing(true)
       void navigate({ search: { id: created.id } })
     },
-    onError: (error) => toastError(error),
   })
-  const remove = useMutation({
-    mutationFn: (id: string) => deleteDashboard({ data: { id } }),
-    onSuccess: async () => {
-      await client.invalidateQueries({ queryKey: ["dashboards"] })
-      void navigate({ search: {} })
-    },
-    onError: (error) => toastError(error),
+  const remove = useAction((id: string) => deleteDashboard({ data: { id } }), {
+    writes: ["dashboards"],
+    onSuccess: () => void navigate({ search: {} }),
   })
 
   if (!current) return null
@@ -431,7 +424,7 @@ function WidgetCard({
 function WidgetBody({ widget }: { widget: DashboardWidget }) {
   switch (widget.kind) {
     case "net_worth":
-      return <NetWorthWidget months={widget.months ?? 12} />
+      return <AccountsTotalWidget months={widget.months ?? 12} />
     case "wealth":
       return <WealthWidget months={widget.months ?? 12} />
     case "cash_flow":
@@ -463,7 +456,7 @@ const Headline = ({ value, children, negative }: { value: number; children?: Rea
   </div>
 )
 
-function NetWorthWidget({ months }: { months: number }) {
+function AccountsTotalWidget({ months }: { months: number }) {
   const report = useQuery(q.accountsTotal(months))
   const r = report.data
   if (!r) return <Pending query={report} />
