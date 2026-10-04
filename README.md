@@ -24,7 +24,7 @@ On an empty budget, the Budget page offers to create starter categories, import 
 
 | Variable | Purpose |
 | --- | --- |
-| `APP_PASSWORD` | The app's single password (required) |
+| `APP_PASSWORD` | The app's single password, at least 12 characters (required) |
 | `SESSION_SECRET` | Encrypts the session cookie, at least 32 characters (required) |
 | `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` | Written insight analysis, and fallback for categorization |
 | `TYPESAFE_API_KEY` | Categorization and rule suggestions through Jev (TypeSafe AI) |
@@ -62,7 +62,7 @@ bun run logs                                 # live Worker logs
 ```
 
 - Alchemy's state is stored on the Cloudflare account, in an `alchemy-state-store` Worker. Any machine with access can deploy, but not two deploys at the same time.
-- Every deploy replaces all bindings: a secret missing from `.env.prod` is removed from the Worker. Deploys fail if `APP_PASSWORD` or `SESSION_SECRET` is missing.
+- Every deploy replaces all bindings: a secret missing from `.env.prod` is removed from the Worker. Deploys (and `bun run dev`) fail if `APP_PASSWORD` or `SESSION_SECRET` is missing or too short.
 - The production database is kept even by `alchemy destroy`.
 - The free Workers plan allows 10 ms of CPU per request. Errors 1102 in `bun run logs` mean it is time to move to the paid plan.
 

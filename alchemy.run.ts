@@ -5,6 +5,7 @@ import * as Config from "effect/Config"
 import * as Effect from "effect/Effect"
 import * as Option from "effect/Option"
 import type * as Redacted from "effect/Redacted"
+import * as Schema from "effect/Schema"
 
 const PROD = "prod"
 const DOMAIN = "runway.mtnz.app"
@@ -21,6 +22,16 @@ export const Database = Effect.gen(function* () {
     migrations: "./drizzle",
   } satisfies Cloudflare.D1.DatabaseProps)
 }).pipe(retainInProd)
+
+// Checked when the stack is evaluated, so a deploy fails instead of shipping a guessable
+// password or a session secret the cookie encryption rejects at the first request.
+const secret = (name: string, check: (value: string) => true | string) =>
+  Config.schema(Schema.Redacted(Schema.String.check(Schema.makeFilter(check))), name)
+
+const appPassword = secret("APP_PASSWORD", (value) => value.length >= 12 || "APP_PASSWORD must be at least 12 characters")
+const sessionSecret = secret("SESSION_SECRET", (value) =>
+  value.length >= 32 || "SESSION_SECRET must be at least 32 characters (openssl rand -hex 32)",
+)
 
 // Unset optional values get no binding at all: an empty string would read as a configured key.
 const optionalEnv = Effect.gen(function* () {
@@ -57,8 +68,8 @@ export class Website extends Cloudflare.Website.Vite<Website>()(
         DB: Database,
         AI_PROVIDER: "openai",
         AI_MODEL: "gpt-6-luna",
-        APP_PASSWORD: Config.Redacted("APP_PASSWORD"),
-        SESSION_SECRET: Config.Redacted("SESSION_SECRET"),
+        APP_PASSWORD: appPassword,
+        SESSION_SECRET: sessionSecret,
         ...(yield* optionalEnv),
       },
     }
