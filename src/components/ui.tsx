@@ -446,6 +446,93 @@ export function DateInput({
   )
 }
 
+/**
+ * Gives the focus back to the returned ref's element when `active` ends with the focus left on
+ * nothing (the field that had it was removed by Enter or Escape). Moving on with Tab, a click or
+ * to another cell leaves the focus where it went.
+ */
+export function useReturnFocus<T extends HTMLElement>(active: boolean) {
+  const ref = React.useRef<T>(null)
+  const was = React.useRef(active)
+  React.useEffect(() => {
+    const lost = document.activeElement === null || document.activeElement === document.body
+    if (was.current && !active && lost) ref.current?.focus()
+    was.current = active
+  }, [active])
+  return ref
+}
+
+/**
+ * A value shown as a button that turns into a field when clicked. Enter or leaving the field
+ * commits, Escape cancels; `onCommit` only runs when the text changed.
+ */
+export function InlineEdit({
+  value,
+  onCommit,
+  label,
+  children,
+  disabled,
+  className,
+  inputClassName,
+  inputMode,
+}: {
+  value: string
+  onCommit: (text: string) => void
+  label: string
+  children: React.ReactNode
+  disabled?: boolean
+  className?: string
+  inputClassName?: string
+  inputMode?: React.HTMLAttributes<HTMLInputElement>["inputMode"]
+}) {
+  const [editing, setEditing] = React.useState(false)
+  const trigger = useReturnFocus<HTMLButtonElement>(editing)
+  // Enter and Escape unmount the field, which can fire its blur as well.
+  const done = React.useRef(false)
+  const finish = (text: string | null) => {
+    if (done.current) return
+    done.current = true
+    setEditing(false)
+    if (text !== null && text !== value) onCommit(text)
+  }
+  if (editing) {
+    return (
+      <input
+        autoFocus
+        defaultValue={value}
+        aria-label={label}
+        inputMode={inputMode}
+        onFocus={(e) => e.currentTarget.select()}
+        onBlur={(e) => finish(e.currentTarget.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") {
+            e.preventDefault()
+            finish(e.currentTarget.value)
+          } else if (e.key === "Escape") {
+            e.preventDefault()
+            finish(null)
+          }
+        }}
+        className={cx("h-7 min-w-0 rounded-[6px] border border-accent-line bg-bg px-2 outline-none", inputClassName)}
+      />
+    )
+  }
+  return (
+    <button
+      ref={trigger}
+      type="button"
+      disabled={disabled}
+      onClick={() => {
+        done.current = false
+        setEditing(true)
+      }}
+      className={className}
+    >
+      {children}
+    </button>
+  )
+}
+
 export const Switch = ({
   checked,
   onCheckedChange,

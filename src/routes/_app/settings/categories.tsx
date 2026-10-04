@@ -4,7 +4,7 @@ import { ArrowDown, ArrowUp, Eye, EyeOff, MoreHorizontal, Plus, Trash2 } from "l
 import * as React from "react"
 import { CategoryPicker } from "~/components/pickers"
 import { PageHeader } from "~/components/shell"
-import { Button, ConfirmDialog, cx, Dialog, Field, IconButton, Input, Menu, revealOnHover, SkeletonRows } from "~/components/ui"
+import { Button, ConfirmDialog, cx, Dialog, Field, IconButton, InlineEdit, Input, Menu, revealOnHover, SkeletonRows } from "~/components/ui"
 import { q, useAction } from "~/lib/queries"
 import {
   createCategory,
@@ -94,32 +94,16 @@ function CategoriesSettings() {
   )
 }
 
-function InlineName({ value, onSave, className }: { value: string; onSave: (v: string) => void; className?: string }) {
-  const [editing, setEditing] = React.useState(false)
-  if (editing) {
-    return (
-      <input
-        autoFocus
-        defaultValue={value}
-        aria-label="Nom"
-        onBlur={(e) => {
-          setEditing(false)
-          if (e.target.value.trim() && e.target.value !== value) onSave(e.target.value)
-        }}
-        onKeyDown={(e) => {
-          if (e.key === "Enter") (e.target as HTMLInputElement).blur()
-          if (e.key === "Escape") setEditing(false)
-        }}
-        className="h-7 rounded-[6px] border border-accent-line bg-bg px-2 outline-none"
-      />
-    )
-  }
-  return (
-    <button type="button" onClick={() => setEditing(true)} className={cx("truncate text-left hover:underline", className)}>
-      {value}
-    </button>
-  )
-}
+const InlineName = ({ value, onSave, className }: { value: string; onSave: (v: string) => void; className?: string }) => (
+  <InlineEdit
+    value={value}
+    label="Nom"
+    onCommit={(name) => name.trim() && onSave(name)}
+    className={cx("truncate text-left hover:underline", className)}
+  >
+    {value}
+  </InlineEdit>
+)
 
 function GroupRow({
   group,

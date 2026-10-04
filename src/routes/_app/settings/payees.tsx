@@ -3,7 +3,7 @@ import { createFileRoute, Link } from "@tanstack/react-router"
 import { Search } from "lucide-react"
 import * as React from "react"
 import { PageHeader } from "~/components/shell"
-import { Button, Checkbox, Dialog, Field, Input, Select, SkeletonRows, useConfirm } from "~/components/ui"
+import { Button, Checkbox, Dialog, Field, InlineEdit, Input, Select, SkeletonRows, useConfirm } from "~/components/ui"
 import { formatDayShort } from "~/domain/dates"
 import { normalizeText } from "~/domain/rules"
 import { q, useAction } from "~/lib/queries"
@@ -103,30 +103,16 @@ function PayeesSettings() {
 }
 
 function PayeeName({ id, name }: { id: string; name: string }) {
-  const [editing, setEditing] = React.useState(false)
   const rename = useAction(renamePayee)
-  if (editing) {
-    return (
-      <input
-        autoFocus
-        defaultValue={name}
-        aria-label="Nom du bénéficiaire"
-        onBlur={(e) => {
-          setEditing(false)
-          if (e.target.value.trim() && e.target.value !== name) rename.mutate({ data: { id, name: e.target.value } })
-        }}
-        onKeyDown={(e) => {
-          if (e.key === "Enter") (e.target as HTMLInputElement).blur()
-          if (e.key === "Escape") setEditing(false)
-        }}
-        className="h-7 rounded-[6px] border border-accent-line bg-bg px-2 outline-none"
-      />
-    )
-  }
   return (
-    <button type="button" onClick={() => setEditing(true)} className="truncate text-left hover:underline">
+    <InlineEdit
+      value={name}
+      label="Nom du bénéficiaire"
+      onCommit={(next) => next.trim() && rename.mutate({ data: { id, name: next } })}
+      className="truncate text-left hover:underline"
+    >
       {name}
-    </button>
+    </InlineEdit>
   )
 }
 

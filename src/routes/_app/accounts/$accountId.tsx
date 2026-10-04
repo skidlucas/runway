@@ -37,7 +37,7 @@ import {
   payeeValueOf,
   useDeleteTransactions,
 } from "~/components/transaction-editor"
-import { Button, Calendar, Checkbox, Chip, cx, DateInput, Dialog, EmptyState, IconButton, Input, Kpi, Menu, Money, Popover, revealOnHover, SkeletonRows, useConfirm } from "~/components/ui"
+import { Button, Calendar, Checkbox, Chip, cx, DateInput, Dialog, EmptyState, IconButton, InlineEdit, Input, Kpi, Menu, Money, Popover, revealOnHover, SkeletonRows, useConfirm } from "~/components/ui"
 import { type Day, formatDayLong, formatDayShort, formatMonthLong, monthOf, parseDayInput } from "~/domain/dates"
 import { amountInput, formatMoney, parseAmount } from "~/domain/money"
 import { shortcutBlocked, useDebounced, useIsMobile, useToday } from "~/lib/hooks"
@@ -897,43 +897,22 @@ function InlineCategory({ tx }: { tx: TxRow }) {
 }
 
 function InlineAmount({ tx }: { tx: TxRow }) {
-  const [editing, setEditing] = React.useState(false)
-  const [text, setText] = React.useState("")
   const update = useAction(updateTransaction)
-  if (editing) {
-    const commit = () => {
-      setEditing(false)
-      const value = parseAmount(text)
-      if (value !== null && value !== tx.amount) update.mutate({ data: { id: tx.id, amount: value } })
-    }
-    return (
-      <input
-        autoFocus
-        value={text}
-        aria-label="Montant"
-        onChange={(e) => setText(e.target.value)}
-        onFocus={(e) => e.target.select()}
-        onBlur={commit}
-        onKeyDown={(e) => {
-          if (e.key === "Enter") commit()
-          if (e.key === "Escape") setEditing(false)
-        }}
-        className="num h-7 w-full rounded-[6px] border border-accent-line bg-bg px-2 text-right text-[12px] outline-none"
-      />
-    )
-  }
   return (
-    <button
-      type="button"
+    <InlineEdit
+      value={amountInput(tx.amount)}
+      label="Montant"
+      inputMode="decimal"
       disabled={tx.isParent || !!tx.parentId}
-      onClick={() => {
-        setText(amountInput(tx.amount))
-        setEditing(true)
+      onCommit={(text) => {
+        const value = parseAmount(text)
+        if (value !== null && value !== tx.amount) update.mutate({ data: { id: tx.id, amount: value } })
       }}
       className="text-right"
+      inputClassName="num w-full text-right text-[12px]"
     >
       <Money value={tx.amount} sign="always" colored className="text-[12px]" />
-    </button>
+    </InlineEdit>
   )
 }
 

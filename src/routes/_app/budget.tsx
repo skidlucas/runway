@@ -22,6 +22,7 @@ import {
   revealOnHover,
   SkeletonRows,
   Switch,
+  useReturnFocus,
 } from "~/components/ui"
 import { addMonths, formatDayLong, formatDayShort, formatMonthLong, isMonth, monthOf } from "~/domain/dates"
 import { type PlannedCategory, type PlannedStatus, plannedStatus } from "~/domain/planned"
@@ -533,6 +534,7 @@ function BudgetedCell({
   onEdit: (next: boolean | "next" | "prev") => void
 }) {
   const save = useAction(setBudgetAmount, { invalidates: BUDGET_QUERIES })
+  const trigger = useReturnFocus<HTMLButtonElement>(editing)
   if (editing)
     return (
       <BudgetInput
@@ -545,18 +547,9 @@ function BudgetedCell({
     )
   return (
     <button
+      ref={trigger}
       type="button"
       onClick={() => onEdit(true)}
-      onFocus={(e) => {
-        // Keyboard users reach the cell with Tab: Enter starts editing.
-        e.currentTarget.dataset.focused = "1"
-      }}
-      onKeyDown={(e) => {
-        if (e.key === "Enter") {
-          e.preventDefault()
-          onEdit(true)
-        }
-      }}
       aria-label={`Budget ${category.name} : ${formatMoney(category.budgeted)}`}
       className="num -mr-2 h-7 rounded-[6px] px-2 text-right text-[12px] text-fg-2 hover:bg-active"
     >
