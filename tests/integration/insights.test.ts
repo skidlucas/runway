@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
-import { addMonths, todayIn } from "~/domain/dates"
+import { addMonths } from "~/domain/dates"
 import { Accounts } from "~/server/services/accounts"
 import { Budget } from "~/server/services/budget"
 import type { InsightViewConfig } from "~/server/db/schema"
@@ -12,12 +12,12 @@ import { Transactions } from "~/server/services/transactions"
 import { createHarness, type Harness } from "./harness"
 
 let h: Harness
-const today = todayIn("Europe/Paris")
-const month = today.slice(0, 7)
+const NOW = "2026-10-04T10:00:00Z"
+const month = "2026-10"
 const ids = { checking: "", restaurants: "", courses: "", groupLoisirs: "" }
 
 beforeAll(async () => {
-  h = await createHarness()
+  h = await createHarness({ now: NOW })
   await h.run(Categories.use((c) => c.createStarterSet))
   const tree = await h.run(Categories.use((c) => c.tree))
   const cat = (name: string) => tree.flatMap((g) => g.categories).find((c) => c.name === name)!.id
@@ -112,9 +112,9 @@ describe("saved views", () => {
   it("saves, lists and deletes", async () => {
     const config = { measure: "expenses" as const, target: { kind: "category" as const, id: ids.restaurants }, months: 6, rolling: 6 as const }
     const saved = await h.run(Insights.use((s) => s.saveView("Restaurants · 6 mois", config)))
-    expect(await h.run(Insights.use((s) => s.savedViews))).toEqual([saved])
+    expect((await h.run(Insights.use((s) => s.savedViews))).filter((v) => v.id === saved.id)).toEqual([saved])
     await h.run(Insights.use((s) => s.deleteView(saved.id)))
-    expect(await h.run(Insights.use((s) => s.savedViews))).toEqual([])
+    expect((await h.run(Insights.use((s) => s.savedViews))).map((v) => v.id)).not.toContain(saved.id)
   })
 
   it("follows its target when a category, a group or a payee goes away", async () => {
@@ -173,7 +173,7 @@ describe("saved views", () => {
 
 describe("findings", () => {
   it("produces findings on the demo budget", async () => {
-    const fresh = await createHarness()
+    const fresh = await createHarness({ now: NOW })
     try {
       await fresh.run(Demo.use((d) => d.seed))
       const result = await fresh.run(Insights.use((s) => s.findings))

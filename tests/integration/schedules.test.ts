@@ -1,13 +1,14 @@
 import { Effect } from "effect"
-import { afterAll, beforeAll, describe, expect, it } from "vitest"
-import { addDays, addMonths, lastDay, todayIn } from "~/domain/dates"
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest"
+import { addDays, addMonths, lastDay } from "~/domain/dates"
 import { Accounts } from "~/server/services/accounts"
 import { ForecastService } from "~/server/services/forecast"
 import { Schedules, type ScheduleInput } from "~/server/services/schedules"
 import { Transactions } from "~/server/services/transactions"
 import { createHarness, type Harness } from "./harness"
 
-const today = todayIn("Europe/Paris")
+const NOW = "2026-10-04T10:00:00Z"
+const today = "2026-10-04"
 
 describe("Schedules", () => {
   let h: Harness
@@ -35,7 +36,7 @@ describe("Schedules", () => {
   })
 
   beforeAll(async () => {
-    h = await createHarness()
+    h = await createHarness({ now: NOW })
     const create = (name: string) =>
       h.run(Accounts.use((a) => a.create({ name, kind: "checking", offBudget: false, startingBalance: 0, startingDate: "2020-01-01" })))
     account = await create("Courant")
@@ -166,13 +167,10 @@ describe("Schedules", () => {
     expect(await schedule(id)).toMatchObject({ active: true, nextDate: addDays(today, -3) })
   })
 
-  it("books an occurrence on the day asked for", async () => {
+  it("books an occurrence on the day asked for, and lists it as coming", async () => {
     const id = await h.run(Schedules.use((s) => s.create(monthly(addDays(today, 5), { name: "Futur", autoPost: false }))))
     await h.run(Schedules.use((s) => s.post(id, addDays(today, 5))))
     expect(await booked(id)).toEqual([addDays(today, 5)])
-  })
-
-  it("lists what is coming on the forecast accounts", async () => {
     const next = await h.run(ForecastService.use((f) => f.upcoming({ days: 7 })))
     expect(next.items.some((i) => i.date === addDays(today, 5) && i.source === "transaction")).toBe(true)
   })
@@ -280,14 +278,15 @@ describe("Schedules sync cost", () => {
   const nextDate = async (id: string) =>
     (await h.d1.prepare("SELECT next_date AS d FROM schedules WHERE id = ?").bind(id).first<{ d: string }>())?.d
 
-  beforeAll(async () => {
-    h = await createHarness()
+  // Each test gets its own database: a sync books whatever is due, and the cap of 40 is per sync.
+  beforeEach(async () => {
+    h = await createHarness({ now: NOW })
     const open = (name: string) =>
       h.run(Accounts.use((a) => a.create({ name, kind: "checking", offBudget: false, startingBalance: 0, startingDate: "2020-01-01" })))
     account = await open("Courant")
     savings = await open("Épargne")
   }, 60_000)
-  afterAll(() => h?.dispose())
+  afterEach(() => h?.dispose())
 
   it("books 40 due occurrences and matches payments in a few queries, under the Workers limit", async () => {
     const weekly = await create(addDays(today, -63), { payee: { kind: "name", name: "Ménage" }, recurrence: { unit: "week", interval: 1 } })

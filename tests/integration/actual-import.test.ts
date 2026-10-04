@@ -1,6 +1,5 @@
 import { readFileSync } from "node:fs"
 import { join } from "node:path"
-import { Effect } from "effect"
 import initSqlJs from "sql.js"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import { parseActual, unzipActual } from "~/lib/actual/parse"
@@ -11,7 +10,7 @@ import { Budget } from "~/server/services/budget"
 import { ImportExport } from "~/server/services/import-export"
 import { Rules } from "~/server/services/rules"
 import { Schedules } from "~/server/services/schedules"
-import { createHarness, type Harness } from "./harness"
+import { createHarness, type Harness, importApi, tableCounts } from "./harness"
 
 type Expected = {
   accounts: Record<string, { balance: number; offBudget: boolean; count: number }>
@@ -21,28 +20,24 @@ type Expected = {
 const fixture = join(process.cwd(), "tests/fixtures")
 const expected = JSON.parse(readFileSync(join(fixture, "actual-expected.json"), "utf8")) as Expected
 
-let h: Harness
-let bundle: ImportBundle
-
-const api = () => ({
-  importStructure: (input: Parameters<ImportExport["Service"]["importStructure"]>[0] extends infer S ? { structure: S; include: { budgets: boolean; rules: boolean; schedules: boolean } } : never) =>
-    h.run(ImportExport.use((s) => s.importStructure(input.structure, input.include))),
-  importTransactions: (input: { rows: Parameters<ImportExport["Service"]["importTransactions"]>[0]; options: Parameters<ImportExport["Service"]["importTransactions"]>[1] }) =>
-    h.run(ImportExport.use((s) => s.importTransactions(input.rows, input.options))),
-})
-
+const NOW = "2026-10-04T10:00:00Z"
 const include = { transactions: true, budgets: true, rules: true, schedules: true }
 
+let h: Harness
+let bundle: ImportBundle
+let imported: Awaited<ReturnType<typeof runBundleImport>>
+
 beforeAll(async () => {
-  h = await createHarness()
   const SQL = await initSqlJs()
   bundle = parseActual(SQL, unzipActual(new Uint8Array(readFileSync(join(fixture, "actual-fixture.zip")))))
-})
+  h = await createHarness({ now: NOW })
+  imported = await runBundleImport(bundle, include, importApi(h))
+}, 60_000)
 afterAll(async () => {
   await h?.dispose()
 })
 
-describe("Actual import", () => {
+describe("Actual parsing", () => {
   it("parses the export: tombstones, merged payees, splits and transfers", () => {
     expect(bundle.name).toBe("Fixture Perso")
     expect(bundle.accounts.map((a) => a.name).sort()).toEqual(["Carte de crédit", "Compte courant", "Livret A"])
@@ -106,9 +101,11 @@ describe("Actual import", () => {
     expect(chunks.map((c) => c.map((r) => r.id))).toEqual([["1", "2", "3"], ["4"]])
   })
 
+})
+
+describe("Actual import", () => {
   it("imports and reproduces Actual's balances", async () => {
-    const result = await runBundleImport(bundle, include, api())
-    expect(result.duplicates).toBe(0)
+    expect(imported.duplicates).toBe(0)
     const accounts = await h.run(Accounts.use((a) => a.list))
     for (const [name, exp] of Object.entries(expected.accounts)) {
       const acc = accounts.find((a) => a.name === name)
@@ -164,7 +161,7 @@ describe("Actual import", () => {
 
   it("is idempotent: a second import inserts nothing", async () => {
     const before = (await h.run(Accounts.use((a) => a.list))).reduce((s, a) => s + a.transactionCount, 0)
-    const again = await runBundleImport(bundle, include, api())
+    const again = await runBundleImport(bundle, include, importApi(h))
     expect(again.inserted).toBe(0)
     expect(again.duplicates).toBeGreaterThan(0)
     const after = (await h.run(Accounts.use((a) => a.list))).reduce((s, a) => s + a.transactionCount, 0)
@@ -187,10 +184,19 @@ describe("Actual import", () => {
     expect(await h.run(ImportExport.use((s) => s.countDuplicates(probes)))).toBe(10)
   })
 
-  it("wipes everything", async () => {
-    await h.run(ImportExport.use((s) => s.wipe))
-    expect(await h.run(Accounts.use((a) => a.list))).toEqual([])
-    void Effect
+})
+
+describe("Wiping an imported budget", () => {
+  it("leaves no user data behind", async () => {
+    const fresh = await createHarness({ now: NOW })
+    try {
+      await runBundleImport(bundle, include, importApi(fresh))
+      expect((await tableCounts(fresh.d1)).transactions).toBeGreaterThan(0)
+      await fresh.run(ImportExport.use((s) => s.wipe))
+      expect(Object.entries(await tableCounts(fresh.d1)).filter(([, n]) => n > 0)).toEqual([])
+    } finally {
+      await fresh.dispose()
+    }
   })
 })
 

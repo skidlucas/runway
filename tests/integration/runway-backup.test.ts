@@ -16,6 +16,7 @@ import { Transactions } from "~/server/services/transactions"
 import { Wealth } from "~/server/services/wealth"
 import { createHarness, type Harness, importApi, tableCounts } from "./harness"
 
+const NOW = "2026-10-04T10:00:00Z"
 const include = { transactions: true, budgets: true, rules: true, schedules: true }
 
 /** Restores a backup file the way the settings page does, through the server functions' validators. */
@@ -31,10 +32,11 @@ describe("Runway backup", () => {
   let source: Harness
   let target: Harness
   let backup: RunwayBackup
+  let firstRestore: { assets: number; views: number }
 
   beforeAll(async () => {
-    source = await createHarness()
-    target = await createHarness()
+    source = await createHarness({ now: NOW })
+    target = await createHarness({ now: NOW })
     await source.run(Demo.use((d) => d.seed))
     const tree = await source.run(Categories.use((c) => c.tree))
     const group = tree.find((g) => g.categories.some((c) => c.name === "Courses"))!
@@ -70,6 +72,11 @@ describe("Runway backup", () => {
     const meta = await source.run(ImportExport.use((s) => s.exportMeta))
     const transactions = await source.run(ImportExport.use((s) => s.exportTransactions(null, 20_000)))
     backup = { ...meta, format: "runway-backup", transactions }
+
+    // Same categories and payee as the source, under other ids.
+    await target.run(Categories.use((c) => c.createStarterSet))
+    await target.run(Payees.use((p) => p.resolveNames(["Monoprix"])))
+    firstRestore = (await restore(target, backup)).extras
   })
   afterAll(async () => {
     await source?.dispose()
@@ -77,11 +84,7 @@ describe("Runway backup", () => {
   })
 
   it("restores assets, valuations and views, pointing views at the target's ids", async () => {
-    // Same categories and payee as the source, under other ids.
-    await target.run(Categories.use((c) => c.createStarterSet))
-    await target.run(Payees.use((p) => p.resolveNames(["Monoprix"])))
-    const { extras } = await restore(target, backup)
-    expect(extras).toEqual({ assets: 1, views: 4 })
+    expect(firstRestore).toEqual({ assets: 1, views: 4 })
 
     const wealth = await target.run(Wealth.use((w) => w.overview))
     expect(wealth.items.find((i) => i.name === "Rolex")).toMatchObject({ share: 5_000, value: 4_950_00, notes: "Boîte et papiers" })
@@ -109,7 +112,7 @@ describe("Runway backup", () => {
   })
 
   it("restores assets from older backups as wholly owned", async () => {
-    const fresh = await createHarness()
+    const fresh = await createHarness({ now: NOW })
     try {
       await restore(fresh, { ...backup, assets: backup.assets.map(({ share: _, ...asset }) => asset) as RunwayBackup["assets"] })
       const wealth = await fresh.run(Wealth.use((w) => w.overview))
@@ -120,7 +123,7 @@ describe("Runway backup", () => {
   })
 
   it("drops invalid widgets and keeps the default dashboard when restoring dashboards", async () => {
-    const fresh = await createHarness()
+    const fresh = await createHarness({ now: NOW })
     try {
       const valid = { id: "ok", kind: "upcoming" as const, size: 1 as const, days: 7 }
       const invalid = { id: "ko", kind: "net_worth" as const, size: 2 as const, months: 7 }
@@ -138,8 +141,8 @@ describe("Runway backup", () => {
 
 describe("Runway backup settings", () => {
   it("brings back rule order and state, schedule links and account settings", async () => {
-    const source = await createHarness()
-    const target = await createHarness()
+    const source = await createHarness({ now: NOW })
+    const target = await createHarness({ now: NOW })
     try {
       const account = await source.run(
         Accounts.use((a) => a.create({ name: "Courant", kind: "checking", offBudget: false, startingBalance: 0, startingDate: "2026-01-01" })),
@@ -284,9 +287,8 @@ describe("Runway backup round trip", () => {
   }
 
   beforeAll(async () => {
-    const now = "2026-10-04T10:00:00Z"
-    source = await createHarness({ now })
-    target = await createHarness({ now })
+    source = await createHarness({ now: NOW })
+    target = await createHarness({ now: NOW })
     await source.run(Demo.use((d) => d.seed))
     const tree = await source.run(Categories.use((c) => c.tree))
     const cat = (name: string) => tree.flatMap((g) => g.categories).find((c) => c.name === name)!.id

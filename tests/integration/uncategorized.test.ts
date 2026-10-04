@@ -1,5 +1,4 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
-import { todayIn } from "~/domain/dates"
 import { Accounts } from "~/server/services/accounts"
 import { Budget } from "~/server/services/budget"
 import { Categories } from "~/server/services/categories"
@@ -7,15 +6,16 @@ import { Insights } from "~/server/services/insights"
 import { Transactions } from "~/server/services/transactions"
 import { createHarness, type Harness } from "./harness"
 
-const today = todayIn("Europe/Paris")
-const month = today.slice(0, 7)
+const NOW = "2026-10-04T10:00:00Z"
+const today = "2026-10-04"
+const month = "2026-10"
 
 describe("Uncategorized operations", () => {
   let h: Harness
   let checking: string
 
   beforeAll(async () => {
-    h = await createHarness()
+    h = await createHarness({ now: NOW })
     await h.run(Categories.use((c) => c.createStarterSet))
     const create = (name: string, offBudget: boolean) =>
       h.run(Accounts.use((a) => a.create({ name, kind: "checking", offBudget, startingBalance: 0, startingDate: `${month}-01` })))

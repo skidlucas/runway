@@ -1,6 +1,6 @@
 import { Effect } from "effect"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
-import { addMonths, todayIn } from "~/domain/dates"
+import { addMonths } from "~/domain/dates"
 import { Accounts } from "~/server/services/accounts"
 import { Categories } from "~/server/services/categories"
 import { Dashboards, DEFAULT_WIDGETS, MAIN_DASHBOARD_ID } from "~/server/services/dashboards"
@@ -8,8 +8,9 @@ import { Reports } from "~/server/services/reports"
 import { Transactions } from "~/server/services/transactions"
 import { createHarness, type Harness } from "./harness"
 
-const today = todayIn("Europe/Paris")
-const month = today.slice(0, 7)
+const NOW = "2026-10-04T10:00:00Z"
+const today = "2026-10-04"
+const month = "2026-10"
 const lastMonth = addMonths(month, -1)
 
 describe("Reports and dashboards", () => {
@@ -21,7 +22,7 @@ describe("Reports and dashboards", () => {
   let salary: string
 
   beforeAll(async () => {
-    h = await createHarness()
+    h = await createHarness({ now: NOW })
     await h.run(Categories.use((c) => c.createStarterSet))
     const tree = await h.run(Categories.use((c) => c.tree))
     const all = tree.flatMap((g) => g.categories.map((c) => ({ ...c, income: g.isIncome })))
@@ -90,7 +91,7 @@ describe("Reports and dashboards", () => {
 describe("Default dashboard", () => {
   let h: Harness
   beforeAll(async () => {
-    h = await createHarness()
+    h = await createHarness({ now: NOW })
   }, 60_000)
   afterAll(() => h?.dispose())
 
@@ -103,7 +104,7 @@ describe("Default dashboard", () => {
   })
 
   it("applies both of two saves of the default dashboard made at the same time", async () => {
-    const fresh = await createHarness()
+    const fresh = await createHarness({ now: NOW })
     try {
       const one = [{ id: "a", kind: "upcoming" as const, size: 1 as const, days: 7 }]
       const two = [...one, { id: "b", kind: "spending_comparison" as const, size: 1 as const }]

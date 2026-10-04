@@ -63,14 +63,16 @@ const structure: BundleStructure = {
 
 describe("Import at the scale of a real budget", () => {
   let h: Harness
+  let maps: Awaited<ReturnType<typeof importStructure>>
+  const importStructure = () => h.run(ImportExport.use((s) => s.importStructure(structure, { budgets: true, rules: true, schedules: true })))
 
   beforeAll(async () => {
-    h = await createHarness()
+    h = await createHarness({ now: "2026-10-04T10:00:00Z" })
+    maps = await importStructure()
   }, 60_000)
   afterAll(() => h?.dispose())
 
   it("imports the structure of a large budget in one go", async () => {
-    const maps = await h.run(ImportExport.use((s) => s.importStructure(structure, { budgets: true, rules: true, schedules: true })))
     expect(Object.keys(maps.categories)).toHaveLength(CATEGORIES)
     expect(Object.keys(maps.payees)).toHaveLength(PAYEES + 2)
     expect(maps.payees["p-t1"]).not.toBe(maps.payees["p-t2"])
@@ -83,7 +85,7 @@ describe("Import at the scale of a real budget", () => {
     expect(await h.run(Schedules.use((s) => s.list))).toHaveLength(40)
 
     // Importing the same budget again matches everything by name instead of duplicating it.
-    const again = await h.run(ImportExport.use((s) => s.importStructure(structure, { budgets: true, rules: true, schedules: true })))
+    const again = await importStructure()
     expect(again.categories).toEqual(maps.categories)
     expect(await h.run(Rules.use((r) => r.list))).toHaveLength(rules.length)
   }, 60_000)

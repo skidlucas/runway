@@ -3,7 +3,7 @@ import { join } from "node:path"
 import { Effect, Layer, Stream } from "effect"
 import { AiError, DecisionModel, LanguageModel } from "effect/ai"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
-import { addMonths, todayIn } from "~/domain/dates"
+import { addMonths } from "~/domain/dates"
 import { Accounts } from "~/server/services/accounts"
 import { Ai, type AiProviders, aiProvidersFromEnv } from "~/server/services/ai"
 import { Categories } from "~/server/services/categories"
@@ -32,7 +32,8 @@ const fakeLanguageModel = (reply: (prompt: string) => unknown) => {
 
 const KEYWORDS: Record<string, string> = { carrefour: "Courses", uber: "Restaurants", total: "Transport" }
 
-const month = todayIn("Europe/Paris").slice(0, 7)
+const NOW = "2026-10-04T10:00:00Z"
+const month = "2026-10"
 
 const seedUncategorized = async (h: Harness) => {
   await h.run(Categories.use((c) => c.createStarterSet))
@@ -58,42 +59,51 @@ const seedUncategorized = async (h: Harness) => {
   }
   const tree = await h.run(Categories.use((c) => c.tree))
   const byName = new Map(tree.flatMap((g) => g.categories).map((c) => [c.name, c.id]))
-  return { ids, byName }
+  return { account, ids, byName }
+}
+
+/** A decision model that picks the category named by a keyword of the payee, and counts its calls. */
+const keywordDecisionModel = () => {
+  const counter = { calls: 0 }
+  const layer = Layer.effect(
+    DecisionModel.DecisionModel,
+    DecisionModel.make({
+      decide: (options) => {
+        counter.calls++
+        const state = JSON.stringify(options.state).toLowerCase()
+        const decision = options.decisions.label as { criteria: Record<string, string> }
+        const wanted = Object.entries(KEYWORDS).find(([k]) => state.includes(k))?.[1]
+        const label =
+          Object.entries(decision.criteria).find(([, d]) => wanted && d.endsWith(wanted))?.[0] ?? Object.keys(decision.criteria)[0]!
+        const labels = Object.keys(decision.criteria)
+        const probabilities = Object.fromEntries(labels.map((l) => [l, l === label ? 1 : 0]))
+        return Effect.succeed({
+          answers: { label: { _tag: "Classify" as const, label, probabilities, confidence: 0.92 } },
+          usage: { inputTokens: 1, outputTokens: 1 },
+        })
+      },
+    }),
+  )
+  return { layer, counter }
 }
 
 describe("Ai with a decision model (Jev path)", () => {
   let h: Harness
-  let decideCalls = 0
+  let seeded: Awaited<ReturnType<typeof seedUncategorized>>
+  const model = keywordDecisionModel()
   beforeAll(async () => {
-    const decisionModel = Layer.effect(
-      DecisionModel.DecisionModel,
-      DecisionModel.make({
-        decide: (options) => {
-          decideCalls++
-          const state = JSON.stringify(options.state).toLowerCase()
-          const decision = options.decisions.label as { criteria: Record<string, string> }
-          const wanted = Object.entries(KEYWORDS).find(([k]) => state.includes(k))?.[1]
-          const label =
-            Object.entries(decision.criteria).find(([, d]) => wanted && d.endsWith(wanted))?.[0] ?? Object.keys(decision.criteria)[0]!
-          const labels = Object.keys(decision.criteria)
-          const probabilities = Object.fromEntries(labels.map((l) => [l, l === label ? 1 : 0]))
-          return Effect.succeed({
-            answers: { label: { _tag: "Classify" as const, label, probabilities, confidence: 0.92 } },
-            usage: { inputTokens: 1, outputTokens: 1 },
-          })
-        },
-      }),
-    )
-    h = await createHarness({ ai: { provider: "openai", model: null, languageModel: null, decisionModel } })
+    h = await createHarness({ now: NOW, ai: { provider: "openai", model: null, languageModel: null, decisionModel: model.layer } })
+    seeded = await seedUncategorized(h)
   })
   afterAll(() => h?.dispose())
 
   it("suggests one category per distinct payee", async () => {
-    const { ids, byName } = await seedUncategorized(h)
+    const { ids, byName } = seeded
     expect(await h.run(Ai.use((a) => Effect.succeed(a.status)))).toMatchObject({ classification: "jev", analysis: false })
-    const result = await h.run(Categorizer.use((c) => c.suggest()))
+    const before = model.counter.calls
+    const result = await h.run(Categorizer.use((c) => c.suggest(ids)))
     expect(result.considered).toBe(4)
-    expect(decideCalls).toBe(3)
+    expect(model.counter.calls - before).toBe(3)
     const byTx = new Map(result.suggestions.map((s) => [s.transactionId, s]))
     expect(byTx.get(ids[0]!)).toMatchObject({ categoryId: byName.get("Courses"), confidence: 0.92, source: "jev" })
     expect(byTx.get(ids[1]!)?.categoryId).toBe(byName.get("Courses"))
@@ -102,18 +112,18 @@ describe("Ai with a decision model (Jev path)", () => {
   })
 
   it("also proposes a category for a transfer leaving the budget, not for one inside it", async () => {
-    const checking = (await h.run(Accounts.use((a) => a.list))).find((a) => a.name === "Courant")!.id
     const open = (name: string, offBudget: boolean) =>
       h.run(Accounts.use((a) => a.create({ name, kind: "savings", offBudget, startingBalance: 0, startingDate: `${month}-01` })))
     const transfer = async (to: string) =>
-      h.run(Transactions.use((t) => t.create({ accountId: checking, date: `${month}-02`, amount: -10_000, payee: { kind: "transfer", accountId: to } })))
+      h.run(Transactions.use((t) => t.create({ accountId: seeded.account, date: `${month}-02`, amount: -10_000, payee: { kind: "transfer", accountId: to } })))
     const leaving = await transfer(await open("Courtier", true))
     const inside = await transfer(await open("Livret", false))
     const result = await h.run(Categorizer.use((c) => c.suggest()))
-    expect(result.considered).toBe(5)
     const suggested = new Set(result.suggestions.map((s) => s.transactionId))
     expect(suggested.has(leaving)).toBe(true)
     expect(suggested.has(inside)).toBe(false)
+    expect(seeded.ids.every((id) => suggested.has(id))).toBe(true)
+    expect(result.considered).toBe(5)
   })
 
   it("explains that analysis needs a language model", async () => {
@@ -142,7 +152,7 @@ describe("Ai with a decision model that fails on some items", () => {
         },
       }),
     )
-    h = await createHarness({ ai: { provider: "openai", model: null, languageModel: null, decisionModel } })
+    h = await createHarness({ now: NOW, ai: { provider: "openai", model: null, languageModel: null, decisionModel } })
   })
   afterAll(() => h?.dispose())
 
@@ -157,55 +167,67 @@ describe("Ai with a decision model that fails on some items", () => {
 })
 
 describe("Ai with a language model only", () => {
+  const scripted = () =>
+    fakeLanguageModel((prompt) => {
+      if (prompt.includes("budget_analysis") || prompt.includes("assistant d'une app de budget")) {
+        return { headline: "Mois calme.", points: [{ tone: "neutral", title: "Rien à signaler", detail: "0 €" }] }
+      }
+      if (prompt.includes("Traduis la question")) {
+        return { understood: true, measure: "expenses", targetKind: "category", targetName: "restaurants", months: 6, rolling: 3 }
+      }
+      // Classification fallback: answer every key with the keyword's category.
+      const items = [...prompt.matchAll(/\\"key\\":\\"([^\\]+)\\",\\"payee\\":\\"([^\\]+)\\"/g)]
+      const labels = new Map([...prompt.matchAll(/- ([a-z0-9-]+): [^›]+› ([^\\]+)\\n/gi)].map((m) => [m[2]!, m[1]!]))
+      return {
+        answers: items.map((m) => {
+          const name = Object.entries(KEYWORDS).find(([k]) => m[2]!.toLowerCase().includes(k))?.[1] ?? "Courses"
+          return { key: m[1], label: labels.get(name) ?? "unknown", confidence: 0.7 }
+        }),
+      }
+    })
+  const harness = (model: ReturnType<typeof scripted>) =>
+    createHarness({ now: NOW, ai: { provider: "openai", model: "fake", languageModel: model.layer, decisionModel: null } })
+
   let h: Harness
-  const model = fakeLanguageModel((prompt) => {
-    if (prompt.includes("budget_analysis") || prompt.includes("assistant d'une app de budget")) {
-      return { headline: "Mois calme.", points: [{ tone: "neutral", title: "Rien à signaler", detail: "0 €" }] }
-    }
-    if (prompt.includes("Traduis la question")) {
-      return { understood: true, measure: "expenses", targetKind: "category", targetName: "restaurants", months: 6, rolling: 3 }
-    }
-    // Classification fallback: answer every key with the keyword's category.
-    const items = [...prompt.matchAll(/\\"key\\":\\"([^\\]+)\\",\\"payee\\":\\"([^\\]+)\\"/g)]
-    const labels = new Map([...prompt.matchAll(/- ([a-z0-9-]+): [^›]+› ([^\\]+)\\n/gi)].map((m) => [m[2]!, m[1]!]))
-    return {
-      answers: items.map((m) => {
-        const name = Object.entries(KEYWORDS).find(([k]) => m[2]!.toLowerCase().includes(k))?.[1] ?? "Courses"
-        return { key: m[1], label: labels.get(name) ?? "unknown", confidence: 0.7 }
-      }),
-    }
-  })
+  let seeded: Awaited<ReturnType<typeof seedUncategorized>>
+  const model = scripted()
   beforeAll(async () => {
-    h = await createHarness({ ai: { provider: "openai", model: "fake", languageModel: model.layer, decisionModel: null } })
+    h = await harness(model)
+    seeded = await seedUncategorized(h)
   })
   afterAll(() => h?.dispose())
 
   it("falls back to the language model for classification", async () => {
-    const { ids, byName } = await seedUncategorized(h)
-    const result = await h.run(Categorizer.use((c) => c.suggest()))
+    const { ids, byName } = seeded
+    const result = await h.run(Categorizer.use((c) => c.suggest(ids)))
     const byTx = new Map(result.suggestions.map((s) => [s.transactionId, s]))
     expect(byTx.get(ids[2]!)).toMatchObject({ categoryId: byName.get("Restaurants"), source: "llm", confidence: 0.7 })
     expect(byTx.get(ids[3]!)?.categoryId).toBe(byName.get("Transport"))
   })
 
   it("caches analyses by content", async () => {
-    const before = model.calls.length
+    const asked = () => model.calls.filter((c) => c.includes("assistant d'une app de budget") || c.includes("budget_analysis")).length
+    const before = asked()
     const first = await h.run(Insights.use((s) => s.analysis))
     expect(first).toMatchObject({ headline: "Mois calme.", month })
     await h.run(Insights.use((s) => s.analysis))
-    expect(model.calls.length).toBe(before + 1)
+    expect(asked() - before).toBe(1)
   })
 
   it("interprets a question into a query with resolved ids", async () => {
     const { query } = await h.run(Insights.use((s) => s.interpret("combien en restos sur 6 mois ?")))
-    const tree = await h.run(Categories.use((c) => c.tree))
-    const restaurants = tree.flatMap((g) => g.categories).find((c) => c.name === "Restaurants")!.id
-    expect(query).toEqual({ measure: "expenses", target: { kind: "category", id: restaurants }, months: 6, rolling: 3 })
+    expect(query).toEqual({ measure: "expenses", target: { kind: "category", id: seeded.byName.get("Restaurants") }, months: 6, rolling: 3 })
   })
 
   it("still answers when the cache cannot be read or written", async () => {
-    await h.d1.prepare("DROP TABLE ai_cache").run()
-    expect(await h.run(Insights.use((s) => s.analysis))).toMatchObject({ headline: "Mois calme." })
+    const fresh = await harness(scripted())
+    try {
+      await seedUncategorized(fresh)
+      await fresh.d1.prepare("DROP TABLE ai_cache").run()
+      expect(await fresh.run(Insights.use((s) => s.analysis))).toMatchObject({ headline: "Mois calme." })
+    } finally {
+      await fresh.dispose()
+    }
   })
 })
 

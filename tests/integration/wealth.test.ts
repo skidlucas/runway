@@ -1,15 +1,15 @@
 import { Effect, Result } from "effect"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
-import { addDays, addMonths, lastDay, monthRange, todayIn } from "~/domain/dates"
+import { addDays, addMonths, lastDay, monthRange } from "~/domain/dates"
 import { ExternalError } from "~/server/errors"
 import { Accounts } from "~/server/services/accounts"
-import { Settings } from "~/server/services/settings"
 import { Transactions } from "~/server/services/transactions"
 import { type AssetInput, Wealth } from "~/server/services/wealth"
 import { createHarness, type Harness } from "./harness"
 
-const today = todayIn("Europe/Paris")
-const month = today.slice(0, 7)
+const NOW = "2026-10-04T10:00:00Z"
+const today = "2026-10-04"
+const month = "2026-10"
 
 const manual = (overrides: Partial<AssetInput> = {}): AssetInput => ({
   name: "Rolex Submariner",
@@ -24,12 +24,39 @@ const manual = (overrides: Partial<AssetInput> = {}): AssetInput => ({
   ...overrides,
 })
 
+const openCourant = (h: Harness, name = "Courant") =>
+  h.run(
+    Accounts.use((a) =>
+      a.create({ name, kind: "checking", offBudget: false, startingBalance: 2_000_00, startingDate: `${addMonths(month, -14)}-01` }),
+    ),
+  )
+
+describe("Wealth with only a budget account", () => {
+  let h: Harness
+  beforeAll(async () => {
+    h = await createHarness({ now: NOW })
+    await openCourant(h)
+  })
+  afterAll(() => h?.dispose())
+
+  it("lists budget accounts read-only and counts them in the net worth", async () => {
+    const overview = await h.run(Wealth.use((w) => w.overview))
+    expect(overview.items).toHaveLength(1)
+    expect(overview.items[0]).toMatchObject({ kind: "account", name: "Courant", value: 2_000_00, bucket: "cash" })
+    expect(overview.netWorth).toBe(2_000_00)
+    expect(overview.history).toHaveLength(13)
+    expect(overview.history.every((v) => v === 2_000_00)).toBe(true)
+    expect(overview.needsRefresh).toBe(false)
+  })
+})
+
 describe("Wealth", () => {
   let h: Harness
   const calls = { crypto: 0, quotes: 0, dvf: 0 }
   let historyCalls = 0
   beforeAll(async () => {
     h = await createHarness({
+      now: NOW,
       market: {
         cryptoPrices: (ids) => {
           calls.crypto++
@@ -52,25 +79,12 @@ describe("Wealth", () => {
         },
       },
     })
-    await h.run(
-      Accounts.use((a) =>
-        a.create({ name: "Courant", kind: "checking", offBudget: false, startingBalance: 2_000_00, startingDate: `${addMonths(month, -14)}-01` }),
-      ),
-    )
+    await openCourant(h)
   })
   afterAll(() => h?.dispose())
 
-  it("lists budget accounts read-only and counts them in the net worth", async () => {
-    const overview = await h.run(Wealth.use((w) => w.overview))
-    expect(overview.items).toHaveLength(1)
-    expect(overview.items[0]).toMatchObject({ kind: "account", name: "Courant", value: 2_000_00, bucket: "cash" })
-    expect(overview.netWorth).toBe(2_000_00)
-    expect(overview.history).toHaveLength(13)
-    expect(overview.history.every((v) => v === 2_000_00)).toBe(true)
-    expect(overview.needsRefresh).toBe(false)
-  })
-
   it("uses the retained value and nets liabilities", async () => {
+    const before = (await h.run(Wealth.use((w) => w.overview))).netWorth
     const watch = await h.run(Wealth.use((w) => w.create(manual())))
     await h.run(
       Wealth.use((w) =>
@@ -92,7 +106,7 @@ describe("Wealth", () => {
     // 10 installments of 1 000 € paid on a zero-rate loan.
     expect(byName.get("Crédit immo")).toMatchObject({ value: -90_000_00, isLiability: true, bucket: "real_estate" })
     expect(byName.get("Crédit immo")!.estimate).toMatchObject({ label: "Tableau d'amortissement", automatic: true })
-    expect(overview.netWorth).toBe(2_000_00 + 9_500_00 - 90_000_00)
+    expect(overview.netWorth).toBe(before + 9_500_00 - 90_000_00)
     const assets = await h.run(Wealth.use((w) => w.assetsOverview))
     expect(assets.items).toEqual(overview.items.filter((i) => i.kind === "asset"))
     // The declared value only exists from two months ago: before that the purchase price counts.
@@ -226,20 +240,18 @@ describe("Wealth", () => {
     await expect(
       h.run(Wealth.use((w) => w.create(manual({ type: "crypto", source: { kind: "crypto", coinId: "bitcoin", quantity: 0 } })))),
     ).rejects.toThrow(/quantité/)
-    const tomorrow = await h.run(Settings.use((s) => s.today))
-    const [first] = (await h.run(Wealth.use((w) => w.overview))).items.filter((i) => i.kind === "asset")
-    await expect(
-      h.run(Wealth.use((w) => w.addValuation({ assetId: first!.id, date: `${Number(tomorrow.slice(0, 4)) + 1}-01-01`, amount: 1 }))),
-    ).rejects.toThrow(/futur/)
+    const asset = await h.run(Wealth.use((w) => w.create(manual({ name: "Bague" }))))
+    await expect(h.run(Wealth.use((w) => w.addValuation({ assetId: asset, date: addDays(today, 1), amount: 1 })))).rejects.toThrow(/futur/)
+    await h.run(Wealth.use((w) => w.addValuation({ assetId: asset, date: today, amount: 1 })))
   })
 
   it("reads account balances at today and months inside the window only", async () => {
-    const [courant] = await h.run(Accounts.use((a) => a.list))
+    const joint = await openCourant(h, "Joint")
     const add = (date: string, amount: number) =>
-      h.run(Transactions.use((t) => t.create({ accountId: courant!.id, date, amount, payee: { kind: "name", name: "Test" }, categoryId: null })))
+      h.run(Transactions.use((t) => t.create({ accountId: joint, date, amount, payee: { kind: "name", name: "Test" }, categoryId: null })))
     await add(`${addMonths(month, -5)}-10`, 100_00)
     await add(addDays(today, 3), -500_00)
-    const item = (await h.run(Wealth.use((w) => w.overview))).items.find((i) => i.id === courant!.id)!
+    const item = (await h.run(Wealth.use((w) => w.overview))).items.find((i) => i.id === joint)!
     expect(item.value).toBe(2_100_00)
     expect(item.history[6]).toBe(2_000_00)
     expect(item.history[7]).toBe(2_100_00)
@@ -272,7 +284,7 @@ describe("Wealth", () => {
 
 describe("Wealth creation", () => {
   it("keeps the new asset, and only one, when its first estimate fails", async () => {
-    const h = await createHarness({ market: { cryptoPrices: () => Effect.die(new Error("Connexion perdue")) } })
+    const h = await createHarness({ now: NOW, market: { cryptoPrices: () => Effect.die(new Error("Connexion perdue")) } })
     try {
       const crypto = manual({
         name: "Bitcoin",
@@ -296,6 +308,7 @@ describe("Coin histories", () => {
   const setup = async (history: (id: string) => Effect.Effect<Array<{ date: string; price: number }>, ExternalError>) => {
     let priced = false
     const h = await createHarness({
+      now: NOW,
       market: {
         cryptoPrices: (ids) => Effect.succeed(new Map(priced ? ids.map((id) => [id, 100]) : [])),
         cryptoHistory: history,
