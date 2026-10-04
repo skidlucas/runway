@@ -178,7 +178,7 @@ function AccountSection({
               active ? "bg-active text-fg" : "text-fg-2 hover:bg-hover",
             )}
           >
-            <span className="truncate">{a.name}</span>
+            <span className="truncate" title={a.name}>{a.name}</span>
             <span className={cx("num shrink-0 text-[12px]", a.balance < 0 ? "text-negative" : "text-muted")}>
               {formatMoney(a.balance)}
             </span>
@@ -265,7 +265,7 @@ export function PageHeader({
           <>
             <span className="text-muted max-md:hidden">{title}</span>
             <span className="text-ghost max-md:hidden">/</span>
-            <span className="min-w-0 truncate font-medium">{crumb}</span>
+            <span className="min-w-0 truncate font-medium" title={typeof crumb === "string" ? crumb : undefined}>{crumb}</span>
           </>
         ) : (
           <span className="font-medium">{title}</span>

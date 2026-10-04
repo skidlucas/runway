@@ -16,7 +16,7 @@ export function UpcomingList({ items, today, limit }: { items: UpcomingDto["item
       {items.slice(0, limit).map((u, i) => (
         <li key={`${u.scheduleId ?? "tx"}-${u.date}-${i}`} className="grid h-7 grid-cols-[72px_minmax(0,1fr)_auto_96px] items-center gap-2">
           <span className={cx("num text-[12px]", u.overdue ? "text-warning" : "text-muted")}>{dayLabel(u.date, today, u.overdue)}</span>
-          <span className="truncate">{u.name}</span>
+          <span className="truncate" title={u.name}>{u.name}</span>
           {u.source === "schedule" ? <Chip>Échéance</Chip> : <span />}
           <Money value={u.amount} sign="always" colored className="text-right text-[12px]" />
         </li>

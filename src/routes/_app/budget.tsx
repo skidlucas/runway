@@ -332,7 +332,7 @@ function GroupRow({ group }: { group: BudgetGroupRow }) {
       role="row"
       className={cx(GRID, "h-[34px] items-center border-b border-line-subtle bg-row-group px-5 font-medium text-fg-2")}
     >
-      <span className="truncate">{group.name}</span>
+      <span className="truncate" title={group.name}>{group.name}</span>
       <span className="num text-right text-[12px] text-faint">{group.planned ? formatMoney(group.planned) : "—"}</span>
       <span className="num text-right text-[12px]">{formatMoney(group.budgeted)}</span>
       <span className="num text-right text-[12px] text-muted">{formatMoney(-group.spent)}</span>
@@ -475,7 +475,7 @@ function PlannedDetail({ planned }: { planned: PlannedCategory }) {
       {planned.lines.map((l) => (
         <div key={l.scheduleId} className="flex flex-col">
           <span className="flex items-baseline justify-between gap-3">
-            <span className="truncate text-fg-2">{l.name}</span>
+            <span className="truncate text-fg-2" title={l.name}>{l.name}</span>
             <span className="num shrink-0">
               {l.count > 1 ? `${l.count} × ` : ""}
               {formatMoney(l.amount)}
@@ -775,14 +775,18 @@ function MoveMoneyDialog({
 
 // --- Mobile list -----------------------------------------------------------------
 
-const MOBILE_GRID = "grid grid-cols-[minmax(0,1fr)_68px_68px_84px] gap-x-2 px-4 [&_.num]:whitespace-nowrap"
+// Every row shares the columns of the outer grid (subgrid), so the amount columns are as wide as
+// their largest figure instead of a fixed width that big amounts overflow. The 8px edge tracks
+// plus the gap make the side padding while row backgrounds still reach the edges.
+const MOBILE_TABLE = "grid grid-cols-[8px_minmax(0,1fr)_auto_auto_auto_8px] gap-x-2"
+const MOBILE_GRID = "col-span-full grid grid-cols-subgrid [&>:first-child]:col-start-2 [&_.num]:whitespace-nowrap"
 
 function MobileBudget({ budget, month, showHidden }: { budget: BudgetMonthDto; month: string; showHidden: boolean }) {
   const [editing, setEditing] = React.useState<BudgetCategoryRow | null>(null)
   const [moving, setMoving] = React.useState<{ category: BudgetCategoryRow; mode: "cover" | "transfer" } | null>(null)
   const groups = budget.groups.filter((g) => !g.isIncome && (showHidden || !g.hidden))
   return (
-    <div className="flex flex-col">
+    <div className={MOBILE_TABLE}>
       <div className={cx(MOBILE_GRID, "sticky top-0 z-10 border-b border-line bg-bg py-2 text-[11px] text-muted")}>
         <span>Catégorie</span>
         <span className="text-right">Budgété</span>
@@ -790,9 +794,9 @@ function MobileBudget({ budget, month, showHidden }: { budget: BudgetMonthDto; m
         <span className="text-right">Disponible</span>
       </div>
       {groups.map((g) => (
-        <section key={g.id}>
+        <section key={g.id} className="col-span-full grid grid-cols-subgrid">
           <div className={cx(MOBILE_GRID, "items-center border-b border-line-subtle bg-row-group py-2 text-[13px] font-medium text-fg-2")}>
-            <span className="truncate">{g.name}</span>
+            <span className="truncate" title={g.name}>{g.name}</span>
             <span className="num text-right text-[12px]">{formatMoney(g.budgeted, { currency: false })}</span>
             <span className="num text-right text-[12px] text-muted">{formatMoney(-g.spent, { currency: false })}</span>
             <span className="num text-right text-[12px]">{formatMoney(g.available, { currency: false })}</span>

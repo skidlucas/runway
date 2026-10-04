@@ -132,7 +132,7 @@ function ViewTabs() {
 
 const QueryChip = ({ label, value, ...props }: { label: string; value: React.ReactNode } & React.ButtonHTMLAttributes<HTMLButtonElement>) => (
   <ChipButton label={label} {...props}>
-    <span className="max-w-[220px] truncate">{value}</span>
+    <span className="max-w-[220px] truncate" title={typeof value === "string" ? value : undefined}>{value}</span>
   </ChipButton>
 )
 
@@ -234,7 +234,7 @@ function TargetPicker() {
           <Command.Group heading="Groupes" className={commandGroupClass}>
             {groups.map((g) => (
               <Command.Item key={g.id} value={`group-${g.id}`} keywords={[g.name]} onSelect={() => select({ kind: "group", id: g.id })} className={commandItemClass}>
-                <span className="flex-1 truncate">{g.name}</span>
+                <span className="flex-1 truncate" title={g.name}>{g.name}</span>
                 {current === g.id ? <Check size={13} className="text-accent-fg" /> : null}
               </Command.Item>
             ))}
@@ -251,7 +251,7 @@ function TargetPicker() {
                     onSelect={() => select({ kind: "category", id: c.id })}
                     className={commandItemClass}
                   >
-                    <span className="flex-1 truncate">{c.name}</span>
+                    <span className="flex-1 truncate" title={c.name}>{c.name}</span>
                     <span className="text-[12px] text-faint">{g.name}</span>
                     {current === c.id ? <Check size={13} className="text-accent-fg" /> : null}
                   </Command.Item>
@@ -267,7 +267,7 @@ function TargetPicker() {
                 onSelect={() => select({ kind: "payee", id: p.id })}
                 className={commandItemClass}
               >
-                <span className="flex-1 truncate">{p.name}</span>
+                <span className="flex-1 truncate" title={p.name}>{p.name}</span>
                 {current === p.id ? <Check size={13} className="text-accent-fg" /> : null}
               </Command.Item>
             ))}
@@ -424,7 +424,7 @@ function Breakdown({ v }: { v: InsightViewDto }) {
             onClick={() => r.id && setQuery({ target: { kind: v.breakdown.by === "payee" ? "payee" : "category", id: r.id } })}
             className="grid h-[34px] w-full grid-cols-[180px_minmax(0,1fr)_100px_80px] items-center gap-3.5 border-t border-line-subtle px-5 text-left hover:bg-hover disabled:hover:bg-transparent"
           >
-            <span className="truncate">{r.name}</span>
+            <span className="truncate" title={r.name}>{r.name}</span>
             <span className="h-1 rounded-[2px] bg-pill">
               <span className="block h-1 rounded-[2px] bg-accent" style={{ width: `${(r.amount / top) * 100}%` }} />
             </span>
@@ -565,7 +565,7 @@ function MobileInsights({ v, findings }: { v: InsightViewDto; findings: Finding[
       {v.breakdown.rows.map((r) => (
         <div key={r.id ?? r.name} className="flex items-center justify-between border-b border-line-subtle px-5 py-3">
           <span className="flex min-w-0 flex-col">
-            <span className="truncate font-medium">{r.name}</span>
+            <span className="truncate font-medium" title={r.name}>{r.name}</span>
             <span className="text-[12px] text-faint">
               {count(r.count, "opération")}
             </span>

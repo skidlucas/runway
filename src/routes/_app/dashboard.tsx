@@ -631,7 +631,7 @@ function CategorySpendingWidget({ months }: { months: number }) {
         {r.rows.map((row) => {
           const content = (
             <>
-              <span className="truncate">{row.name}</span>
+              <span className="truncate" title={row.name}>{row.name}</span>
               <span className="h-1 rounded-[2px] bg-pill">
                 <span className="block h-1 rounded-[2px] bg-accent" style={{ width: `${(row.amount / top) * 100}%` }} />
               </span>

@@ -80,7 +80,7 @@ function SchedulesPage() {
                   className="grid grid-cols-[minmax(0,1fr)_160px_120px_110px] items-center gap-3 border-t border-line-subtle px-5 py-2.5 max-md:grid-cols-[minmax(0,1fr)_auto]"
                 >
                   <span className="flex min-w-0 flex-col">
-                    <span className="truncate">{c.payeeName}</span>
+                    <span className="truncate" title={c.payeeName}>{c.payeeName}</span>
                     <span className="text-[12px] text-faint">
                       {c.occurrences} fois depuis {formatDayShort(c.firstDate)} · {c.accountName}
                       {c.categoryName ? ` · ${c.categoryName}` : ""}
@@ -139,7 +139,7 @@ function ScheduleRow({ schedule: s, onEdit }: { schedule: ScheduleDto; onEdit: (
         {s.overdue ? <span className="text-warning">en retard</span> : formatDayShort(s.nextDate)}
       </span>
       <button type="button" onClick={onEdit} className="flex min-w-0 flex-col text-left">
-        <span className="truncate font-medium">{s.name ?? s.payeeName ?? "Échéance"}</span>
+        <span className="truncate font-medium" title={s.name ?? s.payeeName ?? "Échéance"}>{s.name ?? s.payeeName ?? "Échéance"}</span>
         <span className="truncate text-[12px] text-faint">
           {s.recurrenceLabel} · {s.accountName}
           <span className="md:hidden"> · {formatDayShort(s.nextDate)}</span>

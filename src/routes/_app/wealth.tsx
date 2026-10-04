@@ -315,7 +315,7 @@ function AssetTable({
           >
             <span className="flex min-w-0 flex-col gap-0.5">
               <span className="flex min-w-0 items-center gap-1.5">
-                <span className="truncate">{item.name}</span>
+                <span className="truncate" title={item.name}>{item.name}</span>
                 {item.share === FULL_SHARE ? null : <Chip className="shrink-0">{formatShare(item.share)}</Chip>}
               </span>
               <span className="truncate text-[11px] text-faint">
@@ -422,7 +422,7 @@ function Detail({ item, months, today, onEdit }: { item: WealthItem; months: Mon
   return (
     <div className="flex flex-col" data-testid="asset-detail">
       <div className="flex h-12 items-center gap-2 border-b border-line px-[18px]">
-        <span className="min-w-0 flex-1 truncate font-medium">{item.name}</span>
+        <span className="min-w-0 flex-1 truncate font-medium" title={item.name}>{item.name}</span>
         {isAsset ? (
           <Menu
             trigger={
@@ -479,7 +479,7 @@ function Detail({ item, months, today, onEdit }: { item: WealthItem; months: Mon
                       {v.label}
                       {active ? <span className="text-accent-fg"> · retenue</span> : null}
                     </span>
-                    {v.caption ? <span className="truncate text-[11px] text-faint">{v.caption}</span> : null}
+                    {v.caption ? <span className="truncate text-[11px] text-faint" title={v.caption}>{v.caption}</span> : null}
                   </span>
                   <span className="num shrink-0 text-[12px]">{v.amount === null ? "—" : euros(v.amount)}</span>
                 </button>
@@ -623,7 +623,7 @@ function MobileWealth({
             className="flex w-full items-center gap-3 border-b border-line-subtle px-5 py-[11px] text-left"
           >
             <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-              <span className="truncate font-medium">{item.name}</span>
+              <span className="truncate font-medium" title={item.name}>{item.name}</span>
               <span className="truncate text-[12px] text-faint">{estimateCaption(item, data.today).text}</span>
             </span>
             <Money value={item.value} decimals={0} className="text-[14px]" />

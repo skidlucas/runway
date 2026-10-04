@@ -233,7 +233,7 @@ function UpcomingTable({ f }: { f: ForecastDto }) {
           className="grid h-9 grid-cols-[80px_minmax(0,1fr)_160px_120px] items-center border-t border-line-subtle px-5"
         >
           <span className={cx("num text-[12px]", u.overdue ? "text-warning" : "text-muted")}>{u.overdue ? "en retard" : formatDayShort(u.date)}</span>
-          <span className="truncate">{u.name}</span>
+          <span className="truncate" title={u.name}>{u.name}</span>
           <span>{tagView(u.tag)}</span>
           <Money value={u.amount} className="text-right text-[12px]" colored />
         </div>

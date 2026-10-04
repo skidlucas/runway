@@ -585,7 +585,7 @@ function ScheduledLine({
       <CalendarClock size={13} className="text-faint" aria-label="Échéance" />
       <span className={cx("num text-[12px]", row.overdue && "text-warning")}>{s.date}</span>
       <span className="flex min-w-0 items-center gap-2">
-        <span className="truncate italic">{row.name}</span>
+        <span className="truncate italic" title={row.name}>{row.name}</span>
         <Chip>Échéance</Chip>
         {row.next ? (
           <span className={cx("ml-auto flex shrink-0 gap-1", revealOnHover)}>
@@ -598,8 +598,8 @@ function ScheduledLine({
           </span>
         ) : null}
       </span>
-      <span className="truncate">{s.category}</span>
-      {showAccount ? <span className="truncate">{s.account}</span> : null}
+      <span className="truncate" title={s.category}>{s.category}</span>
+      {showAccount ? <span className="truncate" title={s.account}>{s.account}</span> : null}
       <Money value={row.amount} sign="always" className="text-right italic" />
       {showBalance ? <span /> : null}
       <span />
@@ -631,7 +631,7 @@ const SplitRow = ({
   >
     <span />
     <span />
-    <span className="truncate pl-4">{tx.notes ?? ""}</span>
+    <span className="truncate pl-4" title={tx.notes ?? ""}>{tx.notes ?? ""}</span>
     <InlineCategory tx={tx} />
     {showAccount ? <span /> : null}
     <Money value={tx.amount} className="text-right" colored />
@@ -705,7 +705,7 @@ const TransactionRow = React.memo(function TransactionRow({
           triggerClassName="truncate"
           placeholder="—"
         />
-        {tx.notes ? <span className="truncate text-[12px] text-faint">{tx.notes}</span> : null}
+        {tx.notes ? <span className="truncate text-[12px] text-faint" title={tx.notes}>{tx.notes}</span> : null}
       </span>
       {tx.isParent ? (
         <button type="button" onClick={() => onToggleExpand(tx.id)} className="flex items-center gap-1 text-muted hover:text-fg">
@@ -717,7 +717,7 @@ const TransactionRow = React.memo(function TransactionRow({
       ) : (
         <InlineCategory tx={tx} />
       )}
-      {showAccount ? <span className="truncate text-muted">{tx.accountName}</span> : null}
+      {showAccount ? <span className="truncate text-muted" title={tx.accountName}>{tx.accountName}</span> : null}
       <InlineAmount tx={tx} />
       {showBalance ? <Money value={tx.balance ?? 0} className="text-right text-[12px] text-muted" /> : null}
       <button
@@ -964,7 +964,7 @@ function MobileScheduledRow({ row }: { row: ScheduledRow }) {
   return (
     <div data-testid="scheduled-row" className="flex items-center gap-3 border-b border-line-subtle px-5 py-3 text-muted">
       <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-        <span className="truncate font-medium italic">{row.name}</span>
+        <span className="truncate font-medium italic" title={row.name}>{row.name}</span>
         <span className="truncate text-[12px] text-faint">
           <span className={cx(row.overdue && "text-warning")}>{s.date}</span> · Échéance · {s.category}
         </span>

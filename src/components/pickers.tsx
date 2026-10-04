@@ -123,7 +123,7 @@ export function CategoryPicker({
                           }}
                           className={commandItemClass}
                         >
-                          <span className="flex-1 truncate">{c.name}</span>
+                          <span className="flex-1 truncate" title={c.name}>{c.name}</span>
                           {amount !== undefined && !c.isIncome ? (
                             <span className={cx("num text-[12px]", amount < 0 ? "text-negative" : "text-positive")}>
                               {formatMoney(amount)}
@@ -253,7 +253,7 @@ function PayeeOptions({
         ) : null}
         {matches.slice(0, MAX_PAYEE_OPTIONS).map(({ payee: p }) => (
           <Command.Item key={p.id} value={p.id} onSelect={() => onPick({ kind: "id", id: p.id, name: p.name })} className={commandItemClass}>
-            <span className="flex-1 truncate">{p.name}</span>
+            <span className="flex-1 truncate" title={p.name}>{p.name}</span>
             {value.kind === "id" && value.id === p.id ? <Check size={13} className="text-accent-fg" /> : null}
           </Command.Item>
         ))}
@@ -273,7 +273,7 @@ function PayeeOptions({
                 className={commandItemClass}
               >
                 <ArrowLeftRight size={13} className="text-muted" />
-                <span className="flex-1 truncate">{a.name}</span>
+                <span className="flex-1 truncate" title={a.name}>{a.name}</span>
               </Command.Item>
             ))}
           </Command.Group>
@@ -384,7 +384,7 @@ export function RemotePicker<T>({
                   }}
                   className={commandItemClass}
                 >
-                  <span className="flex-1 truncate">{d.title}</span>
+                  <span className="flex-1 truncate" title={d.title}>{d.title}</span>
                   {d.hint ? <span className="shrink-0 text-[12px] text-faint">{d.hint}</span> : null}
                 </Command.Item>
               )
