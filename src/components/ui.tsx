@@ -895,7 +895,20 @@ export const EmptyState = ({
   </div>
 )
 
-export const SkeletonRows = ({ rows = 8, height = 36 }: { rows?: number; height?: number }) => (
+/** In place of data that failed to load, so a failed query never looks like an endless load. */
+export const ErrorState = ({ error, onRetry, className }: { error?: unknown; onRetry?: () => void; className?: string }) => (
+  <div className={cx("flex flex-col items-start gap-2", className)}>
+    <p className="text-muted">Impossible de charger ces données.</p>
+    {error instanceof Error && error.message ? <p className="text-[12px] text-faint">{error.message}</p> : null}
+    {onRetry ? (
+      <Button size="sm" onClick={onRetry}>
+        Réessayer
+      </Button>
+    ) : null}
+  </div>
+)
+
+export const SkeletonRows =({ rows = 8, height = 36 }: { rows?: number; height?: number }) => (
   <div aria-busy="true" aria-label="Chargement">
     {Array.from({ length: rows }, (_, i) => (
       <div key={i} className="flex items-center gap-4 border-b border-line-subtle px-5" style={{ height }}>

@@ -11,7 +11,7 @@ import { LineChart } from "~/components/charts"
 import { MonthlyChart } from "~/components/monthly-chart"
 import { PageHeader } from "~/components/shell"
 import { toastError } from "~/components/toast"
-import { Button, cx, Dialog, EmptyState, Field, IconButton, Input, Menu, type MenuItem, Money, useConfirm } from "~/components/ui"
+import { Button, cx, Dialog, EmptyState, ErrorState, Field, IconButton, Input, Menu, type MenuItem, Money, useConfirm } from "~/components/ui"
 import { UpcomingList } from "~/components/upcoming-list"
 import { formatDayShort, formatMonthLong, formatMonthShort, type Month } from "~/domain/dates"
 import { formatMoney } from "~/domain/money"
@@ -422,13 +422,13 @@ function WidgetCard({
         ) : null}
       </header>
       <div className="flex min-h-0 flex-1 flex-col">
-        <WidgetBody widget={widget} viewMissing={widget.kind === "insight_view" && views.isSuccess && !view} />
+        <WidgetBody widget={widget} />
       </div>
     </section>
   )
 }
 
-function WidgetBody({ widget, viewMissing }: { widget: DashboardWidget; viewMissing: boolean }) {
+function WidgetBody({ widget }: { widget: DashboardWidget }) {
   switch (widget.kind) {
     case "net_worth":
       return <NetWorthWidget months={widget.months ?? 12} />
@@ -445,11 +445,16 @@ function WidgetBody({ widget, viewMissing }: { widget: DashboardWidget; viewMiss
     case "upcoming":
       return <UpcomingWidget days={widget.days ?? 7} />
     case "insight_view":
-      return viewMissing ? <p className="text-muted">Cette vue a été supprimée.</p> : <InsightViewWidget viewId={widget.viewId ?? ""} />
+      return <InsightViewWidget viewId={widget.viewId ?? ""} />
   }
 }
 
 const Loading = () => <div className="skeleton h-full min-h-[120px] w-full rounded-[6px]" aria-busy="true" aria-label="Chargement" />
+
+/** What a widget shows until its data is there: a skeleton, or the error once the query has given up. */
+const Pending = ({ query }: { query: { isError: boolean; error: unknown; refetch: () => unknown } }) =>
+  query.isError ? <ErrorState error={query.error} onRetry={() => void query.refetch()} /> : <Loading />
+
 
 const Headline = ({ value, children, negative }: { value: number; children?: React.ReactNode; negative?: boolean }) => (
   <div className="flex items-baseline gap-2 pb-3">
@@ -461,7 +466,7 @@ const Headline = ({ value, children, negative }: { value: number; children?: Rea
 function NetWorthWidget({ months }: { months: number }) {
   const report = useQuery(q.netWorth(months))
   const r = report.data
-  if (!r) return <Loading />
+  if (!r) return <Pending query={report} />
   return (
     <>
       <Headline value={r.current} negative={r.current < 0}>
@@ -480,7 +485,7 @@ function NetWorthWidget({ months }: { months: number }) {
 function WealthWidget({ months }: { months: number }) {
   const wealth = useQuery(q.wealth())
   const w = wealth.data
-  if (!w) return <Loading />
+  if (!w) return <Pending query={wealth} />
   const values = w.history.slice(-months)
   // Measured from the month before the window, like the accounts total.
   const change = w.netWorth - (w.history.at(-months - 1) ?? values[0] ?? w.netWorth)
@@ -505,7 +510,7 @@ function WealthWidget({ months }: { months: number }) {
 function CashFlowWidget({ months }: { months: number }) {
   const report = useQuery(q.cashFlow(months))
   const r = report.data
-  if (!r) return <Loading />
+  if (!r) return <Pending query={report} />
   const max = Math.max(1, ...r.months.flatMap((m) => [m.income, m.expenses]))
   return (
     <>
@@ -591,7 +596,7 @@ function CashFlowBars({ months }: { months: CashFlowReport["months"] }) {
 function SpendingComparisonWidget() {
   const report = useQuery(q.spendingComparison())
   const r = report.data
-  if (!r) return <Loading />
+  if (!r) return <Pending query={report} />
   const diff = r.total - r.previousToDate
   const slots = Math.max(r.current.length, r.previousSeries.length)
   return (
@@ -616,7 +621,7 @@ function SpendingComparisonWidget() {
 function CategorySpendingWidget({ months }: { months: number }) {
   const report = useQuery(q.categorySpending(months))
   const r = report.data
-  if (!r) return <Loading />
+  if (!r) return <Pending query={report} />
   if (r.rows.length === 0) return <p className="text-muted">Aucune dépense sur la période.</p>
   const top = r.rows[0]?.amount ?? 1
   return (
@@ -657,7 +662,7 @@ function CategorySpendingWidget({ months }: { months: number }) {
 
 function AccountBalancesWidget() {
   const accounts = useQuery(q.accounts())
-  if (!accounts.data) return <Loading />
+  if (!accounts.data) return <Pending query={accounts} />
   const open = accounts.data.filter((a) => !a.closed)
   if (open.length === 0) return <p className="text-muted">Aucun compte ouvert.</p>
   const total = open.reduce((sum, a) => sum + a.balanceToday, 0)
@@ -686,6 +691,7 @@ function AccountBalancesWidget() {
 function UpcomingWidget({ days }: { days: number }) {
   const upcoming = useQuery(q.upcoming({ days }))
   const u = upcoming.data
+  if (!u && upcoming.isError) return <Pending query={upcoming} />
   const net = u?.items.reduce((sum, item) => sum + item.amount, 0) ?? 0
   return (
     <>
@@ -701,14 +707,15 @@ function UpcomingWidget({ days }: { days: number }) {
 
 function InsightViewWidget({ viewId }: { viewId: string }) {
   const views = useQuery(q.savedViews())
-  const config = views.data?.find((v) => v.id === viewId)?.config
-  return config ? <InsightViewChart config={config} /> : <Loading />
+  if (!views.data) return <Pending query={views} />
+  const config = views.data.find((v) => v.id === viewId)?.config
+  return config ? <InsightViewChart config={config} /> : <p className="text-muted">Cette vue a été supprimée.</p>
 }
 
 function InsightViewChart({ config }: { config: InsightViewConfig }) {
   const view = useQuery(q.insightView(config))
   const v = view.data
-  if (!v) return <Loading />
+  if (!v) return <Pending query={view} />
   return (
     <>
       <Headline value={v.current}>{formatMonthLong(v.month).toLowerCase()} · {v.label}</Headline>
