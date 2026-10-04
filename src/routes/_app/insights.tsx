@@ -164,13 +164,9 @@ function QueryBar() {
           onSelect: () => setQuery({ rolling: r }),
         }))}
       />
-      <button
-        type="button"
-        onClick={() => setSaving(true)}
-        className="ml-1 flex h-7 shrink-0 items-center gap-1.5 rounded-[6px] px-2 text-faint hover:text-fg"
-      >
-        <Bookmark size={13} /> Enregistrer la vue
-      </button>
+      <Button variant="ghost" size="sm" icon={<Bookmark size={13} />} onClick={() => setSaving(true)} className="ml-1 shrink-0">
+        Enregistrer la vue
+      </Button>
       <SaveViewDialog
         open={saving}
         onOpenChange={setSaving}

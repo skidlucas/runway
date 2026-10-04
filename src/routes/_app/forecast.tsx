@@ -7,7 +7,7 @@ import { useQuery } from "@tanstack/react-query"
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router"
 import * as React from "react"
 import { PageHeader } from "~/components/shell"
-import { Chip, cx, EmptyState, heroAmountClass, Kpi, Money, SectionTitle, SkeletonRows, StatChip, Tabs } from "~/components/ui"
+import { buttonClass, Chip, cx, EmptyState, heroAmountClass, Kpi, Money, SectionTitle, SkeletonRows, StatChip, Tabs } from "~/components/ui"
 import { formatDayShort, formatMonthLong, formatMonthName, parseDay } from "~/domain/dates"
 import type { UpcomingTag } from "~/domain/forecast"
 import { formatMoney } from "~/domain/money"
@@ -72,7 +72,11 @@ function ForecastPage() {
       ) : f.accounts.length === 0 ? (
         <EmptyState
           title="Ajoute un compte courant pour voir ce qu'il te reste jusqu'à la fin du mois."
-          action={<Link to="/accounts" search={{ new: true }} className="text-accent-fg">Ajouter un compte</Link>}
+          action={
+            <Link to="/accounts" search={{ new: true }} className={buttonClass({ variant: "primary" })}>
+              Ajouter un compte
+            </Link>
+          }
         />
       ) : (
         <>

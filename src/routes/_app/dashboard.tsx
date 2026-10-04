@@ -719,7 +719,7 @@ function InsightViewChart({ config }: { config: InsightViewConfig }) {
   return (
     <>
       <Headline value={v.current}>{formatMonthLong(v.month).toLowerCase()} · {v.label}</Headline>
-      <Link to="/insights" search={queryToSearch(config)} className="-mx-5 mt-auto block">
+      <Link to="/insights" search={queryToSearch(config)} className="-mx-4 mt-auto block">
         <MonthlyChart v={v} compact />
       </Link>
     </>

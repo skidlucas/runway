@@ -304,7 +304,8 @@ function BundleImportDialog({ fileName, bundle, onClose }: { fileName: string; b
             <Checkbox
               checked={include[item.key]}
               label={item.label}
-              onCheckedChange={(c) => !item.locked && setInclude((s) => ({ ...s, [item.key]: c }))}
+              disabled={item.locked}
+              onCheckedChange={(c) => setInclude((s) => ({ ...s, [item.key]: c }))}
             />
             <span className={cx("flex-1", item.locked && "text-fg-2")}>{item.label}</span>
             <span className="num text-[12px] text-muted">{item.count}</span>

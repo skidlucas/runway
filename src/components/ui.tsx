@@ -579,16 +579,19 @@ export const Checkbox = ({
   checked,
   onCheckedChange,
   label,
+  disabled,
 }: {
   checked: boolean
   onCheckedChange: (checked: boolean) => void
   label?: string
+  disabled?: boolean
 }) => (
   <BCheckbox.Root
     checked={checked}
     onCheckedChange={(c) => onCheckedChange(c)}
+    disabled={disabled}
     aria-label={label}
-    className="flex h-4 w-4 shrink-0 items-center justify-center rounded-[4px] border border-control-off data-[checked]:border-accent data-[checked]:bg-accent"
+    className="flex h-4 w-4 shrink-0 items-center justify-center rounded-[4px] border border-control-off data-[checked]:border-accent data-[checked]:bg-accent data-[disabled]:opacity-50"
   >
     <BCheckbox.Indicator>
       <Check size={11} strokeWidth={2.5} className="text-white" />

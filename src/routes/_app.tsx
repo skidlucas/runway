@@ -67,11 +67,17 @@ function AppLayout() {
 
   return (
     <AppUi.Provider value={ui}>
+      <a
+        href="#main"
+        className="sr-only rounded-[6px] border border-line bg-panel px-3 py-2 focus:not-sr-only focus:fixed focus:left-3 focus:top-3 focus:z-50"
+      >
+        Aller au contenu
+      </a>
       <div className="grid min-h-dvh grid-cols-[232px_minmax(0,1fr)] max-[1100px]:grid-cols-[56px_minmax(0,1fr)] max-md:grid-cols-1">
         <div className="max-md:hidden">
           <Sidebar />
         </div>
-        <main className="flex min-w-0 flex-col max-md:pb-[100px]">
+        <main id="main" tabIndex={-1} className="flex min-w-0 flex-col outline-none max-md:pb-[100px]">
           <Outlet />
         </main>
       </div>
