@@ -76,6 +76,41 @@ export const patternProblem = (pattern: string): string | null => {
   return null
 }
 
+const TEXT_OPS = ["is", "contains", "starts_with", "matches"] as const
+
+/** Operators each field can be compared with; the engine never matches any other pair. */
+export const RULE_OPS_BY_FIELD: Record<RuleConditionField, ReadonlyArray<RuleConditionOp>> = {
+  payee: TEXT_OPS,
+  imported_payee: TEXT_OPS,
+  notes: TEXT_OPS,
+  amount: ["is", "gt", "lt", "between"],
+  account: ["is"],
+}
+
+const valueFits = (c: RuleCondition): boolean => {
+  if (c.field !== "amount") return typeof c.value === "string"
+  if (c.op === "between") return Array.isArray(c.value) && c.value.length === 2 && c.value.every(Number.isFinite)
+  return typeof c.value === "number" && Number.isFinite(c.value)
+}
+
+/** Why a rule cannot be saved, or null when rules may run it. */
+export const ruleProblem = (rule: {
+  readonly conditions: ReadonlyArray<RuleCondition>
+  readonly actions: ReadonlyArray<RuleAction>
+}): string | null => {
+  if (rule.conditions.length === 0) return "Ajoute au moins une condition"
+  if (rule.actions.length === 0) return "Ajoute au moins une action"
+  for (const c of rule.conditions) {
+    if (!RULE_OPS_BY_FIELD[c.field].includes(c.op) || !valueFits(c)) return `Condition impossible sur ${FIELD_LABEL[c.field]}`
+    if (c.op === "matches") {
+      const problem = patternProblem(c.value as string)
+      if (problem) return problem
+    }
+    if (typeof c.value === "string" && c.value.trim() === "" && c.field !== "account") return "Une condition est vide"
+  }
+  return null
+}
+
 const REGEX_CACHE_SIZE = 500
 const regexCache = new Map<string, RegExp | null>()
 const safeRegex = (pattern: string): RegExp | null => {

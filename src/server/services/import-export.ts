@@ -3,7 +3,7 @@ import { Clock, Context, Effect, Layer, Schema } from "effect"
 import { isDay, isMonth } from "~/domain/dates"
 import { RECURRENCE_UNITS } from "~/domain/recurrence"
 import { FULL_SHARE, isShare } from "~/domain/wealth"
-import { normalizeText, type RuleAction, type RuleSubject } from "~/domain/rules"
+import { normalizeText, type RuleAction, ruleProblem, type RuleSubject } from "~/domain/rules"
 import { type BundleExtras, type BundleStructure, type IdMaps, orderStamps } from "~/lib/import-bundle"
 import { bulkInsertStatements, chunkRows, Db, type DbError, newId } from "../db/client"
 import * as schema from "../db/schema"
@@ -11,7 +11,7 @@ import { Invalid, type NotFound } from "../errors"
 import { AccountKind, DuplicateProbe as DuplicateProbeSchema, ImportRow as ImportRowSchema } from "../schemas"
 import { DEFAULT_WIDGETS, MAIN_DASHBOARD_ID, MAX_WIDGETS, validWidget } from "./dashboards"
 import { Payees } from "./payees"
-import { ruleInputError, Rules } from "./rules"
+import { Rules } from "./rules"
 import { Settings } from "./settings"
 import { type NewTxRow, transactionInsertStatements } from "./transactions"
 import { sourceProblem } from "./wealth"
@@ -309,7 +309,7 @@ export class ImportExport extends Context.Service<
             )
             const key = JSON.stringify([rule.conditionsOp, conditions, actions])
             // A rule Runway cannot run (empty condition, broken regex) is left behind rather than failing the import.
-            if (seen.has(key) || ruleInputError({ conditionsOp: rule.conditionsOp, conditions, actions })) continue
+            if (seen.has(key) || ruleProblem({ conditions, actions })) continue
             seen.add(key)
             newRules.push([
               newId(),

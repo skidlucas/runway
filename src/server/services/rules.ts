@@ -1,6 +1,6 @@
 import { asc, eq, sql } from "drizzle-orm"
 import { Context, Effect, Layer } from "effect"
-import { compileRules, normalizeText, patternProblem, type Rule, type RuleAction, type RuleCondition, type RuleConditionsOp, type RuleOrigin, type RuleOutcome, type RuleSubject } from "~/domain/rules"
+import { compileRules, normalizeText, type Rule, type RuleAction, type RuleCondition, type RuleConditionsOp, type RuleOrigin, type RuleOutcome, ruleProblem, type RuleSubject } from "~/domain/rules"
 import { chunkIds, Db, type DbError, newId } from "../db/client"
 import { RULE_CANDIDATE } from "../db/predicates"
 import { rules } from "../db/schema"
@@ -27,20 +27,6 @@ export type RuleSuggestion = {
   uncategorized: number
 }
 
-/** Why a rule cannot be saved, or null when it is valid. */
-export const ruleInputError = (input: RuleInput): string | null => {
-  if (input.conditions.length === 0) return "Ajoute au moins une condition"
-  if (input.actions.length === 0) return "Ajoute au moins une action"
-  for (const c of input.conditions) {
-    if (c.op === "matches" && typeof c.value === "string") {
-      const problem = patternProblem(c.value)
-      if (problem) return problem
-    }
-    if (typeof c.value === "string" && c.value.trim() === "" && c.field !== "account") return "Une condition est vide"
-  }
-  return null
-}
-
 export class Rules extends Context.Service<
   Rules,
   {
@@ -65,7 +51,7 @@ export class Rules extends Context.Service<
       const list = db.use((orm) => orm.select().from(rules).orderBy(asc(rules.sortOrder), asc(rules.createdAt)))
 
       const validate = (input: RuleInput) => {
-        const problem = ruleInputError(input)
+        const problem = ruleProblem(input)
         return problem ? Effect.fail(new Invalid({ message: problem })) : Effect.void
       }
 
