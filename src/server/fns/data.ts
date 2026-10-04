@@ -2,7 +2,7 @@ import { createServerFn } from "@tanstack/react-start"
 import { Schema } from "effect"
 import { authMiddleware } from "../auth"
 import { runApp } from "../runtime"
-import { AssetType, Recurrence, RetainedValue, RuleAction, RuleCondition, RulesOp } from "../schemas"
+import { AssetType, Recurrence, RetainedValue, RuleAction, RuleCondition, RuleOrigin, RulesOp } from "../schemas"
 import { Demo } from "../services/demo"
 import { ImportExport } from "../services/import-export"
 import { InsightQuery } from "./insights"
@@ -21,7 +21,17 @@ export const seedDemo = createServerFn({ method: "POST" })
 const Structure = Schema.Struct({
   source: Schema.Literals(["actual", "runway"]),
   name: Str,
-  accounts: Schema.Array(Schema.Struct({ id: Str, name: Str, offBudget: Schema.Boolean, closed: Schema.Boolean, kind: Opt(Str) })),
+  accounts: Schema.Array(
+    Schema.Struct({
+      id: Str,
+      name: Str,
+      offBudget: Schema.Boolean,
+      closed: Schema.Boolean,
+      kind: Opt(Str),
+      inForecast: Opt(Schema.Boolean),
+      lastReconciledAt: Opt(NStr),
+    }),
+  ),
   groups: Schema.Array(Schema.Struct({ id: Str, name: Str, isIncome: Schema.Boolean, hidden: Schema.Boolean, sortOrder: Schema.Finite })),
   categories: Schema.Array(
     Schema.Struct({ id: Str, groupId: Str, name: Str, isIncome: Schema.Boolean, hidden: Schema.Boolean, sortOrder: Schema.Finite }),
@@ -30,7 +40,13 @@ const Structure = Schema.Struct({
   budgets: Schema.Array(Schema.Struct({ month: Str, categoryId: Str, amount: Schema.Int, carryover: Schema.Boolean })),
   buffered: Schema.Array(Schema.Struct({ month: Str, amount: Schema.Int })),
   rules: Schema.Array(
-    Schema.Struct({ conditionsOp: RulesOp, conditions: Schema.Array(RuleCondition), actions: Schema.Array(RuleAction) }),
+    Schema.Struct({
+      conditionsOp: RulesOp,
+      conditions: Schema.Array(RuleCondition),
+      actions: Schema.Array(RuleAction),
+      enabled: Opt(Schema.Boolean),
+      origin: Opt(RuleOrigin),
+    }),
   ),
   schedules: Schema.Array(
     Schema.Struct({
@@ -50,16 +66,15 @@ const Structure = Schema.Struct({
   ),
 })
 
+// Exported for the tests: a field missing here is silently dropped from what the browser sends.
+export const ImportStructureInput = Schema.Struct({
+  structure: Structure,
+  include: Schema.Struct({ budgets: Schema.Boolean, rules: Schema.Boolean, schedules: Schema.Boolean }),
+})
+
 export const importStructure = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
-  .validator(
-    v(
-      Schema.Struct({
-        structure: Structure,
-        include: Schema.Struct({ budgets: Schema.Boolean, rules: Schema.Boolean, schedules: Schema.Boolean }),
-      }),
-    ),
-  )
+  .validator(v(ImportStructureInput))
   .handler(({ data }) =>
     runApp(
       ImportExport.use((s) =>
@@ -118,11 +133,11 @@ const Extras = Schema.Struct({
 })
 const Ids = Schema.Record(Str, Str)
 
+export const ImportExtrasInput = Schema.Struct({ extras: Extras, maps: Schema.Struct({ accounts: Ids, groups: Ids, categories: Ids, payees: Ids }) })
+
 export const importExtras = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
-  .validator(
-    v(Schema.Struct({ extras: Extras, maps: Schema.Struct({ accounts: Ids, groups: Ids, categories: Ids, payees: Ids }) })),
-  )
+  .validator(v(ImportExtrasInput))
   .handler(({ data }) =>
     runApp(
       ImportExport.use((s) =>
@@ -156,19 +171,18 @@ const ImportRow = Schema.Struct({
   importedId: Opt(NStr),
   importedPayee: Opt(NStr),
   startingBalance: Opt(Schema.Boolean),
+  scheduleId: Opt(NStr),
   createdAt: Opt(NStr),
+})
+
+export const ImportTransactionsInput = Schema.Struct({
+  rows: Schema.Array(ImportRow),
+  options: Schema.Struct({ dedupe: Schema.Boolean, applyRules: Schema.Boolean }),
 })
 
 export const importTransactions = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
-  .validator(
-    v(
-      Schema.Struct({
-        rows: Schema.Array(ImportRow),
-        options: Schema.Struct({ dedupe: Schema.Boolean, applyRules: Schema.Boolean }),
-      }),
-    ),
-  )
+  .validator(v(ImportTransactionsInput))
   .handler(({ data }) => runApp(ImportExport.use((s) => s.importTransactions(data.rows, data.options))))
 
 export const countDuplicates = createServerFn({ method: "POST" })

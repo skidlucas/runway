@@ -359,7 +359,15 @@ export class ImportExport extends Context.Service<
             // A rule Runway cannot run (empty condition, broken regex) is left behind rather than failing the import.
             if (seen.has(key) || ruleInputError({ conditionsOp: rule.conditionsOp, conditions, actions })) continue
             seen.add(key)
-            newRules.push([newId(), rule.conditionsOp, JSON.stringify(conditions), JSON.stringify(actions), bool(rule.enabled ?? true), "imported", ++sortOrder])
+            newRules.push([
+              newId(),
+              rule.conditionsOp,
+              JSON.stringify(conditions),
+              JSON.stringify(actions),
+              bool(rule.enabled ?? true),
+              rule.origin ?? "imported",
+              ++sortOrder,
+            ])
           }
           writes.push(
             ...bulkInsertStatements(db.d1, "rules", ["id", "conditions_op", "conditions", "actions", "enabled", "origin", "sort_order"], newRules),
@@ -585,7 +593,12 @@ export class ImportExport extends Context.Service<
           return [[newId(), board.name, JSON.stringify(widgets.slice(0, MAX_WIDGETS)), board.sortOrder]]
         })
         // Storing a first dashboard would hide the default one, which only exists while none is stored.
-        const keepMain = existingDashboards.length === 0 && boards.length > 0 && !dashboardNames.has(normalizeText("Principal"))
+        // A backup that holds the default dashboard (maybe renamed) already brings it back.
+        const keepMain =
+          existingDashboards.length === 0 &&
+          boards.length > 0 &&
+          !dashboardNames.has(normalizeText("Principal")) &&
+          !(extras.dashboards ?? []).some((b) => b.id === MAIN_DASHBOARD_ID)
         yield* db.batch([
           ...bulkInsertStatements(
             db.d1,

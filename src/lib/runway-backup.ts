@@ -55,7 +55,7 @@ export const backupToBundle = (backup: RunwayBackup): ImportBundle => ({
   buffered: backup.budgetMonths.map((m) => ({ month: m.month, amount: m.buffered })),
   rules: [...backup.rules]
     .sort((a, b) => a.sortOrder - b.sortOrder)
-    .map((r) => ({ conditionsOp: r.conditionsOp, conditions: r.conditions, actions: r.actions, enabled: r.enabled })),
+    .map((r) => ({ conditionsOp: r.conditionsOp, conditions: r.conditions, actions: r.actions, enabled: r.enabled, origin: r.origin })),
   schedules: backup.schedules.map((s) => ({
     id: s.id,
     name: s.name,

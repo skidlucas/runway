@@ -1,10 +1,14 @@
 import { readdirSync, readFileSync } from "node:fs"
 import { join } from "node:path"
-import { Cause, Effect, Exit, Layer, ManagedRuntime, Option, Result } from "effect"
+import { Cause, Clock, Effect, Exit, Layer, ManagedRuntime, Option, Result, Schema } from "effect"
 import { Miniflare } from "miniflare"
+import type { BundleExtras, BundleStructure, IdMaps } from "~/lib/import-bundle"
+import type { ImportApi } from "~/lib/import-client"
 import { makeCoreLayer } from "~/server/app-layer"
 import { ExternalError } from "~/server/errors"
+import { ImportExtrasInput, ImportStructureInput, ImportTransactionsInput } from "~/server/fns/data"
 import type { AiProviders } from "~/server/services/ai"
+import { ImportExport } from "~/server/services/import-export"
 import { MarketData } from "~/server/services/market-data"
 
 type Services = Layer.Success<ReturnType<typeof makeCoreLayer>>
@@ -19,6 +23,28 @@ export const migrate = async (d1: D1Database) => {
       .filter(Boolean)
     await d1.batch(statements.map((s) => d1.prepare(s)))
   }
+}
+
+const USER_TABLES = [
+  "accounts",
+  "category_groups",
+  "categories",
+  "payees",
+  "transactions",
+  "budgets",
+  "budget_months",
+  "rules",
+  "schedules",
+  "assets",
+  "asset_valuations",
+  "saved_views",
+  "dashboards",
+] as const
+
+/** Row count of every table that holds user data, to check that an import adds nothing twice. */
+export const tableCounts = async (d1: D1Database): Promise<Record<(typeof USER_TABLES)[number], number>> => {
+  const results = await d1.batch<{ n: number }>(USER_TABLES.map((t) => d1.prepare(`SELECT COUNT(*) AS n FROM ${t}`)))
+  return Object.fromEntries(USER_TABLES.map((t, i) => [t, results[i]?.results[0]?.n ?? 0])) as Record<(typeof USER_TABLES)[number], number>
 }
 
 // Shared CI runners are several times slower than a developer machine: wall-clock bounds (and
@@ -50,7 +76,44 @@ export const offlineMarket: MarketData["Service"] = (() => {
   })
 })()
 
-export const createHarness = async (options: { ai?: AiProviders; market?: Partial<MarketData["Service"]> } = {}) => {
+/**
+ * A clock that reads `now` (an ISO instant) and then moves 1 ms per read, so that creation stamps
+ * stay ordered while "today" stays put. `set` moves it to another instant.
+ */
+export const frozenClock = (now: string) => {
+  const live = Clock.Clock.defaultValue()
+  const parse = (instant: string) => {
+    const millis = Date.parse(instant)
+    if (Number.isNaN(millis)) throw new Error(`Invalid instant: ${instant}`)
+    return millis
+  }
+  let millis = parse(now)
+  const read = () => millis++
+  const clock: Clock.Clock = {
+    currentTimeMillisUnsafe: read,
+    currentTimeMillis: Effect.sync(read),
+    currentTimeNanosUnsafe: () => BigInt(read()) * 1_000_000n,
+    currentTimeNanos: Effect.sync(() => BigInt(read()) * 1_000_000n),
+    monotonicTimeNanosUnsafe: () => live.monotonicTimeNanosUnsafe(),
+    monotonicTimeNanos: live.monotonicTimeNanos,
+    sleep: (duration) => live.sleep(duration),
+  }
+  return {
+    clock,
+    set: (instant: string) => {
+      millis = parse(instant)
+    },
+  }
+}
+
+export const createHarness = async (
+  options: {
+    ai?: AiProviders
+    market?: Partial<MarketData["Service"]>
+    /** Freezes the services' clock on this instant (ISO, e.g. "2026-10-04T10:00:00Z"); the wall clock otherwise. */
+    now?: string
+  } = {},
+) => {
   const mf = new Miniflare({
     workers: [
       {
@@ -80,9 +143,9 @@ export const createHarness = async (options: { ai?: AiProviders; market?: Partia
       return typeof value === "function" ? value.bind(target) : value
     },
   })
-  const runtime = ManagedRuntime.make(
-    makeCoreLayer(counted, options.ai, Layer.succeed(MarketData, MarketData.of({ ...offlineMarket, ...options.market }))),
-  )
+  const frozen = options.now ? frozenClock(options.now) : null
+  const core = makeCoreLayer(counted, options.ai, Layer.succeed(MarketData, MarketData.of({ ...offlineMarket, ...options.market })))
+  const runtime = ManagedRuntime.make(frozen ? Layer.merge(core, Layer.succeed(Clock.Clock, frozen.clock)) : core)
   return {
     d1,
     run: <A, E>(effect: Effect.Effect<A, E, Services>): Promise<A> => runtime.runPromise(effect),
@@ -99,6 +162,11 @@ export const createHarness = async (options: { ai?: AiProviders; market?: Partia
       if (Option.isNone(error)) throw new Error(`Expected a failure, got ${Exit.isSuccess(exit) ? "a success" : Cause.pretty(exit.cause)}`)
       return error.value
     },
+    /** Moves the frozen clock (see `now`) to another instant. */
+    setNow: (instant: string) => {
+      if (!frozen) throw new Error("setNow needs a harness created with `now`")
+      frozen.set(instant)
+    },
     dispose: async () => {
       await runtime.dispose()
       await mf.dispose()
@@ -106,3 +174,23 @@ export const createHarness = async (options: { ai?: AiProviders; market?: Partia
   }
 }
 
+
+// What a server function receives: its input sent as JSON, then decoded by its validator, which
+// drops any field it does not declare.
+const overTheWire = (input: unknown): unknown => JSON.parse(JSON.stringify(input))
+
+/** The import calls the browser makes, through the same validators as the server functions. */
+export const importApi = (h: Harness): ImportApi & { importExtras: (input: { extras: BundleExtras; maps: IdMaps }) => Promise<{ assets: number; views: number }> } => ({
+  importStructure: (input) => {
+    const data = Schema.decodeUnknownSync(ImportStructureInput)(overTheWire(input))
+    return h.run(ImportExport.use((s) => s.importStructure(data.structure as unknown as BundleStructure, data.include)))
+  },
+  importTransactions: (input) => {
+    const data = Schema.decodeUnknownSync(ImportTransactionsInput)(overTheWire(input))
+    return h.run(ImportExport.use((s) => s.importTransactions(data.rows, data.options)))
+  },
+  importExtras: (input) => {
+    const data = Schema.decodeUnknownSync(ImportExtrasInput)(overTheWire(input))
+    return h.run(ImportExport.use((s) => s.importExtras(data.extras as unknown as BundleExtras, data.maps)))
+  },
+})

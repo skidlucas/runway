@@ -54,6 +54,8 @@ export type BundleRule = {
   actions: RuleAction[]
   /** Runway backups only; imported rules are enabled otherwise. */
   enabled?: boolean
+  /** Runway backups only; marked "imported" otherwise. */
+  origin?: "manual" | "suggested" | "imported"
 }
 export type BundleSchedule = {
   id: string

@@ -42,6 +42,7 @@ export const RuleAction = Schema.Union([
 ])
 
 export const RulesOp = Schema.Literals(["and", "or"])
+export const RuleOrigin = Schema.Literals(["manual", "suggested", "imported"])
 
 export const AssetType = Schema.Literals(["real_estate", "investment", "crypto", "vehicle", "watch", "art", "cash", "loan", "other"])
 export const RetainedValue = Schema.Literals(["purchase", "declared", "estimated"])
