@@ -75,7 +75,7 @@ export function Sidebar() {
         ))}
       </nav>
 
-      <AccountSection title="Comptes" accounts={budgeted} path={path} />
+      <AccountSection title="Comptes" accounts={budgeted} path={path} canAdd />
       {tracked.length > 0 ? <AccountSection title="Hors budget" accounts={tracked} path={path} /> : null}
       <AssetTypeSection path={path} />
 
@@ -149,8 +149,10 @@ function AccountSection({
   title,
   accounts,
   path,
+  canAdd,
 }: {
   title: string
+  canAdd?: boolean
   accounts: ReadonlyArray<{ id: string; name: string; balance: number }>
   path: string
 }) {
@@ -160,7 +162,7 @@ function AccountSection({
         <Link to="/accounts" activeOptions={{ exact: true }} className="text-[11px] font-medium text-faint hover:text-fg-3">
           {title}
         </Link>
-        {title === "Comptes" ? (
+        {canAdd ? (
           <Link to="/accounts" search={{ new: true }} className="text-faint hover:text-fg" aria-label="Ajouter un compte">
             <Plus size={13} />
           </Link>
