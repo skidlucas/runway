@@ -20,6 +20,7 @@ import {
   type WealthChange,
 } from "~/domain/wealth"
 import { bulkInsertStatements, Db, type DbError, newId } from "../db/client"
+import { readSource } from "../db/json-columns"
 import { assets, assetValuations, type ValuationSource } from "../db/schema"
 import { type ExternalError, Invalid, NotFound } from "../errors"
 import { MarketData } from "./market-data"
@@ -179,7 +180,9 @@ export class Wealth extends Context.Service<
       const settings = yield* Settings
       const market = yield* MarketData
 
-      const loadAssets = db.use((orm) => orm.select().from(assets).where(eq(assets.archived, false)))
+      const loadAssets = db
+        .use((orm) => orm.select().from(assets).where(eq(assets.archived, false)))
+        .pipe(Effect.map((rows) => rows.map((a) => ({ ...a, source: readSource(a.source) }))))
 
       // Everything in the history window, plus the last value before it (the starting point).
       const loadValuations = (since: Day) =>

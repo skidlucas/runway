@@ -1,6 +1,7 @@
 import { and, asc, eq, inArray, sql } from "drizzle-orm"
 import { Context, Effect, Layer } from "effect"
 import { bulkInsertStatements, Db, type DbError, newId } from "../db/client"
+import { readRule } from "../db/json-columns"
 import { categories, categoryGroups, rules } from "../db/schema"
 import { Invalid, NotFound } from "../errors"
 import { retargetViews } from "./saved-views"
@@ -189,7 +190,7 @@ export class Categories extends Context.Service<
           )
         }
         // Rules that set a deleted category are rewritten or dropped.
-        const allRules = yield* db.use((orm) => orm.select().from(rules))
+        const allRules = (yield* db.use((orm) => orm.select().from(rules))).map(readRule)
         for (const rule of allRules) {
           if (!rule.actions.some((a) => a.type === "set_category" && deleted.has(a.categoryId))) continue
           const actions = rule.actions.flatMap((a) =>

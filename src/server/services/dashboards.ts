@@ -1,6 +1,7 @@
 import { asc, eq } from "drizzle-orm"
 import { Clock, Context, Effect, Layer } from "effect"
 import { Db, type DbError, newId } from "../db/client"
+import { readWidgets } from "../db/json-columns"
 import { type DashboardWidget, dashboards } from "../db/schema"
 import { Invalid, NotFound } from "../errors"
 import { REPORT_MONTHS, UPCOMING_DAYS } from "~/domain/reports"
@@ -48,7 +49,7 @@ export class Dashboards extends Context.Service<
           Effect.map((rows): DashboardDto[] =>
             rows.length === 0
               ? [{ id: MAIN_DASHBOARD_ID, name: "Principal", widgets: DEFAULT_WIDGETS }]
-              : rows.map((r) => ({ id: r.id, name: r.name, widgets: r.widgets })),
+              : rows.map((r) => ({ id: r.id, name: r.name, widgets: readWidgets(r.widgets) })),
           ),
         )
 

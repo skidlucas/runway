@@ -2,6 +2,7 @@ import { asc, eq, sql } from "drizzle-orm"
 import { Context, Effect, Layer } from "effect"
 import { compileRules, normalizeText, type Rule, type RuleAction, type RuleCondition, type RuleConditionsOp, type RuleOrigin, type RuleOutcome, ruleProblem, type RuleSubject } from "~/domain/rules"
 import { chunkIds, Db, type DbError, newId } from "../db/client"
+import { readRule } from "../db/json-columns"
 import { RULE_CANDIDATE } from "../db/predicates"
 import { rules } from "../db/schema"
 import { Invalid, NotFound } from "../errors"
@@ -48,7 +49,9 @@ export class Rules extends Context.Service<
     Effect.gen(function* () {
       const db = yield* Db
 
-      const list = db.use((orm) => orm.select().from(rules).orderBy(asc(rules.sortOrder), asc(rules.createdAt)))
+      const list = db
+        .use((orm) => orm.select().from(rules).orderBy(asc(rules.sortOrder), asc(rules.createdAt)))
+        .pipe(Effect.map((rows) => rows.map(readRule)))
 
       const validate = (input: RuleInput) => {
         const problem = ruleProblem(input)
@@ -105,8 +108,9 @@ export class Rules extends Context.Service<
       )
 
       const applyToUncategorized = Effect.fn("Rules.applyToUncategorized")(function* (id: string) {
-        const rule = yield* db.use((orm) => orm.select().from(rules).where(eq(rules.id, id)).get())
-        if (!rule) return yield* new NotFound({ entity: "Règle", id })
+        const row = yield* db.use((orm) => orm.select().from(rules).where(eq(rules.id, id)).get())
+        if (!row) return yield* new NotFound({ entity: "Règle", id })
+        const rule = readRule(row)
         const candidates = yield* db.use(async (_, d1) => {
           const { results } = await d1
             .prepare(

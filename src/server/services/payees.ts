@@ -2,6 +2,7 @@ import { eq, isNull } from "drizzle-orm"
 import { Context, Effect, Layer } from "effect"
 import { normalizeText } from "~/domain/rules"
 import { bulkInsertStatements, Db, type DbError, newId } from "../db/client"
+import { readRule } from "../db/json-columns"
 import { payees, rules } from "../db/schema"
 import { Invalid, NotFound } from "../errors"
 import { retargetViews } from "./saved-views"
@@ -127,7 +128,7 @@ export class Payees extends Context.Service<
         )
         if ((transfers?.n ?? 0) > 0) return yield* new Invalid({ message: "Les virements ne peuvent pas être fusionnés" })
         const merged = new Set(sources)
-        const allRules = yield* db.use((orm) => orm.select().from(rules))
+        const allRules = (yield* db.use((orm) => orm.select().from(rules))).map(readRule)
         const ruleUpdates = allRules.flatMap((rule) =>
           rule.actions.some((a) => a.type === "set_payee" && merged.has(a.payeeId))
             ? [

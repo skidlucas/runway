@@ -1,5 +1,5 @@
 import { asc } from "drizzle-orm"
-import { Clock, Context, Effect, Layer, Schema } from "effect"
+import { Clock, Context, Effect, Layer, Option, Schema } from "effect"
 import { addMonths, type Day, diffDays, lastDay, type Month, monthRange, parseDay } from "~/domain/dates"
 import {
   type CategoryInsightInput,
@@ -17,6 +17,7 @@ import {
   type PayeeTotal,
 } from "~/domain/insights"
 import { Db, type DbError, newId } from "../db/client"
+import { readInsightConfig, readWidgets } from "../db/json-columns"
 import { BUDGET_LINE, COUNTS_FOR_BUDGET } from "../db/predicates"
 import { dashboards, type InsightViewConfig, savedViews } from "../db/schema"
 import { type ExternalError, Invalid, NotFound } from "../errors"
@@ -474,7 +475,11 @@ export class Insights extends Context.Service<
 
       const listViews = db
         .use((orm) => orm.select().from(savedViews).orderBy(asc(savedViews.sortOrder), asc(savedViews.name)))
-        .pipe(Effect.map((rows) => rows.map((r) => ({ id: r.id, name: r.name, config: r.config }))))
+        .pipe(
+          Effect.map((rows) =>
+            rows.flatMap((r) => Option.toArray(Option.map(readInsightConfig(r.config), (config) => ({ id: r.id, name: r.name, config })))),
+          ),
+        )
 
       const saveView = Effect.fn("Insights.saveView")(function* (name: string, config: InsightViewConfig) {
         const trimmed = name.trim()
@@ -487,7 +492,7 @@ export class Insights extends Context.Service<
       })
 
       const deleteView = Effect.fn("Insights.deleteView")(function* (id: string) {
-        const boards = yield* db.use((orm) => orm.select().from(dashboards))
+        const boards = (yield* db.use((orm) => orm.select().from(dashboards))).map((b) => ({ ...b, widgets: readWidgets(b.widgets) }))
         const showing = boards.filter((b) => b.widgets.some((w) => w.viewId === id))
         yield* db.batch([
           ...showing.map((b) =>

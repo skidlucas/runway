@@ -1,11 +1,12 @@
 import { sql } from "drizzle-orm"
-import { Clock, Context, Effect, Layer, Schema } from "effect"
+import { Clock, Context, Effect, Layer, Option, Schema } from "effect"
 import { isDay, isMonth } from "~/domain/dates"
 import { RECURRENCE_UNITS } from "~/domain/recurrence"
 import { FULL_SHARE, isShare } from "~/domain/wealth"
 import { normalizeText, type RuleAction, ruleProblem, type RuleSubject } from "~/domain/rules"
 import { type BundleExtras, type BundleStructure, type IdMaps, orderStamps } from "~/lib/import-bundle"
 import { bulkInsertStatements, chunkRows, Db, type DbError, newId } from "../db/client"
+import { readInsightConfig, readRule, readSource, readWidgets } from "../db/json-columns"
 import * as schema from "../db/schema"
 import { Invalid, type NotFound } from "../errors"
 import { AccountKind, DuplicateProbe as DuplicateProbeSchema, ImportRow as ImportRowSchema } from "../schemas"
@@ -698,12 +699,12 @@ export class ImportExport extends Context.Service<
           payees,
           budgets,
           budgetMonths,
-          rules,
+          rules: rules.map(readRule),
           schedules,
-          assets,
+          assets: assets.map((a) => ({ ...a, source: readSource(a.source) })),
           valuations,
-          savedViews,
-          dashboards,
+          savedViews: savedViews.flatMap((v) => Option.toArray(Option.map(readInsightConfig(v.config), (config) => ({ ...v, config })))),
+          dashboards: dashboards.map((d) => ({ ...d, widgets: readWidgets(d.widgets) })),
           transactionCount: count[0]?.n ?? 0,
         } satisfies ExportMeta
       }).pipe(Effect.withSpan("ImportExport.exportMeta"))
