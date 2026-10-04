@@ -4,15 +4,14 @@ import { useCallback, useEffect, useMemo, useState } from "react"
 import { CommandPalette } from "~/components/command-palette"
 import { AppUi, Fab, Sidebar, TabBar } from "~/components/shell"
 import { TransactionEntry } from "~/components/transaction-entry"
+import { isSignedIn } from "~/lib/auth"
 import { q } from "~/lib/queries"
 import { clientTimeZone, shortcutBlocked, useToday } from "~/lib/hooks"
-import { getAuthState } from "~/server/fns/auth"
 import { syncSchedules } from "~/server/fns/planning"
 
 export const Route = createFileRoute("/_app")({
   beforeLoad: async () => {
-    const { authed } = await getAuthState()
-    if (!authed) throw redirect({ to: "/login" })
+    if (!(await isSignedIn())) throw redirect({ to: "/login" })
   },
   loader: ({ context }) => context.queryClient.ensureQueryData(q.accounts()),
   component: AppLayout,

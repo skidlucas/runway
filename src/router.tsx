@@ -3,6 +3,7 @@ import { createRouter } from "@tanstack/react-router"
 import { setupRouterSsrQueryIntegration } from "@tanstack/react-router-ssr-query"
 import { ErrorView, NotFoundView } from "./components/errors"
 import { getToasts, toast } from "./components/toast"
+import { leaveIfSignedOut } from "./lib/auth"
 import { routeTree } from "./routeTree.gen"
 
 export function getRouter() {
@@ -30,7 +31,7 @@ export function getRouter() {
  * Client only: the toast list is module state, shared by every request on the server.
  */
 const reportQueryError = (error: Error) => {
-  if (typeof window === "undefined" || error.message === "UNAUTHORIZED") return
+  if (typeof window === "undefined" || leaveIfSignedOut(error)) return
   const message = `Chargement impossible : ${error.message || "erreur inconnue"}`
   // Several widgets failing together for the same reason make one toast.
   if (getToasts().some((t) => t.message === message)) return
