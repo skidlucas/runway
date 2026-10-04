@@ -3,7 +3,7 @@ import { Context, Effect, Layer, Option, Result, Schema } from "effect"
 import { addDays, addMonths, compareIso, type Day, diffDays, firstDay, isDay, monthOf } from "~/domain/dates"
 import { describeRecurrence, nextOnOrAfter, occurrencesBetween, type Recurrence } from "~/domain/recurrence"
 import { type Remaining, remainingOccurrences } from "~/domain/planned"
-import { detectRecurring, type HistoryTransaction, type RecurringCandidate } from "~/domain/recurring-detection"
+import { detectRecurring, type HistoryTransaction, MIN_OCCURRENCES, type RecurringCandidate } from "~/domain/recurring-detection"
 import { chunkRows, Db, type DbError, newId } from "../db/client"
 import { schedules } from "../db/schema"
 import { Invalid, NotFound } from "../errors"
@@ -294,11 +294,12 @@ export class Schedules extends Context.Service<
         // schedule keeps its place, so an overdue occurrence is neither skipped nor booked twice;
         // only a new end date can stop it.
         // A one-off moved to a past day stays due (overdue), as when it is created there.
-        const nextDate = rhythmChanged
-          ? input.recurrence.unit === "once"
-            ? input.startDate
-            : nextOnOrAfter(next, input.startDate > today ? input.startDate : today)
-          : nextOnOrAfter(next, current.nextDate)
+        const firstNextDate = (): Day | null => {
+          if (!rhythmChanged) return nextOnOrAfter(next, current.nextDate)
+          if (input.recurrence.unit === "once") return input.startDate
+          return nextOnOrAfter(next, input.startDate > today ? input.startDate : today)
+        }
+        const nextDate = firstNextDate()
         const ended = nextDate === null
         // Inactive with nothing left to book means it ran out, not that it was paused: a later end
         // date brings it back.
@@ -514,8 +515,15 @@ export class Schedules extends Context.Service<
       // How far from its due date a payment still counts for an occurrence.
       const MATCH_WINDOW_DAYS = 6
       const MAX_MATCHES_PER_SCHEDULE = 12
+      /** A payment within 10 % (and at least 1 €) of the schedule's amount can pay it. */
+      const MATCH_AMOUNT_TOLERANCE = { ratio: 0.1, minCents: 1_00 }
+      /** Payment history read for suggestions, the current month included. */
+      const SUGGESTION_HISTORY_MONTHS = 13
+      /** A monthly suggestion whose last payment is older than this has probably stopped. */
+      const SUGGESTION_MONTHLY_SILENCE_DAYS = 45
 
-      const matchTolerance = (amount: number) => Math.max(Math.round(Math.abs(amount) * 0.1), 100)
+      const matchTolerance = (amount: number) =>
+        Math.max(Math.round(Math.abs(amount) * MATCH_AMOUNT_TOLERANCE.ratio), MATCH_AMOUNT_TOLERANCE.minCents)
 
       /**
        * Manual schedules paid by a transaction entered or imported by hand: same payee and account,
@@ -593,7 +601,7 @@ export class Schedules extends Context.Service<
         )
         const bookings: Booking[] = []
         const manual: Row[] = []
-        let posts = 0
+        let postedThisSync = 0
         for (const row of due) {
           if (!isRecurrence(row.recurrence)) {
             yield* Effect.logWarning("Échéance ignorée : rythme illisible", { id: row.id })
@@ -605,9 +613,9 @@ export class Schedules extends Context.Service<
           }
           const dates: Day[] = []
           let next = { nextDate: row.nextDate, active: row.active }
-          while (next.active && next.nextDate <= today && posts < MAX_POSTS_PER_SYNC) {
+          while (next.active && next.nextDate <= today && postedThisSync < MAX_POSTS_PER_SYNC) {
             dates.push(next.nextDate)
-            posts++
+            postedThisSync++
             next = advance(row, next.nextDate)
           }
           if (dates.length > 0) bookings.push({ row, posts: dates, links: [], next })
@@ -632,16 +640,16 @@ export class Schedules extends Context.Service<
 
       const suggestions = Effect.gen(function* () {
         const today = yield* settings.today
-        const since = firstDay(addMonths(monthOf(today), -13))
+        const since = firstDay(addMonths(monthOf(today), -SUGGESTION_HISTORY_MONTHS))
         const history = yield* db.use(async (_, d1) => {
           const { results } = await d1
             .prepare(
-              // Only (payee, account, direction) groups seen at least 3 times can be recurring:
+              // Only (payee, account, direction) groups seen MIN_OCCURRENCES times can be recurring:
               // the rest of the history never leaves SQLite.
               `WITH g AS (
                  SELECT payee_id, account_id, amount < 0 AS outflow FROM transactions
                  WHERE date >= ?1 AND date <= ?2 AND parent_id IS NULL AND starting_balance = 0 AND payee_id IS NOT NULL
-                 GROUP BY 1, 2, 3 HAVING COUNT(*) >= 3
+                 GROUP BY 1, 2, 3 HAVING COUNT(*) >= ?3
                )
                SELECT t.payee_id AS payeeId, p.name AS payeeName, t.date, t.amount, t.category_id AS categoryId,
                       t.account_id AS accountId
@@ -651,7 +659,7 @@ export class Schedules extends Context.Service<
                WHERE t.date >= ?1 AND t.date <= ?2 AND t.parent_id IS NULL AND p.transfer_account_id IS NULL
                  AND t.starting_balance = 0`,
             )
-            .bind(since, today)
+            .bind(since, today, MIN_OCCURRENCES)
             .all<HistoryTransaction>()
           return results
         })
@@ -669,7 +677,7 @@ export class Schedules extends Context.Service<
         const scheduled = new Set(existing.map((e) => `${e.payeeId}|${e.accountId}`))
         return detectRecurring(history, today)
           .filter((c) => !scheduled.has(`${c.payeeId}|${c.accountId}`))
-          .filter((c) => diffDays(c.lastDate, today) <= 45 || c.recurrence.unit !== "month")
+          .filter((c) => diffDays(c.lastDate, today) <= SUGGESTION_MONTHLY_SILENCE_DAYS || c.recurrence.unit !== "month")
           .map((c) => ({
             ...c,
             accountName: names.accounts.get(c.accountId) ?? "",

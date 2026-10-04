@@ -1,4 +1,4 @@
-import { addDays, compareIso, type Day, diffDays } from "./dates"
+import { compareIso, type Day, diffDays } from "./dates"
 import type { Recurrence } from "./recurrence"
 import { nextOnOrAfter } from "./recurrence"
 
@@ -43,23 +43,30 @@ const median = (values: ReadonlyArray<number>): number => {
   return sorted.length % 2 === 1 ? (sorted[mid] ?? 0) : ((sorted[mid - 1] ?? 0) + (sorted[mid] ?? 0)) / 2
 }
 
-const amountsAreStable = (amounts: ReadonlyArray<number>, reference: number) => {
-  const tolerance = Math.max(Math.abs(reference) * 0.15, 300)
+/** Fewest payments of a payee before it can be called recurring. */
+export const MIN_OCCURRENCES = 3
+/** An amount within 15 % (and at least 3 €) of the median is the same subscription. */
+const AMOUNT_TOLERANCE = { ratio: 0.15, minCents: 3_00 }
+/** A gap counts as regular a little beyond the cadence's own tolerance. */
+const GAP_TOLERANCE_SLACK = 1.5
+/** Fraction of regular gaps, and of stable amounts, a series needs. */
+const MIN_REGULAR_FRACTION = 0.75
+/** A series silent for longer than this many periods has stopped. */
+const STOPPED_AFTER_PERIODS = 2
+
+/** Fraction of the amounts close enough to `reference`. */
+const stableAmountFraction = (amounts: ReadonlyArray<number>, reference: number) => {
+  const tolerance = Math.max(Math.abs(reference) * AMOUNT_TOLERANCE.ratio, AMOUNT_TOLERANCE.minCents)
   return amounts.filter((a) => Math.abs(a - reference) <= tolerance).length / amounts.length
 }
 
 /**
  * Finds payees that are paid (or pay) at a regular cadence with a stable amount.
- * Needs at least `minOccurrences` transactions; groups by payee and account so a
+ * Needs at least `MIN_OCCURRENCES` transactions; groups by payee and account so a
  * subscription paid from two cards is seen as two candidates.
  * Linear in the number of transactions (one sort per payee group).
  */
-export const detectRecurring = (
-  history: ReadonlyArray<HistoryTransaction>,
-  today: Day,
-  options: { minOccurrences?: number } = {},
-): RecurringCandidate[] => {
-  const minOccurrences = options.minOccurrences ?? 3
+export const detectRecurring = (history: ReadonlyArray<HistoryTransaction>, today: Day): RecurringCandidate[] => {
   const groups = new Map<string, HistoryTransaction[]>()
   for (const tx of history) {
     if (tx.amount === 0) continue
@@ -72,7 +79,7 @@ export const detectRecurring = (
 
   const candidates: RecurringCandidate[] = []
   for (const list of groups.values()) {
-    if (list.length < minOccurrences) continue
+    if (list.length < MIN_OCCURRENCES) continue
     list.sort((a, b) => compareIso(a.date, b.date))
     const gaps: number[] = []
     for (let i = 1; i < list.length; i++) {
@@ -85,23 +92,20 @@ export const detectRecurring = (
     const typicalGap = median(gaps)
     const cadence = CADENCES.find((c) => Math.abs(typicalGap - c.days) <= c.tolerance)
     if (!cadence) continue
-    const regular = gaps.filter((g) => Math.abs(g - cadence.days) <= cadence.tolerance * 1.5).length / gaps.length
+    const regular = gaps.filter((g) => Math.abs(g - cadence.days) <= cadence.tolerance * GAP_TOLERANCE_SLACK).length / gaps.length
     const amount = Math.round(median(list.map((t) => t.amount)))
-    const stable = amountsAreStable(
+    const stable = stableAmountFraction(
       list.map((t) => t.amount),
       amount,
     )
-    if (regular < 0.75 || stable < 0.75) continue
+    if (regular < MIN_REGULAR_FRACTION || stable < MIN_REGULAR_FRACTION) continue
 
     const first = list[0]
     const last = list[list.length - 1]
     if (!first || !last) continue
-    // A series that stopped more than two periods ago is no longer active.
-    if (diffDays(last.date, today) > cadence.days * 2 + cadence.tolerance) continue
+    if (diffDays(last.date, today) > cadence.days * STOPPED_AFTER_PERIODS + cadence.tolerance) continue
 
-    const nextDate =
-      nextOnOrAfter({ startDate: last.date, endDate: null, recurrence: cadence.recurrence }, addDays(today, 0)) ??
-      today
+    const nextDate = nextOnOrAfter({ startDate: last.date, endDate: null, recurrence: cadence.recurrence }, today) ?? today
     const categories = new Map<string | null, number>()
     for (const t of list) categories.set(t.categoryId, (categories.get(t.categoryId) ?? 0) + 1)
     const categoryId = [...categories.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null

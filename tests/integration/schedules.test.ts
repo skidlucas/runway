@@ -333,3 +333,28 @@ describe("Schedules sync cost", () => {
     }
   })
 })
+
+describe("Schedule suggestions", () => {
+  let h: Harness
+  let other: string
+
+  beforeAll(async () => {
+    h = await createHarness()
+    other = await h.run(Accounts.use((a) => a.create({ name: "Carte", kind: "checking", offBudget: false, startingBalance: 0, startingDate: "2020-01-01" })))
+  }, 60_000)
+  afterAll(() => h?.dispose())
+
+  it("suggests a payee paid every month, from its third payment on", async () => {
+    const pay = (payee: string, monthsAgo: number) =>
+      h.run(
+        Transactions.use((t) =>
+          t.create({ accountId: other, date: addDays(today, -30 * monthsAgo), amount: -1_399, payee: { kind: "name", name: payee } }),
+        ),
+      )
+    for (const monthsAgo of [3, 2, 1]) await pay("Streaming", monthsAgo)
+    for (const monthsAgo of [2, 1]) await pay("Salle de sport", monthsAgo)
+    const suggested = (await h.run(Schedules.use((s) => s.suggestions))).map((c) => c.payeeName)
+    expect(suggested).toContain("Streaming")
+    expect(suggested).not.toContain("Salle de sport")
+  })
+})
