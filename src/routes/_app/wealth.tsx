@@ -3,6 +3,7 @@ import { createFileRoute, Link, useNavigate } from "@tanstack/react-router"
 import { MoreHorizontal, Pencil, Plus, RefreshCw, Trash2 } from "lucide-react"
 import * as React from "react"
 import { AssetDialog } from "~/components/asset-dialog"
+import { creditOf, DataCredit } from "~/components/data-credit"
 import { PageHeader } from "~/components/shell"
 import { toast } from "~/components/toast"
 import { Button, Chip, cx, DateInput, EmptyState, IconButton, Input, Menu, Money, Sheet, SkeletonRows, Tabs, useConfirm } from "~/components/ui"
@@ -81,6 +82,7 @@ function WealthPage() {
   const shown = type ? items.filter((i) => i.type === type) : items
   const selected = shown.find((i) => i.id === selectedId) ?? shown.find((i) => i.kind === "asset") ?? shown[0] ?? null
   const types = assetTypeTotals(items, { accounts: true })
+  const credits = [...new Set(items.map((i) => creditOf(i.source)).filter((c) => c !== null))]
   const editing = dialog ?? (search.new ? { item: null } : null)
 
   const refresh = useAction(refreshValuations, { invalidates: ["wealth"] })
@@ -164,6 +166,13 @@ function WealthPage() {
           </aside>
         </div>
       )}
+      {credits.length > 0 ? (
+        <p className="flex flex-wrap gap-x-3 px-5 py-3 max-md:pb-6">
+          {credits.map((c) => (
+            <DataCredit key={c} source={c} />
+          ))}
+        </p>
+      ) : null}
       {editing ? (
         <AssetDialog
           item={editing.item}
@@ -372,6 +381,7 @@ function Detail({ item, months, today, onEdit }: { item: WealthItem; months: Mon
   const purchase = item.purchase ? applyShare(item.purchase.amount, item.share) : null
   const gain = purchase !== null && !item.isLiability && item.retainedUsed !== "purchase" ? item.value - purchase : null
   const description = sourceDescription(item)
+  const credit = creditOf(item.source)
 
   const value = (kind: RetainedKind, label: string, whole: number | null, caption: string) => ({
     kind,
@@ -487,6 +497,7 @@ function Detail({ item, months, today, onEdit }: { item: WealthItem; months: Mon
           <div className="flex flex-col gap-1.5 text-fg-3">
             <span className="text-[12px] text-faint">Infos</span>
             {description ? <span>{description}</span> : null}
+            {credit ? <DataCredit source={credit} /> : null}
             {item.notes ? <span className="whitespace-pre-line">{item.notes}</span> : null}
             {item.kind === "account" ? (
               <span>

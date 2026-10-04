@@ -18,6 +18,7 @@ import { useAction } from "~/lib/queries"
 import type { ValuationSource } from "~/server/db/schema"
 import { addAssetValuation, createAsset, searchCoins, searchCommunes, searchSymbols, updateAsset } from "~/server/fns/wealth"
 import type { WealthItem } from "~/server/services/wealth"
+import { DataCredit } from "./data-credit"
 import { RemotePicker } from "./pickers"
 import { Button, DateInput, Dialog, Field, Input, Segmented, Select, Textarea } from "./ui"
 
@@ -365,7 +366,8 @@ function SourceFields({ d, set }: { d: Draft; set: <K extends keyof Draft>(key: 
             ]}
           />
           <p className="col-span-2 text-[12px] text-faint">
-            Prix médian au m² des ventes des 12 derniers mois publiés (DVF), multiplié par la surface. Mis à jour chaque mois.
+            Prix médian au m² des ventes des 12 derniers mois publiés (DVF), multiplié par la surface. Mis à jour chaque mois.{" "}
+            <DataCredit source="dvf" className="text-[12px]" />
           </p>
         </div>
       )
@@ -382,7 +384,9 @@ function SourceFields({ d, set }: { d: Draft; set: <K extends keyof Draft>(key: 
             onSelect={(c) => set("coin", { id: c.id, label: `${c.name} (${c.symbol})` })}
           />
           <Input value={d.quantity} onChange={(e) => set("quantity", e.target.value)} className="num" inputMode="decimal" placeholder="Quantité" aria-label="Quantité" />
-          <p className="col-span-2 text-[12px] text-faint">Cours CoinGecko en euros, mis à jour chaque jour.</p>
+          <p className="col-span-2 text-[12px] text-faint">
+            Cours en euros, mis à jour chaque jour · <DataCredit source="coingecko" className="text-[12px]" />
+          </p>
         </div>
       )
     case "stock":
