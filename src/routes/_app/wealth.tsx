@@ -322,53 +322,63 @@ function AssetTable({
         <span className="text-right">Déclarée</span>
         <span className="text-right">Estimée</span>
       </div>
-      {items.map((item) => {
+      {items.map((item, i) => {
         const caption = estimateCaption(item, today)
         const sign = item.isLiability ? -1 : 1
         const own = (amount: number) => applyShare(amount, item.share)
         return (
-          <button
-            key={item.id}
-            type="button"
-            aria-pressed={selectedId === item.id}
-            data-testid="asset-row"
-            onClick={() => onSelect(item)}
-            className={cx(
-              COLUMNS,
-              "h-[46px] w-full border-b border-line-subtle text-left hover:bg-hover",
-              selectedId === item.id && "bg-hover",
-            )}
-          >
-            <span className="flex min-w-0 flex-col gap-0.5">
-              <span className="flex min-w-0 items-center gap-1.5">
-                <span className="truncate" title={item.name}>{item.name}</span>
-                {item.share === FULL_SHARE ? null : <Chip className="shrink-0">{formatShare(item.share)}</Chip>}
-              </span>
-              <span className="truncate text-[11px] text-faint">
-                {item.isLiability ? "Passif" : TYPE_LABELS[item.type]}
-                {item.subtitle ? ` · ${item.subtitle}` : ""}
-              </span>
-            </span>
-            <span className="num text-right text-[12px] text-muted">{item.purchase ? euros(own(item.purchase.amount)) : "—"}</span>
-            <span className="num text-right text-[12px] text-fg-2">{item.declared ? euros(own(item.declared.amount)) : "—"}</span>
-            <span className="flex min-w-0 flex-col items-end gap-0.5">
-              <span className={cx("num text-[12px]", item.retainedUsed !== "estimated" && "text-muted")}>
-                {item.estimate ? euros(sign * own(item.estimate.amount)) : "—"}
-              </span>
-              {item.trend ? (
-                <TrendCaption trend={item.trend} today={today} className="max-w-full truncate text-[11px]" />
-              ) : (
-                <span
-                  className={cx(
-                    "max-w-full truncate text-[11px]",
-                    caption.tone === "live" ? "text-positive" : caption.tone === "stale" ? "text-warning" : "text-faint",
-                  )}
-                >
-                  {caption.text}
+          <React.Fragment key={item.id}>
+            {startsTrends(items, i) ? (
+              <div aria-hidden className={cx(COLUMNS, "h-[24px] border-b border-line-subtle text-[11px] text-faint")}>
+                <span className="col-start-4 flex justify-end">
+                  <TrendLabels />
                 </span>
+              </div>
+            ) : null}
+            <button
+              key={item.id}
+              type="button"
+              aria-pressed={selectedId === item.id}
+              data-testid="asset-row"
+              onClick={() => onSelect(item)}
+              className={cx(
+                COLUMNS,
+                "h-[46px] w-full border-b border-line-subtle text-left hover:bg-hover",
+                selectedId === item.id && "bg-hover",
               )}
-            </span>
-          </button>
+            >
+              <span className="flex min-w-0 flex-col gap-0.5">
+                <span className="flex min-w-0 items-center gap-1.5">
+                  <span className="truncate" title={item.name}>{item.name}</span>
+                  {item.share === FULL_SHARE ? null : <Chip className="shrink-0">{formatShare(item.share)}</Chip>}
+                </span>
+                <span className="truncate text-[11px] text-faint">
+                  {item.isLiability ? "Passif" : TYPE_LABELS[item.type]}
+                  {item.subtitle ? ` · ${item.subtitle}` : ""}
+                  {item.trend && item.trend.date !== today ? ` · ${formatDayShort(item.trend.date)}` : ""}
+                </span>
+              </span>
+              <span className="num text-right text-[12px] text-muted">{item.purchase ? euros(own(item.purchase.amount)) : "—"}</span>
+              <span className="num text-right text-[12px] text-fg-2">{item.declared ? euros(own(item.declared.amount)) : "—"}</span>
+              <span className="flex min-w-0 flex-col items-end gap-0.5">
+                <span className={cx("num text-[12px]", item.retainedUsed !== "estimated" && "text-muted")}>
+                  {item.estimate ? euros(sign * own(item.estimate.amount)) : "—"}
+                </span>
+                {item.trend ? (
+                  <TrendCells trend={item.trend} className="text-[11px]" />
+                ) : (
+                  <span
+                    className={cx(
+                      "max-w-full truncate text-[11px]",
+                      caption.tone === "live" ? "text-positive" : caption.tone === "stale" ? "text-warning" : "text-faint",
+                    )}
+                  >
+                    {caption.text}
+                  </span>
+                )}
+              </span>
+            </button>
+          </React.Fragment>
         )
       })}
     </div>
@@ -380,17 +390,29 @@ function Trend({ change, className }: { change: number | null; className?: strin
   return <span className={cx(change >= 0 ? "text-positive" : "text-negative", className)}>{formatPercent(change, { sign: true })}</span>
 }
 
-function TrendCaption({ trend, today, className }: { trend: CoinTrend; today: Day; className?: string }) {
+// Fixed-width cells, so the 24h and 7-day changes line up row after row under one label.
+const TREND_CELL = "num w-[7ch] text-right"
+
+function TrendCells({ trend, className }: { trend: CoinTrend; className?: string }) {
   return (
-    <span className={className}>
-      <span className="text-faint">24h </span>
-      <Trend change={trend.change24h} />
-      <span className="text-faint"> · 7 j </span>
-      <Trend change={trend.change7d} />
-      {trend.date !== today ? <span className="text-faint"> · {formatDayShort(trend.date)}</span> : null}
+    <span className={cx("flex gap-1.5", className)}>
+      <Trend change={trend.change24h} className={TREND_CELL} />
+      <Trend change={trend.change7d} className={TREND_CELL} />
     </span>
   )
 }
+
+function TrendLabels() {
+  return (
+    <span className="flex gap-1.5">
+      <span className={TREND_CELL}>24h</span>
+      <span className={TREND_CELL}>7 j</span>
+    </span>
+  )
+}
+
+// Rows come grouped by bucket, so the coins with a trend follow each other: label them once.
+const startsTrends = (items: ReadonlyArray<WealthItem>, i: number) => items[i]!.trend !== null && (i === 0 || items[i - 1]!.trend === null)
 
 // Coins worth a fraction of a cent still need a readable price.
 const unitPrice = (euros: number) =>
@@ -872,23 +894,28 @@ function MobileRows({
 }) {
   return (
     <div className={className}>
-      {items.map((item) => (
-        <button
-          key={item.id}
-          type="button"
-          onClick={() => onOpen(item)}
-          className="flex w-full items-center gap-3 border-b border-line-subtle px-5 py-[11px] text-left"
-        >
-          <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-            <span className="truncate font-medium" title={item.name}>{item.name}</span>
-            {item.trend ? (
-              <TrendCaption trend={item.trend} today={today} className="truncate text-[12px]" />
-            ) : (
+      {items.map((item, i) => (
+        <React.Fragment key={item.id}>
+          {startsTrends(items, i) ? (
+            <div aria-hidden className="flex justify-end border-b border-line-subtle px-5 py-1 text-[11px] text-faint">
+              <TrendLabels />
+            </div>
+          ) : null}
+          <button
+            type="button"
+            onClick={() => onOpen(item)}
+            className="flex w-full items-center gap-3 border-b border-line-subtle px-5 py-[11px] text-left"
+          >
+            <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+              <span className="truncate font-medium" title={item.name}>{item.name}</span>
               <span className="truncate text-[12px] text-faint">{estimateCaption(item, today).text}</span>
-            )}
-          </span>
-          <Money value={item.value} decimals={0} className="text-[14px]" />
-        </button>
+            </span>
+            <span className="flex shrink-0 flex-col items-end gap-0.5">
+              <Money value={item.value} decimals={0} className="text-[14px]" />
+              {item.trend ? <TrendCells trend={item.trend} className="text-[12px]" /> : null}
+            </span>
+          </button>
+        </React.Fragment>
       ))}
     </div>
   )
