@@ -8,7 +8,6 @@ import type * as Redacted from "effect/Redacted"
 import * as Schema from "effect/Schema"
 
 const PROD = "prod"
-const DOMAIN = "runway.mtnz.app"
 
 // Piped on the declaration rather than at a `yield*` site: the first registration of a
 // resource fixes its policy, and the Website's env yields the database too.
@@ -39,26 +38,34 @@ const optionalEnv = Effect.gen(function* () {
     OPENAI_API_KEY?: Redacted.Redacted
     ANTHROPIC_API_KEY?: Redacted.Redacted
     TYPESAFE_API_KEY?: Redacted.Redacted
+    AI_PROVIDER?: string
+    AI_MODEL?: string
     DECISION_MODEL?: string
   } = {}
   for (const name of ["OPENAI_API_KEY", "ANTHROPIC_API_KEY", "TYPESAFE_API_KEY"] as const) {
     const value = yield* Config.option(Config.Redacted(name)).pipe(Effect.orDie)
     if (Option.isSome(value)) env[name] = value.value
   }
-  const decisionModel = yield* Config.option(Config.String("DECISION_MODEL")).pipe(Effect.orDie)
-  if (Option.isSome(decisionModel)) env.DECISION_MODEL = decisionModel.value
+  for (const name of ["AI_PROVIDER", "AI_MODEL", "DECISION_MODEL"] as const) {
+    const value = yield* Config.option(Config.String(name)).pipe(Effect.orDie)
+    if (Option.isSome(value)) env[name] = value.value
+  }
   return env
 })
+
+// Without a domain, production is served on the Worker's workers.dev address.
+const prodDomain = Config.option(Config.String("RUNWAY_DOMAIN")).pipe(Effect.map(Option.getOrUndefined), Effect.orDie)
 
 export class Website extends Cloudflare.Website.Vite<Website>()(
   "Website",
   Effect.gen(function* () {
     const { stage } = yield* Alchemy.Stack
     const prod = stage === PROD
+    const domain = prod ? yield* prodDomain : undefined
     return {
       name: prod ? "runway" : `runway-${stage}`,
-      domain: prod ? DOMAIN : undefined,
-      workersDev: !prod,
+      domain,
+      workersDev: domain === undefined,
       // Runs the Worker next to D1: pages chain several queries, each paying the distance to the database.
       placement: { mode: "smart" },
       // The newest date the workerd bundled with Alchemy accepts: `alchemy dev` refuses later ones.
@@ -66,8 +73,6 @@ export class Website extends Cloudflare.Website.Vite<Website>()(
       dev: { port: Number(process.env.PORT ?? 3000), strictPort: true },
       env: {
         DB: Database,
-        AI_PROVIDER: "openai",
-        AI_MODEL: "gpt-6-luna",
         APP_PASSWORD: appPassword,
         SESSION_SECRET: sessionSecret,
         ...(yield* optionalEnv),

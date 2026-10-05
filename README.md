@@ -28,9 +28,11 @@ On an empty budget, the Budget page offers to create starter categories, import 
 | `SESSION_SECRET` | Encrypts the session cookie, at least 32 characters (required) |
 | `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` | Written insight analysis, and fallback for categorization |
 | `TYPESAFE_API_KEY` | Categorization and rule suggestions through Jev (TypeSafe AI) |
+| `AI_PROVIDER` / `AI_MODEL` | Provider of the written analysis, `openai` (default) or `anthropic`, and its model (default: `gpt-6-luna` / `claude-haiku-4-5`) |
 | `DECISION_MODEL` | Jev model (default: `jev-latest`) |
+| `RUNWAY_DOMAIN` | Production only: custom domain, in a zone of the same Cloudflare account. Without it, the app is served on its `*.workers.dev` address |
 
-`AI_PROVIDER` (`openai` or `anthropic`) and `AI_MODEL` are not secret: they are set in `alchemy.run.ts`. An optional variable that is not set is not bound to the Worker at all.
+An optional variable that is not set is not bound to the Worker at all.
 
 Without any key, everything works except the written analysis and category suggestions, which explain how to enable them.
 
@@ -51,7 +53,7 @@ bun run check       # all of the above
 
 ## Deploy to Cloudflare
 
-The app is served at `runway.mtnz.app` (stage `prod`), with a D1 database in the `eu` jurisdiction. The first deploy creates everything: database, Worker, domain. Later deploys apply new migrations from `drizzle/` before publishing the Worker.
+Each person deploys their own instance on their own Cloudflare account (stage `prod`), with a D1 database in the `eu` jurisdiction. It is served on `RUNWAY_DOMAIN` when set, on its `*.workers.dev` address otherwise. The first deploy creates everything: database, Worker, domain. Later deploys apply new migrations from `drizzle/` before publishing the Worker.
 
 ```sh
 bunx alchemy profile edit --add Cloudflare   # once per machine; or CLOUDFLARE_API_TOKEN + CLOUDFLARE_ACCOUNT_ID
@@ -62,7 +64,7 @@ bun run logs                                 # live Worker logs
 ```
 
 - Alchemy's state is stored on the Cloudflare account, in an `alchemy-state-store` Worker. Any machine with access can deploy, but not two deploys at the same time.
-- Every deploy replaces all bindings: a secret missing from `.env.prod` is removed from the Worker. Deploys (and `bun run dev`) fail if `APP_PASSWORD` or `SESSION_SECRET` is missing or too short.
+- Every deploy replaces all bindings: a secret missing from `.env.prod` is removed from the Worker, and so is the custom domain when `RUNWAY_DOMAIN` is missing. Deploys (and `bun run dev`) fail if `APP_PASSWORD` or `SESSION_SECRET` is missing or too short.
 - The production database is kept even by `alchemy destroy`.
 - The free Workers plan allows 10 ms of CPU per request. Errors 1102 in `bun run logs` mean it is time to move to the paid plan.
 
