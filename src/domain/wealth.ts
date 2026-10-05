@@ -218,28 +218,34 @@ export type LoanRow = {
  * the interest on what is still owed; an installment left unchanged pays the contract's constant
  * payment, so a deferral pushes the end of the loan back and an extra payment brings it forward,
  * as banks do by default. Without changes, the loan ends after its duration.
+ *
+ * Like banks, the payment and each month's interest are rounded to the cent and the last
+ * installment absorbs the difference: unrounded, the balance drifts by cents a year from the
+ * bank's schedule.
  */
 export const loanSchedule = (terms: LoanTerms): LoanRow[] => {
   const r = terms.annualRatePct / 1200
-  const constant = loanMonthlyPayment(terms)
+  const constant = Math.round(loanMonthlyPayment(terms))
   const overrides = new Map((terms.overrides ?? []).map((o) => [o.installment, o.payment]))
   const last = loanMaxInstallments(terms)
   const rows: LoanRow[] = []
   let owed = terms.principal
-  for (let k = 1; k <= last && owed >= 0.5; k++) {
-    const interest = owed * r
+  for (let k = 1; k <= last && owed > 0; k++) {
+    const interest = Math.round(owed * r)
     const override = overrides.get(k)
     let payment = override === undefined ? constant : override === "interest_only" ? interest : override
-    // No installment repays more than is owed, and the last one possible settles the rest.
-    if (k === last || payment > owed + interest) payment = owed + interest
+    // No installment repays more than is owed. The last one possible settles the rest, and so does
+    // an unchanged one that would leave less than half a payment of rounding cents behind.
+    const leftover = owed + interest - payment
+    if (k === last || leftover < 0 || (override === undefined && leftover < constant / 2)) payment = owed + interest
     owed -= payment - interest
     rows.push({
       installment: k,
       date: installmentDate(terms, k),
-      payment: Math.round(payment),
-      interest: Math.round(interest),
-      capital: Math.round(payment - interest),
-      remaining: Math.max(0, Math.round(owed)),
+      payment,
+      interest,
+      capital: payment - interest,
+      remaining: owed,
       override: override === undefined ? null : override === "interest_only" ? "interest_only" : "amount",
     })
   }

@@ -115,11 +115,26 @@ describe("loans", () => {
     const schedule = loanSchedule(terms)
     expect(schedule).toHaveLength(240)
     expect(schedule[0]).toMatchObject({ installment: 1, date: terms.firstPaymentDate })
-    expect(new Set(schedule.map((row) => row.payment))).toEqual(new Set([1_109_20]))
+    expect(new Set(schedule.slice(0, -1).map((row) => row.payment))).toEqual(new Set([1_109_20]))
+    // Cents rounded every month stay within a euro of the exact amortization.
     const r = 0.0025
     const closedForm = 200_000_00 * (1 + r) ** 120 - (loanMonthlyPayment(terms) * ((1 + r) ** 120 - 1)) / r
-    expect(schedule[119]).toMatchObject({ installment: 120, date: "2030-05-10", remaining: Math.round(closedForm) })
+    expect(schedule[119]).toMatchObject({ installment: 120, date: "2030-05-10" })
+    expect(Math.abs(schedule[119]!.remaining - closedForm)).toBeLessThan(1_00)
     expect(schedule.at(-1)).toMatchObject({ date: "2040-05-10", remaining: 0 })
+    expect(Math.abs(schedule.at(-1)!.payment - 1_109_20)).toBeLessThan(10_00)
+  })
+
+  it("rounds to the cent like the bank, matching its schedule to the cent", () => {
+    // Action Logement, 40 000 € at 1,50 % over 300 months: rows of the lender's own schedule.
+    const schedule = loanSchedule({ principal: 40_000_00, annualRatePct: 1.5, months: 300, firstPaymentDate: "2023-09-05" })
+    expect(schedule[0]).toMatchObject({ payment: 159_97, interest: 50_00, capital: 109_97, remaining: 39_890_03 })
+    expect(schedule[1]).toMatchObject({ interest: 49_86, remaining: 39_779_92 })
+    expect(schedule[23]).toMatchObject({ date: "2025-08-05", interest: 46_79, remaining: 37_322_44 })
+    expect(schedule[35]).toMatchObject({ date: "2026-08-05", interest: 45_09, remaining: 35_953_25 })
+    expect(schedule[47]).toMatchObject({ date: "2027-08-05", interest: 43_35, remaining: 34_563_39 })
+    expect(schedule).toHaveLength(300)
+    expect(schedule.at(-1)).toMatchObject({ date: "2048-08-05", remaining: 0 })
   })
 
   it("defers six installments to their interest, then goes back to the contract's payment and ends six months later", () => {
