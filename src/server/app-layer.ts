@@ -39,4 +39,8 @@ export const makeCoreLayer = (
 }
 
 export const makeAppLayer = (env: Cloudflare.Env) =>
-  makeCoreLayer(env.DB, aiProvidersFromEnv(env as unknown as Record<string, unknown>))
+  makeCoreLayer(
+    env.DB,
+    aiProvidersFromEnv(env as unknown as Record<string, unknown>),
+    MarketData.layerWith({ coinGeckoKey: env.COINGECKO_API_KEY || undefined }),
+  )

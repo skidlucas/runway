@@ -38,11 +38,12 @@ const optionalEnv = Effect.gen(function* () {
     OPENAI_API_KEY?: Redacted.Redacted
     ANTHROPIC_API_KEY?: Redacted.Redacted
     TYPESAFE_API_KEY?: Redacted.Redacted
+    COINGECKO_API_KEY?: Redacted.Redacted
     AI_PROVIDER?: string
     AI_MODEL?: string
     DECISION_MODEL?: string
   } = {}
-  for (const name of ["OPENAI_API_KEY", "ANTHROPIC_API_KEY", "TYPESAFE_API_KEY"] as const) {
+  for (const name of ["OPENAI_API_KEY", "ANTHROPIC_API_KEY", "TYPESAFE_API_KEY", "COINGECKO_API_KEY"] as const) {
     const value = yield* Config.option(Config.Redacted(name)).pipe(Effect.orDie)
     if (Option.isSome(value)) env[name] = value.value
   }

@@ -3,8 +3,8 @@ import { addMonths, type Day, lastDay, type Month, monthOf } from "~/domain/date
 import type { PropertyType } from "~/domain/wealth"
 import { ExternalError } from "../errors"
 
-// Free public sources, no API key. Each one can disappear or rate-limit: callers treat every
-// failure as "no automatic estimate this time" and keep the last known value.
+// Free public sources. Each one can disappear or rate-limit: callers treat every failure as
+// "no automatic estimate this time" and keep the last known value.
 
 export type CoinHit = { id: string; name: string; symbol: string }
 export type SymbolHit = { symbol: string; name: string; exchange: string; type: string }
@@ -38,6 +38,7 @@ export class MarketData extends Context.Service<
   }
 >()("runway/server/services/MarketData") {
   static readonly layer = Layer.sync(MarketData, () => makeLiveMarketData(fetch))
+  static readonly layerWith = (options: MarketDataOptions) => Layer.sync(MarketData, () => makeLiveMarketData(fetch, options))
 }
 
 const DVF_MONTHLY = "https://tabular-api.data.gouv.fr/api/resources/03fba98d-885b-43c0-8986-d299cabc29da/data/"
@@ -45,15 +46,23 @@ const MIN_DVF_SALES = 5
 
 class TooManyRequests extends Error {}
 
-export const makeLiveMarketData = (fetchFn: typeof fetch): MarketData["Service"] => {
+export type MarketDataOptions = {
+  /**
+   * A free CoinGecko "Demo" key. Without one, CoinGecko limits requests by IP address, and a
+   * Worker shares its IP addresses with many others: the limit is often reached before our first call.
+   */
+  coinGeckoKey?: string
+}
+
+export const makeLiveMarketData = (fetchFn: typeof fetch, options: MarketDataOptions = {}): MarketData["Service"] => {
   // Responses are decoded against the fields we read: an API that changes shape yields an
   // ExternalError (the asset keeps its last value), never a crash.
-  const getJson = <T>(service: string, url: string, schema: Schema.Decoder<T>): Effect.Effect<T, ExternalError> =>
+  const getJson = <T>(service: string, url: string, schema: Schema.Decoder<T>, headers: Record<string, string> = {}): Effect.Effect<T, ExternalError> =>
     Effect.tryPromise({
       // Interrupting the effect (a caller's timeout, a cancelled request) aborts the fetch too.
       try: async (signal) => {
         const response = await fetchFn(url, {
-          headers: { accept: "application/json", "user-agent": "Mozilla/5.0 (compatible; runway-budget)" },
+          headers: { accept: "application/json", "user-agent": "Mozilla/5.0 (compatible; runway-budget)", ...headers },
           signal: AbortSignal.any([signal, AbortSignal.timeout(10_000)]),
         })
         if (response.status === 429) throw new TooManyRequests()
@@ -72,12 +81,15 @@ export const makeLiveMarketData = (fetchFn: typeof fetch): MarketData["Service"]
       Effect.withSpan("MarketData.getJson", { attributes: { service, url } }),
     )
 
+  const coinGeckoHeaders: Record<string, string> = options.coinGeckoKey ? { "x-cg-demo-api-key": options.coinGeckoKey } : {}
+  const coinGecko = <T>(path: string, schema: Schema.Decoder<T>) =>
+    getJson("CoinGecko", `https://api.coingecko.com/api/v3/${path}`, schema, coinGeckoHeaders)
+
   const cryptoPrices = (ids: ReadonlyArray<string>) =>
     ids.length === 0
       ? Effect.succeed(new Map<string, number>())
-      : getJson(
-          "CoinGecko",
-          `https://api.coingecko.com/api/v3/simple/price?ids=${ids.map(encodeURIComponent).join(",")}&vs_currencies=eur`,
+      : coinGecko(
+          `simple/price?ids=${ids.map(encodeURIComponent).join(",")}&vs_currencies=eur`,
           Schema.Record(Schema.String, Schema.Struct({ eur: Schema.optional(Schema.Number) })),
         ).pipe(
           Effect.map(
@@ -185,9 +197,8 @@ export const makeLiveMarketData = (fetchFn: typeof fetch): MarketData["Service"]
     dvfSeries(inseeCode, propertyType).pipe(Effect.map((series) => series.map((p) => ({ date: lastDay(p.to), price: p.pricePerM2 }))))
 
   const cryptoHistory = (id: string) =>
-    getJson(
-      "CoinGecko",
-      `https://api.coingecko.com/api/v3/coins/${encodeURIComponent(id)}/market_chart?vs_currency=eur&days=365&interval=daily`,
+    coinGecko(
+      `coins/${encodeURIComponent(id)}/market_chart?vs_currency=eur&days=365&interval=daily`,
       Schema.Struct({ prices: Schema.Array(Schema.Tuple([Schema.Finite, Schema.Number])) }),
     ).pipe(Effect.map((body) => body.prices.map(([t, price]) => ({ date: new Date(t).toISOString().slice(0, 10), price }))))
 
@@ -226,9 +237,8 @@ export const makeLiveMarketData = (fetchFn: typeof fetch): MarketData["Service"]
   })
 
   const searchCoins = (query: string) =>
-    getJson(
-      "CoinGecko",
-      `https://api.coingecko.com/api/v3/search?query=${encodeURIComponent(query)}`,
+    coinGecko(
+      `search?query=${encodeURIComponent(query)}`,
       Schema.Struct({ coins: Schema.Array(Schema.Struct({ id: Schema.String, name: Schema.String, symbol: Schema.String })) }),
     ).pipe(Effect.map((body) => body.coins.slice(0, 8).map(({ id, name, symbol }) => ({ id, name, symbol }))))
 

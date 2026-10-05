@@ -30,6 +30,7 @@ On an empty budget, the Budget page offers to create starter categories, import 
 | `TYPESAFE_API_KEY` | Categorization and rule suggestions through Jev (TypeSafe AI) |
 | `AI_PROVIDER` / `AI_MODEL` | Provider of the written analysis, `openai` (default) or `anthropic`, and its model (default: `gpt-6-luna` / `claude-haiku-4-5`) |
 | `DECISION_MODEL` | Jev model (default: `jev-latest`) |
+| `COINGECKO_API_KEY` | Free CoinGecko "Demo" key for crypto prices. Recommended in production: without it, CoinGecko limits requests per IP address, which Workers share, and often answers 429 |
 | `RUNWAY_DOMAIN` | Production only: custom domain, in a zone of the same Cloudflare account. Without it, the app is served on its `*.workers.dev` address |
 
 An optional variable that is not set is not bound to the Worker at all.

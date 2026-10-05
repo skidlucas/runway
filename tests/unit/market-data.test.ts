@@ -134,6 +134,17 @@ describe("requests", () => {
     expect(error).toMatchObject({ rateLimited: true, message: "CoinGecko limite les requêtes, réessaie dans une minute." })
   })
 
+  it("send the CoinGecko key when one is configured", async () => {
+    const keys: Array<string | null> = []
+    const recording = (async (_: RequestInfo | URL, init?: RequestInit) => {
+      keys.push(new Headers(init?.headers).get("x-cg-demo-api-key"))
+      return new Response(JSON.stringify({ bitcoin: { eur: 1 } }), { status: 200 })
+    }) as typeof fetch
+    await run(makeLiveMarketData(recording, { coinGeckoKey: "demo-key" }).cryptoPrices(["bitcoin"]))
+    await run(makeLiveMarketData(recording).cryptoPrices(["bitcoin"]))
+    expect(keys).toEqual(["demo-key", null])
+  })
+
   it("abort the fetch when the effect is interrupted", async () => {
     let received: AbortSignal | undefined
     const hanging = ((_: RequestInfo | URL, init?: RequestInit) => {
