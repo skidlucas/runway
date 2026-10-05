@@ -5,7 +5,7 @@ import type { TxFilter } from "~/server/services/transactions"
 export type RegisterSearch = { categoryId?: string; month?: string; uncategorized?: boolean; q?: string }
 
 /** Schedules due within this many days show among the operations. */
-const DAYS_AHEAD = 7
+const DAYS_AHEAD = 3
 export const NO_SCHEDULED: ScheduledRow[] = []
 
 export const isFiltered = (search: RegisterSearch) => Boolean(search.categoryId || search.month || search.uncategorized)
