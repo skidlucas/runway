@@ -63,6 +63,31 @@ describe("Transactions", () => {
     expect(await spentIn("2026-09")).toBe(septemberBefore + 1_000)
   })
 
+  it("clears and unclears the lines of a split with it", async () => {
+    const id = await h.run(
+      Transactions.use((t) =>
+        t.create({
+          accountId: account,
+          date: "2026-09-12",
+          amount: -3_000,
+          payee: { kind: "name", name: "Marché" },
+          splits: [
+            { amount: -2_000, categoryId: categories[0]! },
+            { amount: -1_000, categoryId: categories[1]! },
+          ],
+        }),
+      ),
+    )
+    const cleared = async () =>
+      (await h.d1.prepare("SELECT cleared FROM transactions WHERE id = ?1 OR parent_id = ?1").bind(id).all<{ cleared: number }>()).results.map(
+        (r) => r.cleared,
+      )
+    await h.run(Transactions.use((t) => t.setCleared([id], true)))
+    expect(await cleared()).toEqual([1, 1, 1])
+    await h.run(Transactions.use((t) => t.setCleared([id], false)))
+    expect(await cleared()).toEqual([0, 0, 0])
+  })
+
   it("keeps a transfer's other side in step when its amount or date is edited", async () => {
     const id = await h.run(
       Transactions.use((t) => t.create({ accountId: account, date: "2026-09-12", amount: -4_000, payee: { kind: "transfer", accountId: savings } })),

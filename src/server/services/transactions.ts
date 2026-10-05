@@ -814,13 +814,15 @@ export class Transactions extends Context.Service<
         return { restored }
       })
 
+      // The lines of a split follow their parent.
       const setCleared = (ids: ReadonlyArray<string>, cleared: boolean) =>
         db.batch(
-          chunkIds(ids).map((chunk) =>
-            db.d1
-              .prepare(`UPDATE transactions SET cleared = ? WHERE id IN (${chunk.map(() => "?").join(",")})`)
-              .bind(cleared ? 1 : 0, ...chunk),
-          ),
+          chunkIds(ids).map((chunk) => {
+            const marks = chunk.map((_, i) => `?${i + 2}`).join(",")
+            return db.d1
+              .prepare(`UPDATE transactions SET cleared = ?1 WHERE id IN (${marks}) OR (parent_id IS NOT NULL AND parent_id IN (${marks}))`)
+              .bind(cleared ? 1 : 0, ...chunk)
+          }),
         )
 
       const setCategory = (ids: ReadonlyArray<string>, categoryId: string | null) =>
