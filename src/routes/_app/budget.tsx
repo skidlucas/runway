@@ -192,7 +192,7 @@ function ToBudgetChip({ budget }: { budget: BudgetMonthDto }) {
         <Line label="Reste du mois dernier" value={budget.fromLastMonth} />
         <Line label="Dépassements du mois dernier" value={budget.lastMonthOverspent} />
         <Line label="Budgété ce mois" value={-budget.budgeted} />
-        {budget.buffered ? <Line label="Mis de côté pour le mois prochain" value={-budget.buffered} /> : null}
+        {budget.buffered ? <Line label="Réservé pour le mois prochain" value={-budget.buffered} /> : null}
         <div className="my-1 h-px bg-line" />
         <Line label="À budgéter" value={budget.toBudget} strong />
       </div>
@@ -498,7 +498,7 @@ function PlannedDetail({ planned }: { planned: PlannedCategory }) {
         {planned.target < planned.amount ? (
           <>
             <PlannedTotal label="Déjà dans l'enveloppe" value={planned.target - planned.amount} />
-            <PlannedTotal label="À budgéter ce mois" value={planned.target} strong />
+            <PlannedTotal label="À mettre ce mois" value={planned.target} strong />
           </>
         ) : null}
       </div>
