@@ -13,7 +13,12 @@ import type { RuleDto } from "~/server/services/rules"
 
 export const Route = createFileRoute("/_app/settings/rules")({
   loader: ({ context }) =>
-    Promise.all([context.queryClient.ensureQueryData(q.rules()), context.queryClient.ensureQueryData(q.categories())]),
+    Promise.all([
+      context.queryClient.ensureQueryData(q.rules()),
+      context.queryClient.ensureQueryData(q.categories()),
+      context.queryClient.ensureQueryData(q.payeeNames()),
+      context.queryClient.ensureQueryData(q.accounts()),
+    ]),
   component: RulesSettings,
 })
 
