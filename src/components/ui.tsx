@@ -169,7 +169,7 @@ export const Field = ({
   className,
   group = false,
 }: {
-  label: string
+  label: React.ReactNode
   hint?: React.ReactNode
   children: React.ReactNode
   className?: string
@@ -177,7 +177,7 @@ export const Field = ({
 }) => {
   const Tag = group ? "div" : "label"
   return (
-    <Tag className={cx("flex flex-col gap-1.5", className)} {...(group ? { role: "group", "aria-label": label } : {})}>
+    <Tag className={cx("flex flex-col gap-1.5", className)} {...(group ? { role: "group", "aria-label": typeof label === "string" ? label : undefined } : {})}>
       <span className="text-[12px] text-muted">{label}</span>
       {children}
       {hint ? <span className="text-[12px] text-faint">{hint}</span> : null}

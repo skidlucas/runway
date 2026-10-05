@@ -301,7 +301,13 @@ export function AssetDialog({
               <Field label="Durée (années)">
                 <Input value={d.years} onChange={(e) => set("years", e.target.value)} className="num" inputMode="decimal" placeholder="20" />
               </Field>
-              <Field label="Date de 1re échéance">
+              <Field
+                label={
+                  <>
+                    Date de 1<sup>re</sup> échéance
+                  </>
+                }
+              >
                 <DateInput value={d.firstPaymentDate} onChange={(v) => set("firstPaymentDate", v)} />
               </Field>
               <Field label="Assurance mensuelle">
