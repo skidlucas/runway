@@ -10,6 +10,7 @@ export type DashboardDto = { id: string; name: string; widgets: DashboardWidget[
 
 /** Shown while no dashboard is stored: it is written on its first change. */
 export const MAIN_DASHBOARD_ID = "main"
+export const MAIN_DASHBOARD_NAME = "Principal"
 
 export const DEFAULT_WIDGETS: DashboardWidget[] = [
   { id: "net-worth", kind: "net_worth", size: 2, months: 6 },
@@ -48,7 +49,7 @@ export class Dashboards extends Context.Service<
         .pipe(
           Effect.map((rows): DashboardDto[] =>
             rows.length === 0
-              ? [{ id: MAIN_DASHBOARD_ID, name: "Principal", widgets: DEFAULT_WIDGETS }]
+              ? [{ id: MAIN_DASHBOARD_ID, name: MAIN_DASHBOARD_NAME, widgets: DEFAULT_WIDGETS }]
               : rows.map((r) => ({ id: r.id, name: r.name, widgets: readWidgets(r.widgets) })),
           ),
         )
@@ -93,7 +94,7 @@ export class Dashboards extends Context.Service<
           yield* db.use((orm) =>
             orm
               .insert(dashboards)
-              .values({ id, name: name ?? "Principal", widgets: widgets ?? DEFAULT_WIDGETS, sortOrder: 0 })
+              .values({ id, name: name ?? MAIN_DASHBOARD_NAME, widgets: widgets ?? DEFAULT_WIDGETS, sortOrder: 0 })
               .onConflictDoUpdate({
                 target: dashboards.id,
                 set: { ...(name === undefined ? {} : { name }), ...(widgets === undefined ? {} : { widgets }) },

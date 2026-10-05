@@ -217,7 +217,7 @@ export class Insights extends Context.Service<
         } satisfies InsightViewDto
       })
 
-      const monthData = Effect.gen(function* () {
+      const monthTotals = Effect.gen(function* () {
         const today = yield* settings.today
         const month = monthOf(today)
         const first = addMonths(month, -12)
@@ -347,7 +347,7 @@ export class Insights extends Context.Service<
         }
       })
 
-      const findings = monthData.pipe(
+      const findings = monthTotals.pipe(
         Effect.map(
           (d): FindingsDto => ({
             month: d.month,
@@ -365,7 +365,7 @@ export class Insights extends Context.Service<
       )
 
       const analysis = Effect.gen(function* () {
-        const d = yield* monthData
+        const d = yield* monthTotals
         const local = computeFindings({ ...d })
         const euros = (cents: number) => Math.round(cents) / 100
         const dayOfMonth = parseDay(d.today).d

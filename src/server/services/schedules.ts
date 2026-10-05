@@ -163,12 +163,6 @@ export class Schedules extends Context.Service<
       const settings = yield* Settings
       const transactionsService = yield* Transactions
 
-      const timing = (row: Pick<Row, "startDate" | "endDate" | "recurrence">) => ({
-        startDate: row.startDate,
-        endDate: row.endDate,
-        recurrence: row.recurrence,
-      })
-
       const list = Effect.gen(function* () {
         const today = yield* settings.today
         const rows = yield* db.use(async (_, d1) => {
@@ -303,7 +297,7 @@ export class Schedules extends Context.Service<
         const ended = nextDate === null
         // Inactive with nothing left to book means it ran out, not that it was paused: a later end
         // date brings it back.
-        const ranOut = !current.active && isRecurrence(current.recurrence) && nextOnOrAfter(timing(current), current.nextDate) === null
+        const ranOut = !current.active && isRecurrence(current.recurrence) && nextOnOrAfter(current, current.nextDate) === null
         const active = ended ? false : input.active ?? (ranOut ? true : undefined)
         yield* db.use((orm) =>
           orm
@@ -338,7 +332,7 @@ export class Schedules extends Context.Service<
       /** Where a schedule stands once its occurrence due on `nextDate` is booked or skipped. */
       const advance = (row: Row, nextDate: Day) => {
         const after = addDays(nextDate, 1)
-        const next = nextOnOrAfter(timing(row), after)
+        const next = nextOnOrAfter(row, after)
         // An ended schedule keeps the first day it has not covered: pushing its end date later
         // resumes from there without booking the last occurrence again.
         return { nextDate: next ?? after, active: next !== null }

@@ -204,7 +204,7 @@ function DailyChart({ f }: { f: ForecastDto }) {
 }
 
 const tagView = (tag: UpcomingTag) => {
-  switch (tag.kind) {
+  switch (tag) {
     case "income":
       return <Chip tone="positive">Revenu</Chip>
     case "booked":

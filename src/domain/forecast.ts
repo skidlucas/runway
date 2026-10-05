@@ -22,7 +22,7 @@ export type ForecastInput = {
   readonly upcoming: ReadonlyArray<UpcomingItem>
 }
 
-export type UpcomingTag = { kind: "scheduled" } | { kind: "income" } | { kind: "booked" }
+export type UpcomingTag = "scheduled" | "income" | "booked"
 
 type ForecastDay = { date: Day; balance: number; kind: "past" | "today" | "future"; hasSchedule: boolean }
 
@@ -62,11 +62,11 @@ export const computeForecast = (input: ForecastInput): Forecast => {
     .sort((a, b) => compareIso(a.date, b.date))
     .map((u) => {
       const tag: UpcomingTag =
-        u.source === "transaction" ? { kind: "booked" } : u.amount > 0 ? { kind: "income" } : { kind: "scheduled" }
+        u.source === "transaction" ? "booked" : u.amount > 0 ? "income" : "scheduled"
       return { ...u, tag }
     })
 
-  const sum = (kind: UpcomingTag["kind"]) => upcoming.filter((u) => u.tag.kind === kind).reduce((a, u) => a + u.amount, 0)
+  const sum = (tag: UpcomingTag) => upcoming.filter((u) => u.tag === tag).reduce((a, u) => a + u.amount, 0)
   const scheduledUpcoming = -sum("scheduled")
   const upcomingIncome = sum("income")
   const bookedUpcoming = -sum("booked")

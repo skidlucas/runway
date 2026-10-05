@@ -9,7 +9,7 @@ import { readInsightConfig, readRule, readSource, readWidgets } from "../db/json
 import * as schema from "../db/schema"
 import { Invalid, type NotFound } from "../errors"
 import { AccountKind, DuplicateProbe as DuplicateProbeSchema, ImportRow as ImportRowSchema, Recurrence } from "../schemas"
-import { DEFAULT_WIDGETS, MAIN_DASHBOARD_ID, MAX_WIDGETS, validWidget } from "./dashboards"
+import { DEFAULT_WIDGETS, MAIN_DASHBOARD_ID, MAIN_DASHBOARD_NAME, MAX_WIDGETS, validWidget } from "./dashboards"
 import { Payees } from "./payees"
 import { type RuleDto, Rules } from "./rules"
 import { Settings } from "./settings"
@@ -618,7 +618,7 @@ export class ImportExport extends Context.Service<
         const keepMain =
           existingDashboards.length === 0 &&
           boards.length > 0 &&
-          !dashboardNames.has(normalizeText("Principal")) &&
+          !dashboardNames.has(normalizeText(MAIN_DASHBOARD_NAME)) &&
           !(extras.dashboards ?? []).some((b) => b.id === MAIN_DASHBOARD_ID)
         yield* db.batch([
           ...bulkInsertStatements(
@@ -655,7 +655,7 @@ export class ImportExport extends Context.Service<
           ),
           ...bulkInsertStatements(db.d1, "saved_views", ["id", "name", "config", "sort_order"], views),
           ...bulkInsertStatements(db.d1, "dashboards", ["id", "name", "widgets", "sort_order"], [
-            ...(keepMain ? [[MAIN_DASHBOARD_ID, "Principal", JSON.stringify(DEFAULT_WIDGETS), 0]] : []),
+            ...(keepMain ? [[MAIN_DASHBOARD_ID, MAIN_DASHBOARD_NAME, JSON.stringify(DEFAULT_WIDGETS), 0]] : []),
             ...boards,
           ]),
         ])

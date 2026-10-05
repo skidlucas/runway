@@ -33,7 +33,7 @@ describe("forecast", () => {
         { date: "2026-10-05", name: "Chèque", amount: -2000, categoryId: "courses", source: "transaction", scheduleId: null, overdue: false },
       ],
     })
-    expect(f.upcoming.map((u) => u.tag.kind)).toEqual(["booked", "scheduled", "scheduled", "income"])
+    expect(f.upcoming.map((u) => u.tag)).toEqual(["booked", "scheduled", "scheduled", "income"])
     expect(f.scheduledUpcoming).toBe(1850 + 8640)
     expect(f.upcomingIncome).toBe(50000)
     expect(f.bookedUpcoming).toBe(2000)
