@@ -39,5 +39,8 @@ export const BUDGET_CASH_FLOW = `${BUDGET_LINE} AND t.starting_balance = 0`
 /** Counts for the budget but has no category yet: what the budget asks to categorize. Needs `a` and `p`. */
 export const UNCATEGORIZED = `t.category_id IS NULL AND t.starting_balance = 0 AND ${COUNTS_FOR_BUDGET}`
 
-/** Uncategorized lines a rule can categorize: rules never apply to transfers or split parents. */
-export const RULE_CANDIDATE = "t.category_id IS NULL AND t.is_parent = 0 AND t.transfer_id IS NULL"
+/**
+ * Uncategorized lines a rule can categorize: budget lines only, never transfers or split parents.
+ * Off-budget lines count for no budget: a category there would only skew the payee suggestions.
+ */
+export const RULE_CANDIDATE = `t.category_id IS NULL AND t.transfer_id IS NULL AND ${BUDGET_LINE_ALONE}`

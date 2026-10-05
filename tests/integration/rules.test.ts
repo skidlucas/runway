@@ -77,7 +77,7 @@ describe("Rules", () => {
     expect(await match(payee)).toBe(groceries)
   })
 
-  it("categorizes the uncategorized lines, transfers and split totals aside", async () => {
+  it("categorizes the uncategorized budget lines, transfers, split totals and off-budget lines aside", async () => {
     const payee = freshPayee()
     const plain = await add(checking, { kind: "name", name: payee })
     const offBudget = await add(broker, { kind: "name", name: payee })
@@ -103,8 +103,7 @@ describe("Rules", () => {
       enabled: false,
     })
 
-    // Lines of an off-budget account are categorized too: nothing off budget counts anywhere.
-    expect(await h.run(Rules.use((r) => r.applyToUncategorized(rule.id)))).toBe(3)
+    expect(await h.run(Rules.use((r) => r.applyToUncategorized(rule.id)))).toBe(2)
     expect({
       plain: await categoryOf(plain),
       offBudget: await categoryOf(offBudget),
@@ -113,7 +112,7 @@ describe("Rules", () => {
       leaving: await categoryOf(leaving),
       split: await categoryOf(split),
       lines: [await categoryOf(lines[0]!.id), await categoryOf(lines[1]!.id)],
-    }).toEqual({ plain: groceries, offBudget: groceries, filed: leisure, internal: null, leaving: null, split: null, lines: [leisure, groceries] })
+    }).toEqual({ plain: groceries, offBudget: null, filed: leisure, internal: null, leaving: null, split: null, lines: [leisure, groceries] })
     expect(await h.run(Rules.use((r) => r.applyToUncategorized(rule.id)))).toBe(0)
   })
 
