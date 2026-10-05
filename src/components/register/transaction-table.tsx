@@ -330,7 +330,7 @@ const TransactionRow = React.memo(function TransactionRow({
         <InlineCategory tx={tx} />
       )}
       {showAccount ? <span className="truncate text-muted" title={tx.accountName}>{tx.accountName}</span> : null}
-      <InlineAmount tx={tx} />
+      <InlineAmount tx={tx} future={future} />
       {showBalance ? <Money value={tx.balance ?? 0} className="text-right text-[12px] text-muted" /> : null}
       <button
         type="button"
@@ -454,7 +454,7 @@ function InlineCategory({ tx }: { tx: TxRow }) {
   )
 }
 
-function InlineAmount({ tx }: { tx: TxRow }) {
+function InlineAmount({ tx, future }: { tx: TxRow; future: boolean }) {
   const update = useAction(updateTransaction, { writes: ["transactions"] })
   return (
     <InlineEdit
@@ -469,7 +469,7 @@ function InlineAmount({ tx }: { tx: TxRow }) {
       className="text-right"
       inputClassName="num w-full text-right text-[12px]"
     >
-      <Money value={tx.amount} sign="always" colored className="text-[12px]" />
+      <Money value={tx.amount} sign="always" colored={!future} className="text-[12px]" />
     </InlineEdit>
   )
 }

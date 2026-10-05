@@ -8,18 +8,23 @@ import type { AccountDto } from "~/server/services/accounts"
 
 export function AccountSummary({ account }: { account: AccountDto }) {
   const forecast = useQuery(q.forecast({ accountId: account.id }))
-  const booked = account.balance - account.balanceToday
   const f = forecast.data?.accountId === account.id ? forecast.data : undefined
+  const uncleared = account.balanceToday - account.clearedBalance
   return (
     <div className="border-b border-line">
       <div className="grid grid-cols-3 gap-4 px-5 py-4">
-        <Kpi label="Aujourd'hui" value={formatMoney(account.balanceToday)} size="lg" valueClassName={account.balanceToday < 0 ? "text-negative" : undefined} />
         <Kpi
-          label="Avec les opérations à venir"
-          value={formatMoney(account.balance)}
+          label="Aujourd'hui"
+          value={formatMoney(account.balanceToday)}
           size="lg"
-          valueClassName={cx(booked === 0 && "text-muted", account.balance < 0 && "text-negative")}
-          hint={booked === 0 ? "Pas d'écart avec aujourd'hui" : `${formatMoney(booked, { sign: "always" })} déjà saisis`}
+          valueClassName={account.balanceToday < 0 ? "text-negative" : undefined}
+        />
+        <Kpi
+          label="Pointé"
+          value={formatMoney(account.clearedBalance)}
+          size="lg"
+          valueClassName={account.clearedBalance < 0 ? "text-negative" : undefined}
+          hint={uncleared === 0 ? "Tout est pointé" : `${formatMoney(uncleared, { sign: "always" })} non pointés`}
         />
         <Kpi
           label={f ? `Prévu au ${formatDayShort(f.days.at(-1)?.date ?? f.today)}` : "Fin de mois"}
@@ -54,8 +59,7 @@ export function MobileAccountSummary({ account }: { account: AccountDto }) {
         </span>
       </span>
       <span className="truncate text-[12px] text-faint">
-        {account.balance !== account.balanceToday ? `${formatMoney(account.balance)} avec les opérations à venir` : "Aujourd'hui"}
-        {f ? ` · ${formatMoney(f.projectedEndBalance)} prévus en fin de mois` : ""}
+        Aujourd'hui{f ? ` · ${formatMoney(f.projectedEndBalance)} prévus en fin de mois` : ""}
       </span>
     </div>
   )

@@ -1,6 +1,7 @@
 import { expect, type Page, test } from "@playwright/test"
 import { firstDay, formatDayInput, formatDayLong, monthOf } from "../src/domain/dates"
-import { inDays, open, pickInCommand, visible, waitForToast } from "./helpers"
+import { formatMoney } from "../src/domain/money"
+import { amountIn, inDays, open, pickInCommand, visible, waitForToast } from "./helpers"
 
 test.describe.configure({ mode: "serial" })
 
@@ -118,7 +119,9 @@ test("keeps today's balance apart from operations dated later", async ({ page })
 
   const main = page.getByRole("main")
   await expect(main.getByRole("group", { name: "Aujourd'hui" })).toContainText("1 457,50 €")
-  await expect(main.getByRole("group", { name: "Avec les opérations à venir" })).toContainText("1 447,50 €")
+  const cleared = main.getByRole("group", { name: "Pointé" })
+  const uncleared = 145_750 - (await amountIn(cleared))
+  await expect(cleared).toContainText(uncleared === 0 ? "Tout est pointé" : `${formatMoney(uncleared, { sign: "always" })} non pointés`)
   await expect(page.getByTestId("tx-row").filter({ hasText: "Pressing" })).toContainText("−10,00 €")
 })
 
