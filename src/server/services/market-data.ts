@@ -16,8 +16,10 @@ export type CoinMarket = {
   /** Fractions (0.012 = +1.2 %), in euros. */
   change24h: number | null
   change7d: number | null
-  /** Euro prices over the last 7 days, oldest first, one every 4 hours. */
-  sparkline: number[]
+  /** Hourly euro prices over the last 7 days, oldest first. */
+  hourly: number[]
+  /** When the last hourly price was taken (ISO), if CoinGecko says. */
+  updatedAt: string | null
 }
 export type DvfPrice = {
   /** Euros per m², sales-weighted over the last 12 published months. */
@@ -66,8 +68,7 @@ export const euroSparkline = (usd: ReadonlyArray<number>, euroNow: number, chang
   if (n < 2 || usd[0]! <= 0 || usd[n - 1]! <= 0) return []
   const rateNow = euroNow / usd[n - 1]!
   const rateThen = change7d === null ? rateNow : euroNow / (1 + change7d) / usd[0]!
-  const euros = usd.map((p, i) => p * (rateThen + ((rateNow - rateThen) * i) / (n - 1)))
-  return euros.filter((_, i) => i % 4 === 0 || i === n - 1)
+  return usd.map((p, i) => p * (rateThen + ((rateNow - rateThen) * i) / (n - 1)))
 }
 
 export type MarketDataOptions = {
@@ -114,6 +115,7 @@ export const makeLiveMarketData = (fetchFn: typeof fetch, options: MarketDataOpt
     Schema.Struct({
       id: Schema.String,
       current_price: Schema.NullOr(Schema.Number),
+      last_updated: Schema.optional(Schema.NullOr(Schema.String)),
       price_change_percentage_24h_in_currency: Percent,
       price_change_percentage_7d_in_currency: Percent,
       sparkline_in_7d: Schema.optional(Schema.NullOr(Schema.Struct({ price: Schema.Array(Schema.Number) }))),
@@ -140,7 +142,8 @@ export const makeLiveMarketData = (fetchFn: typeof fetch, options: MarketDataOpt
                         price: c.current_price,
                         change24h: fraction(c.price_change_percentage_24h_in_currency),
                         change7d,
-                        sparkline: euroSparkline(c.sparkline_in_7d?.price ?? [], c.current_price, change7d),
+                        hourly: euroSparkline(c.sparkline_in_7d?.price ?? [], c.current_price, change7d),
+                        updatedAt: c.last_updated ?? null,
                       },
                     ] as const,
                   ]

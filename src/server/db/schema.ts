@@ -224,8 +224,10 @@ export const coins = sqliteTable("coins", {
   /** Fractions (0.012 = +1.2 %), in euros. */
   change24h: real("change_24h"),
   change7d: real("change_7d"),
-  /** Euro prices over the last 7 days, oldest first, one every 4 hours. */
+  /** Hourly euro prices over the last 7 days, oldest first (one every 4 hours before `trend_at` existed). */
   sparkline: text("sparkline", { mode: "json" }).$type<number[]>(),
+  /** When the last of those prices was taken (ISO). */
+  trendAt: text("trend_at"),
   /** When the yearly daily history was last fetched; null until it has been. */
   historyDate: text("history_date"),
 })

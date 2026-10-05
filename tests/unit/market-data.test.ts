@@ -172,6 +172,7 @@ describe("CoinGecko markets", () => {
               price_change_percentage_24h_in_currency: -1.5,
               price_change_percentage_7d_in_currency: 5,
               sparkline_in_7d: { price: usd },
+              last_updated: "2026-10-05T09:12:00.000Z",
             },
             { id: "delisted", current_price: null },
           ],
@@ -181,10 +182,10 @@ describe("CoinGecko markets", () => {
     const markets = await run(market.cryptoMarkets(["solana", "delisted"]))
     expect([...markets.keys()]).toEqual(["solana"])
     const sol = markets.get("solana")!
-    expect(sol).toMatchObject({ price: 105, change24h: -0.015, change7d: 0.05 })
-    expect(sol.sparkline).toHaveLength(43)
-    expect(sol.sparkline[0]).toBeCloseTo(100)
-    expect(sol.sparkline.at(-1)).toBeCloseTo(105)
+    expect(sol).toMatchObject({ price: 105, change24h: -0.015, change7d: 0.05, updatedAt: "2026-10-05T09:12:00.000Z" })
+    expect(sol.hourly).toHaveLength(169)
+    expect(sol.hourly[0]).toBeCloseTo(100)
+    expect(sol.hourly.at(-1)).toBeCloseTo(105)
   })
 
   it("keeps no sparkline it cannot place", () => {

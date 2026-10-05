@@ -1,0 +1,1 @@
+ALTER TABLE `coins` ADD `trend_at` text;

@@ -36,7 +36,7 @@ import {
 import { localToday, useIsMobile } from "~/lib/hooks"
 import { q, useAction } from "~/lib/queries"
 import { addAssetValuation, deleteAsset, refreshValuations, updateAsset } from "~/server/fns/wealth"
-import type { RefreshResult, WealthItem, WealthOverview } from "~/server/services/wealth"
+import type { CoinTrend, RefreshResult, WealthItem, WealthOverview } from "~/server/services/wealth"
 import { count, plural } from "~/domain/text"
 
 /** `type` narrows the page to one kind of asset; `new` opens the dialog to add one. */
@@ -355,8 +355,8 @@ function AssetTable({
               <span className={cx("num text-[12px]", item.retainedUsed !== "estimated" && "text-muted")}>
                 {item.estimate ? euros(sign * own(item.estimate.amount)) : "—"}
               </span>
-              {item.trend && item.trend.change24h !== null ? (
-                <Trend change={item.trend.change24h} period="24h" date={item.trend.date} today={today} className="max-w-full truncate text-[11px]" />
+              {item.trend ? (
+                <TrendCaption trend={item.trend} today={today} className="max-w-full truncate text-[11px]" />
               ) : (
                 <span
                   className={cx(
@@ -376,13 +376,24 @@ function AssetTable({
 }
 
 /** "▲ 1,2 % sur 24h", dated when the last refresh is not today's. */
-function Trend({ change, period, date, today, className }: { change: number | null; period?: string; date?: Day; today?: Day; className?: string }) {
+function Trend({ change, period, className }: { change: number | null; period?: string; className?: string }) {
   if (change === null) return <span className={cx("text-faint", className)}>—</span>
   return (
     <span className={cx(change >= 0 ? "text-positive" : "text-negative", className)}>
       {change >= 0 ? "▲" : "▼"} {formatPercent(Math.abs(change))}
-      {period ? ` sur ${period}` : ""}
-      {date && date !== today ? <span className="text-faint"> · {formatDayShort(date)}</span> : null}
+      {period ? ` ${period}` : ""}
+    </span>
+  )
+}
+
+/** "▲ 0,7 % 24h · ▼ 2,4 % 7 j", dated when the last refresh is not today's. */
+function TrendCaption({ trend, today, className }: { trend: CoinTrend; today: Day; className?: string }) {
+  return (
+    <span className={className}>
+      <Trend change={trend.change24h} period="24h" />
+      <span className="text-faint"> · </span>
+      <Trend change={trend.change7d} period="7 j" />
+      {trend.date !== today ? <span className="text-faint"> · {formatDayShort(trend.date)}</span> : null}
     </span>
   )
 }
@@ -668,9 +679,23 @@ function HistoryBars({ values, months }: { values: number[]; months: Month[] }) 
   )
 }
 
+type ChartPeriod = "day" | "week" | "month" | "year"
+
+const PERIODS: ReadonlyArray<{ value: ChartPeriod; label: string; caption: string }> = [
+  { value: "day", label: "24h", caption: "24 heures" },
+  { value: "week", label: "Semaine", caption: "7 jours" },
+  { value: "month", label: "Mois", caption: "30 jours" },
+  { value: "year", label: "Année", caption: "12 mois" },
+]
+
+const hourLabel = new Intl.DateTimeFormat("fr-FR", { hour: "2-digit" })
+const weekdayHourLabel = new Intl.DateTimeFormat("fr-FR", { weekday: "short", hour: "2-digit" })
+const HOUR = 3_600_000
+
 /**
- * The value of a crypto asset day by day, over the year or the last 30 days, at today's quantity.
- * Both periods slice one stored history: switching never calls the server again.
+ * The value of a crypto asset at today's quantity: hourly over the last 24 hours or 7 days (as of
+ * the last refresh), daily over 30 days or a year. Every period slices one stored history, so
+ * switching never calls the server again.
  */
 function CoinChart({
   coinId,
@@ -685,37 +710,53 @@ function CoinChart({
   today: Day
   fallback: React.ReactNode
 }) {
-  const [period, setPeriod] = React.useState<"year" | "month">("year")
-  const prices = useQuery(q.coinHistory(coinId))
-  const since = addDays(today, period === "year" ? -365 : -30)
-  const shown = (prices.data ?? []).filter((p) => p.date >= since)
-  if (shown.length < 2) return fallback
-  const values = shown.map((p) => applyShare(Math.round(p.price * quantity * 100), share))
-  const change = values[0]! > 0 ? values.at(-1)! / values[0]! - 1 : null
+  const [chosen, setChosen] = React.useState<ChartPeriod>("year")
+  const history = useQuery(q.coinHistory(coinId)).data
+  const hourly = history?.hourly ?? null
+  const daily = history?.daily ?? []
+  const available = PERIODS.filter((p) => (p.value === "day" || p.value === "week" ? hourly !== null : daily.length >= 2))
+  const period = available.find((p) => p.value === chosen) ?? available.at(-1)
+  if (!period) return fallback
+
+  let prices: number[]
+  let labels: string[]
+  if (period.value === "day" || period.value === "week") {
+    const all = hourly!.prices
+    prices = all.slice(period.value === "day" ? -25 : 0)
+    const end = Date.parse(hourly!.at)
+    const format = period.value === "day" ? hourLabel : weekdayHourLabel
+    labels = prices.map((_, i) => format.format(end - (prices.length - 1 - i) * HOUR))
+  } else {
+    const since = addDays(today, period.value === "year" ? -365 : -30)
+    const shown = daily.filter((p) => p.date >= since)
+    prices = shown.map((p) => p.price)
+    labels = shown.map((p) => (period.value === "year" ? formatDayLong : formatDayShort)(p.date))
+  }
+  const values = prices.map((price) => applyShare(Math.round(price * quantity * 100), share))
+  const change = values.length >= 2 && values[0]! > 0 ? values.at(-1)! / values[0]! - 1 : null
   return (
     <div className="flex flex-col gap-2">
-      <div className="flex items-center justify-between gap-2">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <span className="flex min-w-0 items-baseline gap-2 text-[12px]">
-          <span className="text-faint">Valeur sur {period === "year" ? "12 mois" : "30 jours"}</span>
+          <span className="text-faint">Valeur sur {period.caption}</span>
           <Trend change={change} />
         </span>
         <Segmented
           size="sm"
           label="Période du graphique"
-          value={period}
-          onChange={setPeriod}
-          options={[
-            { value: "year", label: "Année" },
-            { value: "month", label: "Mois" },
-          ]}
+          value={period.value}
+          onChange={setChosen}
+          options={available.map((p) => ({ value: p.value, label: p.label }))}
         />
       </div>
-      <LineChart
-        ariaLabel={`Valeur sur ${period === "year" ? "12 mois" : "30 jours"}`}
-        series={[{ label: "Valeur", values, color: change !== null && change < 0 ? "var(--negative)" : "var(--positive)", area: true }]}
-        labels={shown.map((p) => (period === "year" ? formatDayLong : formatDayShort)(p.date))}
-        height={110}
-      />
+      {values.length >= 2 ? (
+        <LineChart
+          ariaLabel={`Valeur sur ${period.caption}`}
+          series={[{ label: "Valeur", values, color: change !== null && change < 0 ? "var(--negative)" : "var(--positive)", area: true }]}
+          labels={labels}
+          height={110}
+        />
+      ) : null}
     </div>
   )
 }
@@ -845,8 +886,8 @@ function MobileRows({
         >
           <span className="flex min-w-0 flex-1 flex-col gap-0.5">
             <span className="truncate font-medium" title={item.name}>{item.name}</span>
-            {item.trend && item.trend.change7d !== null ? (
-              <Trend change={item.trend.change7d} period="7 j" date={item.trend.date} today={today} className="truncate text-[12px]" />
+            {item.trend ? (
+              <TrendCaption trend={item.trend} today={today} className="truncate text-[12px]" />
             ) : (
               <span className="truncate text-[12px] text-faint">{estimateCaption(item, today).text}</span>
             )}

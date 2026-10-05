@@ -27,7 +27,7 @@ const manual = (overrides: Partial<AssetInput> = {}): AssetInput => ({
   ...overrides,
 })
 
-const coin = (price: number): CoinMarket => ({ price, change24h: null, change7d: null, sparkline: [] })
+const coin = (price: number): CoinMarket => ({ price, change24h: null, change7d: null, hourly: [], updatedAt: null })
 
 const openCourant = (h: Harness, name = "Courant") =>
   h.run(
@@ -477,10 +477,12 @@ describe("Coin histories", () => {
 
   it("keeps each coin's trend and yearly prices, so charts never call CoinGecko", async () => {
     let historyCalls = 0
+    const hourly = Array.from({ length: 169 }, (_, i) => 100 + i)
+    const updatedAt = `${today}T09:00:00.000Z`
     const h = await createHarness({
       now: NOW,
       market: {
-        cryptoMarkets: (ids) => Effect.succeed(new Map(ids.map((id) => [id, { price: 120, change24h: -0.02, change7d: 0.05, sparkline: [110, 115, 120] }]))),
+        cryptoMarkets: (ids) => Effect.succeed(new Map(ids.map((id) => [id, { price: 120, change24h: -0.02, change7d: 0.05, hourly, updatedAt }]))),
         cryptoHistory: () => {
           historyCalls++
           return Effect.succeed(yearOf(100))
@@ -500,14 +502,17 @@ describe("Coin histories", () => {
       expect(historyCalls).toBe(1)
 
       const overview = await h.run(Wealth.use((w) => w.overview))
+      // The list gets one point every 4 hours, ending on the latest.
+      const sparkline = hourly.filter((_, i) => i % 4 === 0)
       for (const item of overview.items) {
-        expect(item.trend).toEqual({ date: today, change24h: -0.02, change7d: 0.05, sparkline: [110, 115, 120] })
+        expect(item.trend).toEqual({ date: today, change24h: -0.02, change7d: 0.05, sparkline })
       }
-      const prices = await h.run(Wealth.use((w) => w.coinHistory("solana")))
-      expect(prices).toHaveLength(366)
-      expect(prices[0]!.date).toBe(addDays(today, -365))
+      const { daily, hourly: stored } = await h.run(Wealth.use((w) => w.coinHistory("solana")))
+      expect(daily).toHaveLength(366)
+      expect(daily[0]!.date).toBe(addDays(today, -365))
       // Today's row is the refresh's price, not the history's.
-      expect(prices.at(-1)).toEqual({ date: today, price: 120 })
+      expect(daily.at(-1)).toEqual({ date: today, price: 120 })
+      expect(stored).toEqual({ at: updatedAt, prices: hourly })
       const { results } = await h.d1.prepare("SELECT COUNT(DISTINCT asset_id) AS n FROM asset_valuations WHERE date < ?").bind(`${month}-01`).all<{ n: number }>()
       expect(results[0]!.n).toBe(2)
 
@@ -548,7 +553,7 @@ describe("Coin histories", () => {
       await h.d1.prepare("DELETE FROM coin_prices WHERE coin_id = 'solana' AND date = ?").bind(addDays(today, -1)).run()
       await refresh()
       expect(historyCalls).toBe(2)
-      expect((await h.run(Wealth.use((w) => w.coinHistory("solana")))).map((p) => p.date)).toContain(addDays(today, -1))
+      expect((await h.run(Wealth.use((w) => w.coinHistory("solana")))).daily.map((p) => p.date)).toContain(addDays(today, -1))
     } finally {
       await h.dispose()
     }

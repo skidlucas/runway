@@ -50,8 +50,16 @@ type EstimateDto = {
   asOf: Month | null
 }
 
-/** A coin's trend at its last refresh. */
+/** A coin's trend at its last refresh; `sparkline` is its last 7 days, one price every 4 hours. */
 export type CoinTrend = { date: Day; change24h: number | null; change7d: number | null; sparkline: number[] }
+
+/** What the detail of a crypto charts, read from D1 only. */
+export type CoinHistory = {
+  /** Daily euro prices over the last year, oldest first. */
+  daily: PricePoint[]
+  /** Hourly euro prices over the 7 days before `at` (ISO), oldest first; null until a refresh saved them. */
+  hourly: { at: string; prices: number[] } | null
+}
 
 export type WealthItem = {
   id: string
@@ -311,8 +319,7 @@ export class Wealth extends Context.Service<
     update(id: string, input: AssetInput): Effect.Effect<void, DbError | Invalid | NotFound>
     remove(id: string): Effect.Effect<void, DbError>
     addValuation(input: { assetId: string; date: Day; amount: number }): Effect.Effect<void, DbError | Invalid | NotFound>
-    /** Daily euro prices of a coin over the last year, oldest first, read from D1 only. */
-    coinHistory(coinId: string): Effect.Effect<PricePoint[], DbError>
+    coinHistory(coinId: string): Effect.Effect<CoinHistory, DbError>
     /** Changes installments of a loan's amortization schedule, alone or onward; a null payment goes back to the computed one. */
     setLoanPayments(id: string, changes: ReadonlyArray<LoanPaymentChange>): Effect.Effect<void, DbError | Invalid | NotFound>
     /**
@@ -353,15 +360,22 @@ export class Wealth extends Context.Service<
         .use((_, d1) =>
           d1
             .prepare(
-              `SELECT id, trend_date AS date, change_24h AS change24h, change_7d AS change7d, sparkline
+              `SELECT id, trend_date AS date, change_24h AS change24h, change_7d AS change7d, sparkline, trend_at AS trendAt
                FROM coins WHERE trend_date IS NOT NULL`,
             )
-            .all<{ id: string; date: Day; change24h: number | null; change7d: number | null; sparkline: string | null }>(),
+            .all<{ id: string; date: Day; change24h: number | null; change7d: number | null; sparkline: string | null; trendAt: string | null }>(),
         )
         .pipe(
           Effect.map(
             ({ results }) =>
-              new Map(results.map(({ id, sparkline, ...trend }) => [id, { ...trend, sparkline: sparkline ? (JSON.parse(sparkline) as number[]) : [] }])),
+              new Map(
+                results.map(({ id, sparkline, trendAt, ...trend }) => {
+                  const prices = sparkline ? (JSON.parse(sparkline) as number[]) : []
+                  // A table row needs no more than a price every 4 hours.
+                  const thinned = trendAt === null ? prices : prices.filter((_, i) => i % 4 === (prices.length - 1) % 4)
+                  return [id, { ...trend, sparkline: thinned }]
+                }),
+              ),
           ),
         )
 
@@ -598,8 +612,19 @@ export class Wealth extends Context.Service<
 
       const coinHistory = Effect.fn("Wealth.coinHistory")(function* (coinId: string) {
         const today = yield* settings.today
-        const byCoin = yield* readCoinPrices([coinId], addDays(today, -365))
-        return (byCoin.get(coinId) ?? []).map(({ date, price }) => ({ date, price }))
+        const [byCoin, trend] = yield* Effect.all(
+          [
+            readCoinPrices([coinId], addDays(today, -365)),
+            db.use((_, d1) =>
+              d1.prepare("SELECT sparkline, trend_at AS at FROM coins WHERE id = ?").bind(coinId).first<{ sparkline: string | null; at: string | null }>(),
+            ),
+          ],
+          { concurrency: "unbounded" },
+        )
+        return {
+          daily: (byCoin.get(coinId) ?? []).map(({ date, price }) => ({ date, price })),
+          hourly: trend?.at && trend.sparkline ? { at: trend.at, prices: JSON.parse(trend.sparkline) as number[] } : null,
+        } satisfies CoinHistory
       })
 
       const refresh = Effect.fn("Wealth.refresh")(function* (options: { ids?: ReadonlyArray<string> } = {}) {
@@ -676,11 +701,11 @@ export class Wealth extends Context.Service<
           ...markets.map(([id, m]) =>
             db.d1
               .prepare(
-                `INSERT INTO coins (id, trend_date, change_24h, change_7d, sparkline) VALUES (?1, ?2, ?3, ?4, ?5)
+                `INSERT INTO coins (id, trend_date, change_24h, change_7d, sparkline, trend_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)
                  ON CONFLICT (id) DO UPDATE SET trend_date = excluded.trend_date, change_24h = excluded.change_24h,
-                   change_7d = excluded.change_7d, sparkline = excluded.sparkline`,
+                   change_7d = excluded.change_7d, sparkline = excluded.sparkline, trend_at = excluded.trend_at`,
               )
-              .bind(id, today, m.change24h, m.change7d, JSON.stringify(m.sparkline)),
+              .bind(id, today, m.change24h, m.change7d, JSON.stringify(m.hourly), m.updatedAt ?? `${today}T12:00:00.000Z`),
           ),
           ...bulkInsertStatements(db.d1, "coin_prices", ["coin_id", "date", "price"], markets.map(([id, m]) => [id, today, m.price]), "replace"),
           ...estimates.flatMap((e) => [
