@@ -131,12 +131,28 @@ export const createHarness = async (
   // Workers cap the queries of one invocation (50 on the free plan), each statement of a batch
   // included: every statement the application prepares is counted.
   let statements = 0
+  let reads: Array<{ query: string; args: unknown[] }> | null = null
   const counted = new Proxy(d1, {
     get(target, key) {
       if (key === "prepare") {
         return (query: string) => {
           statements++
-          return target.prepare(query)
+          const statement = target.prepare(query)
+          if (!reads || !/^\s*(SELECT|WITH)\b/i.test(query)) return statement
+          const read = { query, args: [] as unknown[] }
+          reads.push(read)
+          return new Proxy(statement, {
+            get(s, k) {
+              if (k === "bind") {
+                return (...args: unknown[]) => {
+                  read.args = args
+                  return s.bind(...args)
+                }
+              }
+              const value = Reflect.get(s, k, s)
+              return typeof value === "function" ? value.bind(s) : value
+            },
+          })
         }
       }
       const value = Reflect.get(target, key, target)
@@ -154,6 +170,20 @@ export const createHarness = async (
       const before = statements
       const value = await runtime.runPromise(effect)
       return { value, statements: statements - before }
+    },
+    /**
+     * How many rows D1 reads to run the queries of `effect`, the measure its free plan bills
+     * (5 million a day). Each query is run again on its own to read its count.
+     */
+    rowsReadOf: async <A, E>(effect: Effect.Effect<A, E, Services>): Promise<{ value: A; rowsRead: number }> => {
+      const queries: NonNullable<typeof reads> = []
+      reads = queries
+      const value = await runtime.runPromise(effect).finally(() => {
+        reads = null
+      })
+      let rowsRead = 0
+      for (const { query, args } of queries) rowsRead += (await d1.prepare(query).bind(...args).all()).meta.rows_read
+      return { value, rowsRead }
     },
     /** The typed failure of an effect expected to fail, to assert on its `_tag`. */
     fail: async <A, E>(effect: Effect.Effect<A, E, Services>): Promise<E> => {
