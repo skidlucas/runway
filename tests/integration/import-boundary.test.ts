@@ -28,7 +28,7 @@ describe("Import payload schemas", () => {
           declared: null,
           retained: "estimated",
           share: 10_000,
-          source: { kind: "loan", principal: 200_000_00, annualRatePct: 3.5, months: 240, startDate: "2020-01-05" },
+          source: { kind: "loan", principal: 200_000_00, annualRatePct: 3.5, months: 240, firstPaymentDate: "2020-02-05" },
           notes: null,
         }),
       ),

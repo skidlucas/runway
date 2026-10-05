@@ -19,6 +19,7 @@ import {
   type LoanRow,
   mergeOverrides,
   loanSchedule,
+  loanStartDate,
   type RetainedKind,
   historyChange,
   isAutomaticSource,
@@ -187,7 +188,7 @@ const assetItem = (asset: AssetRow, valuations: ReadonlyArray<ValuationRow>, day
     declared: asset.declaredAmount === null ? null : { amount: asset.declaredAmount, date: asset.declaredDate },
     estimateAt:
       source.kind === "loan"
-        ? (day) => (day < source.startDate ? null : { amount: loanBalanceAt(source, schedule, day), date: day })
+        ? (day) => (day < loanStartDate(source) ? null : { amount: loanBalanceAt(source, schedule, day), date: day })
         : (day) => latestOn(valuations, day),
     retained: asset.retained,
   }
@@ -271,8 +272,8 @@ export const sourceProblem = (type: string, s: ValuationSource): string | null =
   if (type === "loan" && s.kind !== "loan") return "Un emprunt se décrit par son capital, son taux et sa durée."
   if (s.kind === "loan") {
     if (type !== "loan") return "Le tableau d'amortissement est réservé aux emprunts."
-    if (!positive(s.principal) || !positive(s.months) || !(Number.isFinite(s.annualRatePct) && s.annualRatePct >= 0) || !isDay(s.startDate)) {
-      return "Renseigne le capital, le taux, la durée et la date de début de l'emprunt."
+    if (!positive(s.principal) || !positive(s.months) || !(Number.isFinite(s.annualRatePct) && s.annualRatePct >= 0) || !isDay(s.firstPaymentDate)) {
+      return "Renseigne le capital, le taux, la durée et la date de 1re échéance de l'emprunt."
     }
     const changes = loanChangesProblem(s)
     if (changes) return changes

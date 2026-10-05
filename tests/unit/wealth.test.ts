@@ -79,13 +79,13 @@ describe("shared ownership", () => {
 
 describe("loans", () => {
   // 200 000 € over 20 years at 3 %: the textbook payment is 1 109,20 €.
-  const terms = { principal: 200_000_00, annualRatePct: 3, months: 240, startDate: "2020-05-10" }
+  const terms = { principal: 200_000_00, annualRatePct: 3, months: 240, firstPaymentDate: "2020-06-10" }
 
   it("computes the constant payment", () => {
     expect(Math.round(loanMonthlyPayment(terms))).toBe(1_109_20)
   })
 
-  it("counts installments from the month after the start", () => {
+  it("counts installments from the first one", () => {
     expect(loanPaymentsMade(terms, "2020-05-31")).toBe(0)
     expect(loanPaymentsMade(terms, "2020-06-09")).toBe(0)
     expect(loanPaymentsMade(terms, "2020-06-10")).toBe(1)
@@ -103,17 +103,18 @@ describe("loans", () => {
   })
 
   it("repays a zero-rate loan in equal parts and ends a loan in the month of its last payment", () => {
-    const free = { principal: 12_000_00, annualRatePct: 0, months: 12, startDate: "2026-01-31" }
+    const free = { principal: 12_000_00, annualRatePct: 0, months: 12, firstPaymentDate: "2026-02-28" }
     expect(loanBalance(free, "2026-02-28")).toBe(11_000_00)
     expect(loanBalance(free, "2026-07-31")).toBe(6_000_00)
     expect(loanEndMonth(terms)).toBe("2040-05")
-    expect(loanEndMonth({ ...free, startDate: "2026-12-15", months: 1 })).toBe("2027-01")
-    expect(loanEndMonth({ ...free, startDate: "2026-01-15", months: 11 })).toBe("2026-12")
+    expect(loanEndMonth({ ...free, firstPaymentDate: "2027-01-15", months: 1 })).toBe("2027-01")
+    expect(loanEndMonth({ ...free, firstPaymentDate: "2026-02-15", months: 11 })).toBe("2026-12")
   })
 
   it("keeps the textbook schedule while no installment is changed", () => {
     const schedule = loanSchedule(terms)
     expect(schedule).toHaveLength(240)
+    expect(schedule[0]).toMatchObject({ installment: 1, date: terms.firstPaymentDate })
     expect(new Set(schedule.map((row) => row.payment))).toEqual(new Set([1_109_20]))
     const r = 0.0025
     const closedForm = 200_000_00 * (1 + r) ** 120 - (loanMonthlyPayment(terms) * ((1 + r) ** 120 - 1)) / r

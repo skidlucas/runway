@@ -69,7 +69,7 @@ type Draft = {
   principal: string
   rate: string
   years: string
-  startDate: string
+  firstPaymentDate: string
   insurance: string
   /** Changed installments, kept as they are: the schedule in the asset's detail edits them. */
   overrides: ReadonlyArray<LoanOverride>
@@ -100,7 +100,7 @@ const draftOf = (item: WealthItem | null): Draft => {
     principal: s.kind === "loan" ? centsText(s.principal) : "",
     rate: s.kind === "loan" ? String(s.annualRatePct).replace(".", ",") : "",
     years: s.kind === "loan" ? String(s.months / 12).replace(".", ",") : "",
-    startDate: s.kind === "loan" ? s.startDate : "",
+    firstPaymentDate: s.kind === "loan" ? s.firstPaymentDate : "",
     insurance: s.kind === "loan" ? centsText(s.insurance) : "",
     overrides: s.kind === "loan" ? (s.overrides ?? []) : [],
     estimate: "",
@@ -129,8 +129,8 @@ const toInput = (d: Draft): { error: string } | { input: Parameters<typeof creat
       const principal = parseAmount(d.principal)
       const rate = parseNumber(d.rate)
       const years = parseNumber(d.years)
-      if (principal === null || rate === null || years === null || !d.startDate) {
-        return { error: "Renseigne le capital, le taux, la durée et la date de début." }
+      if (principal === null || rate === null || years === null || !d.firstPaymentDate) {
+        return { error: "Renseigne le capital, le taux, la durée et la date de 1re échéance." }
       }
       const insurance = optionalAmount(d.insurance)
       if (insurance === null && d.insurance.trim() !== "") return { error: "L'assurance doit être un montant." }
@@ -142,7 +142,7 @@ const toInput = (d: Draft): { error: string } | { input: Parameters<typeof creat
         principal,
         annualRatePct: rate,
         months,
-        startDate: d.startDate,
+        firstPaymentDate: d.firstPaymentDate,
         ...(overrides.length > 0 ? { overrides } : {}),
         ...(insurance !== null ? { insurance } : {}),
       }
@@ -301,8 +301,8 @@ export function AssetDialog({
               <Field label="Durée (années)">
                 <Input value={d.years} onChange={(e) => set("years", e.target.value)} className="num" inputMode="decimal" placeholder="20" />
               </Field>
-              <Field label="Date de déblocage">
-                <DateInput value={d.startDate} onChange={(v) => set("startDate", v)} />
+              <Field label="Date de 1re échéance">
+                <DateInput value={d.firstPaymentDate} onChange={(v) => set("firstPaymentDate", v)} />
               </Field>
               <Field label="Assurance mensuelle">
                 <Input value={d.insurance} onChange={(e) => set("insurance", e.target.value)} className="num" inputMode="decimal" placeholder="—" />

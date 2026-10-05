@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs"
+import { join } from "node:path"
 import { Effect, Result } from "effect"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import { addDays, addMonths, lastDay, monthRange } from "~/domain/dates"
@@ -95,7 +97,7 @@ describe("Wealth", () => {
             purchase: null,
             declared: null,
             retained: "estimated",
-            source: { kind: "loan", principal: 100_000_00, annualRatePct: 0, months: 100, startDate: `${addMonths(month, -10)}-01` },
+            source: { kind: "loan", principal: 100_000_00, annualRatePct: 0, months: 100, firstPaymentDate: `${addMonths(month, -9)}-01` },
           }),
         ),
       ),
@@ -213,7 +215,7 @@ describe("Wealth", () => {
             purchase: null,
             declared: null,
             retained: "estimated",
-            source: { kind: "loan", principal: 100_000_00, annualRatePct: 0, months: 100, startDate: `${addMonths(month, -10)}-01` },
+            source: { kind: "loan", principal: 100_000_00, annualRatePct: 0, months: 100, firstPaymentDate: `${addMonths(month, -9)}-01` },
           }),
         ),
       ),
@@ -238,7 +240,7 @@ describe("Wealth", () => {
             purchase: null,
             declared: null,
             retained: "estimated",
-            source: { kind: "loan", principal: 100_000_00, annualRatePct: 0, months: 100, startDate: `${addMonths(month, -10)}-01` },
+            source: { kind: "loan", principal: 100_000_00, annualRatePct: 0, months: 100, firstPaymentDate: `${addMonths(month, -9)}-01` },
           }),
         ),
       ),
@@ -259,6 +261,18 @@ describe("Wealth", () => {
     expect(await h.fail(Wealth.use((w) => w.setLoanPayments("missing", [{ installment: 1, payment: 0 }])))).toMatchObject({ _tag: "NotFound" })
     await h.run(Wealth.use((w) => w.remove(loan)))
     await h.run(Wealth.use((w) => w.remove(watch)))
+  })
+
+  it("dates a loan stored with its drawdown date by its first installment, one month later", async () => {
+    const terms = { kind: "loan" as const, principal: 100_000_00, annualRatePct: 0, months: 100, overrides: [{ installment: 2, payment: 0 }] }
+    const legacy = { ...terms, startDate: "2026-01-31" }
+    const id = await h.run(Wealth.use((w) => w.create(manual({ name: "Ancien prêt", type: "loan", purchase: null, declared: null, retained: "estimated", source: { ...terms, firstPaymentDate: "2026-02-28" } }))))
+    await h.d1.prepare("UPDATE assets SET source = ? WHERE id = ?").bind(JSON.stringify(legacy), id).run()
+    const sql = readFileSync(join(process.cwd(), "drizzle/20261005080641_loan_first_payment/migration.sql"), "utf8")
+    await h.d1.prepare(sql).run()
+    const row = await h.d1.prepare("SELECT source FROM assets WHERE id = ?").bind(id).first<{ source: string }>()
+    expect(JSON.parse(row!.source)).toEqual({ ...terms, firstPaymentDate: "2026-02-28" })
+    await h.run(Wealth.use((w) => w.remove(id)))
   })
 
   it("flags manual estimates older than six months", async () => {

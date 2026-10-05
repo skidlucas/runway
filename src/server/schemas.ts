@@ -72,7 +72,7 @@ export const ValuationSource = Schema.Union([
     principal: Schema.Int,
     annualRatePct: Schema.Finite,
     months: Schema.Int,
-    startDate: Day,
+    firstPaymentDate: Day,
     overrides: Schema.optional(
       Schema.Array(Schema.Struct({ installment: Schema.Int, payment: Schema.Union([Schema.Int, Schema.Literal("interest_only")]) })),
     ),

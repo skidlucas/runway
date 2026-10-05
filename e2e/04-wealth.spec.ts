@@ -62,7 +62,7 @@ test("adds a loan and nets it against real estate", async ({ page }) => {
   await dialog.getByLabel("Capital emprunté").fill("100000")
   await dialog.getByLabel("Taux annuel (%)").fill("0")
   await dialog.getByLabel("Durée (années)").fill("10")
-  await dialog.getByLabel("Date de déblocage").fill("2020-01-01")
+  await dialog.getByLabel("Date de 1re échéance").fill("2020-02-01")
   await dialog.getByRole("button", { name: "Ajouter" }).click()
 
   // 100 000 € over 120 months at 0 %: 833,33 € less owed each month since 2020.

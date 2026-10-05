@@ -163,7 +163,8 @@ export type LoanTerms = {
   readonly principal: number
   readonly annualRatePct: number
   readonly months: number
-  readonly startDate: Day
+  /** Due date of the first installment, as printed on the bank's schedule; the others fall on the same day of the following months. */
+  readonly firstPaymentDate: Day
   /** Installments that differ from the computed ones: a deferral, a modulation, an early repayment. */
   readonly overrides?: ReadonlyArray<LoanOverride>
   /** Monthly insurance, shown beside the installments: it repays no capital. */
@@ -176,13 +177,22 @@ const annuity = (capital: number, monthlyRate: number, months: number) =>
 /** The constant payment of the loan as signed, before any change to its installments. */
 export const loanMonthlyPayment = ({ principal, annualRatePct, months }: LoanTerms): number => annuity(principal, annualRatePct / 1200, months)
 
-/** Installment dates passed by `day`, past the end of the contract too: the first falls one month after the start date. */
+const MONTHLY = { unit: "month", interval: 1 } as const
+
+const installmentDate = (terms: LoanTerms, installment: number): Day =>
+  occurrence({ startDate: terms.firstPaymentDate, endDate: null, recurrence: MONTHLY }, installment - 1)
+
+/** The loan counts in net worth from one month before its first installment, when it is usually drawn down. */
+export const loanStartDate = (terms: LoanTerms): Day => installmentDate(terms, 0)
+
+/** Installment dates passed by `day`, past the end of the contract too. */
 const installmentsDue = (terms: LoanTerms, day: Day): number => {
-  const start = parseDay(terms.startDate)
+  if (day < terms.firstPaymentDate) return 0
+  const first = parseDay(terms.firstPaymentDate)
   const at = parseDay(day)
-  let n = (at.y - start.y) * 12 + (at.m - start.m)
-  if (at.d < start.d && at.d !== daysInMonth(monthOf(day))) n--
-  return Math.max(n, 0)
+  let n = (at.y - first.y) * 12 + (at.m - first.m)
+  if (at.d < first.d && at.d !== daysInMonth(monthOf(day))) n--
+  return n + 1
 }
 
 /** Installments of the contract paid by `day`. */
@@ -202,8 +212,6 @@ export type LoanRow = {
   readonly remaining: number
   readonly override: "amount" | "interest_only" | null
 }
-
-const MONTHLY = { unit: "month", interval: 1 } as const
 
 /**
  * The amortization schedule, one row per installment until the capital is repaid. Every month pays
@@ -227,7 +235,7 @@ export const loanSchedule = (terms: LoanTerms): LoanRow[] => {
     owed -= payment - interest
     rows.push({
       installment: k,
-      date: occurrence({ startDate: terms.startDate, endDate: null, recurrence: MONTHLY }, k),
+      date: installmentDate(terms, k),
       payment: Math.round(payment),
       interest: Math.round(interest),
       capital: Math.round(payment - interest),
@@ -240,7 +248,7 @@ export const loanSchedule = (terms: LoanTerms): LoanRow[] => {
 
 /** Capital still owed on `day`, read from the loan's `schedule` so that many days share one computation. */
 export const loanBalanceAt = (terms: LoanTerms, schedule: ReadonlyArray<LoanRow>, day: Day): number => {
-  if (day < terms.startDate) return 0
+  if (day < loanStartDate(terms)) return 0
   const paid = installmentsDue(terms, day)
   return paid === 0 ? terms.principal : (schedule[Math.min(paid, schedule.length) - 1]?.remaining ?? 0)
 }
@@ -250,11 +258,11 @@ export const loanBalance = (terms: LoanTerms, day: Day): number => loanBalanceAt
 
 /** The next installment due after `day`, or null once the loan is repaid. */
 export const nextInstallment = (terms: LoanTerms, schedule: ReadonlyArray<LoanRow>, day: Day): LoanRow | null =>
-  day < terms.startDate ? (schedule[0] ?? null) : (schedule[installmentsDue(terms, day)] ?? null)
+  schedule[installmentsDue(terms, day)] ?? null
 
 export const loanEndMonth = (terms: LoanTerms): Month => {
   const last = loanSchedule(terms).at(-1)
-  return monthOf(last?.date ?? terms.startDate)
+  return monthOf(last?.date ?? terms.firstPaymentDate)
 }
 
 /** A change to one installment: a payment, or null to go back to the computed one. */
