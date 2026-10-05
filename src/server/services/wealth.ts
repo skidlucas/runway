@@ -556,14 +556,22 @@ export class Wealth extends Context.Service<
               .bind(newId(), e.assetId, today, e.amount, e.source, e.unitPrice, e.asOf ?? null),
           ]),
         )
-        yield* db.batch(
-          bulkInsertStatements(
+        const backfilledDates = new Map<string, string[]>()
+        for (const b of backfill) backfilledDates.set(b.assetId, [...(backfilledDates.get(b.assetId) ?? []), b.date])
+        yield* db.batch([
+          // Two refreshes running together both see the history missing: the later one replaces it.
+          ...[...backfilledDates].map(([assetId, dates]) =>
+            db.d1
+              .prepare("DELETE FROM asset_valuations WHERE asset_id = ? AND automatic = 1 AND date IN (SELECT value FROM json_each(?))")
+              .bind(assetId, JSON.stringify(dates)),
+          ),
+          ...bulkInsertStatements(
             db.d1,
             "asset_valuations",
             ["id", "asset_id", "date", "amount", "source", "unit_price", "automatic"],
             backfill.map((b) => [newId(), b.assetId, b.date, b.amount, b.source, b.unitPrice, 1]),
           ),
-        )
+        ])
         return { updated: estimates.length, failures }
       })
 

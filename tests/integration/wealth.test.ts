@@ -364,6 +364,19 @@ describe("Coin histories", () => {
     }
   })
 
+  it("keeps one valuation per day when two refreshes fill the same histories at once", async () => {
+    const { h, refresh } = await setup(() => Effect.sleep("5 millis").pipe(Effect.as(yearOf(100))))
+    try {
+      await Promise.all([refresh(), refresh()])
+      const { results } = await h.d1
+        .prepare("SELECT COUNT(*) AS n FROM (SELECT 1 FROM asset_valuations GROUP BY asset_id, date HAVING COUNT(*) > 1)")
+        .all<{ n: number }>()
+      expect(results[0]!.n).toBe(0)
+    } finally {
+      await h.dispose()
+    }
+  })
+
   it("stops asking CoinGecko for histories once it answers 429, and still saves today's prices", async () => {
     let calls = 0
     const { h, refresh } = await setup(() => {
