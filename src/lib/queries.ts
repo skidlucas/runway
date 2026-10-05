@@ -11,7 +11,7 @@ import {
   listTransactions,
 } from "~/server/fns/core"
 import { getAiStatus, getFindings, getInsightView, getSavedViews } from "~/server/fns/insights"
-import { getWealth, getWealthAssets } from "~/server/fns/wealth"
+import { getCoinHistory, getWealth, getWealthAssets } from "~/server/fns/wealth"
 import { getForecast, getScheduledRows, getSchedules, getScheduleSuggestions, getUpcoming } from "~/server/fns/planning"
 import { getCashFlow, getCategorySpending, getDashboards, getAccountsTotal, getSpendingComparison } from "~/server/fns/reports"
 import type { InsightViewConfig } from "~/server/db/schema"
@@ -75,6 +75,8 @@ export const q = {
   wealth: () => queryOptions({ queryKey: ["wealth"], queryFn: () => getWealth() }),
   /** The assets of the wealth overview, without the accounts and their history. */
   wealthAssets: () => queryOptions({ queryKey: ["wealthAssets"], queryFn: () => getWealthAssets() }),
+  /** A coin's daily prices over the last year, from D1: the detail slices it by year or month. */
+  coinHistory: (coinId: string) => queryOptions({ queryKey: ["coinHistory", coinId], queryFn: () => getCoinHistory({ data: { coinId } }) }),
   dashboards: () => queryOptions({ queryKey: ["dashboards"], queryFn: () => getDashboards() }),
   accountsTotal: (months: number) =>
     queryOptions({ queryKey: ["accountsTotal", months], queryFn: () => getAccountsTotal({ data: { months } }) }),
@@ -192,7 +194,7 @@ const READERS = {
   rules: ["rules", "ruleSuggestions"],
   savedViews: ["savedViews"],
   dashboards: ["dashboards"],
-  assets: ["wealth", "wealthAssets"],
+  assets: ["wealth", "wealthAssets", "coinHistory"],
   // Imports, demo data, deletions that cascade: everything may have changed.
   everything: Object.keys(q) as QueryName[],
 } satisfies Record<string, ReadonlyArray<QueryName>>

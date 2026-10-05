@@ -99,3 +99,35 @@ export function LineChart({
     </div>
   )
 }
+
+/** A bare trend line, green when it ends above its start: light enough for one per table row. */
+export function Sparkline({
+  values,
+  width = 120,
+  height = 28,
+  label,
+  className,
+}: {
+  values: ReadonlyArray<number>
+  width?: number
+  height?: number
+  label: string
+  className?: string
+}) {
+  if (values.length < 2) return null
+  const lo = Math.min(...values)
+  const span = Math.max(...values) - lo || 1
+  const points = values.map((v, i) => `${((i / (values.length - 1)) * width).toFixed(1)},${(height - 1 - ((v - lo) / span) * (height - 2)).toFixed(1)}`)
+  return (
+    <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} role="img" aria-label={label} className={className}>
+      <polyline
+        points={points.join(" ")}
+        fill="none"
+        stroke={values.at(-1)! >= values[0]! ? "var(--positive)" : "var(--negative)"}
+        strokeWidth={1.25}
+        strokeLinejoin="round"
+        strokeLinecap="round"
+      />
+    </svg>
+  )
+}

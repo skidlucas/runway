@@ -10,6 +10,15 @@ export type CoinHit = { id: string; name: string; symbol: string }
 export type SymbolHit = { symbol: string; name: string; exchange: string; type: string }
 export type CommuneHit = { code: string; name: string; postcode: string | null }
 export type PricePoint = { date: Day; price: number }
+export type CoinMarket = {
+  /** Euros per unit. */
+  price: number
+  /** Fractions (0.012 = +1.2 %), in euros. */
+  change24h: number | null
+  change7d: number | null
+  /** Euro prices over the last 7 days, oldest first, one every 4 hours. */
+  sparkline: number[]
+}
 export type DvfPrice = {
   /** Euros per m², sales-weighted over the last 12 published months. */
   pricePerM2: number
@@ -21,8 +30,8 @@ export type DvfPrice = {
 export class MarketData extends Context.Service<
   MarketData,
   {
-    /** Euros per unit, by CoinGecko id. Unknown ids are missing from the map. */
-    cryptoPrices(ids: ReadonlyArray<string>): Effect.Effect<Map<string, number>, ExternalError>
+    /** Price and recent trend of each coin, by CoinGecko id, in one call. Unknown ids are missing from the map. */
+    cryptoMarkets(ids: ReadonlyArray<string>): Effect.Effect<Map<string, CoinMarket>, ExternalError>
     /** Euro price of each symbol, or why it could not be priced (unknown symbol, Yahoo down, no exchange rate). */
     quotes(symbols: ReadonlyArray<string>): Effect.Effect<Map<string, Result.Result<number, ExternalError>>>
     dvfPricePerM2(inseeCode: string, propertyType: PropertyType): Effect.Effect<DvfPrice, ExternalError>
@@ -45,6 +54,21 @@ const DVF_MONTHLY = "https://tabular-api.data.gouv.fr/api/resources/03fba98d-885
 const MIN_DVF_SALES = 5
 
 class TooManyRequests extends Error {}
+
+/**
+ * CoinGecko sends the 7-day sparkline in dollars whatever the currency asked. Both ends are put
+ * back in euros (now: today's euro price; 7 days ago: the price before the 7-day change), with the
+ * exchange rate drifting linearly in between, so the line agrees with the euro changes shown next
+ * to it. The week's EUR/USD wobble that is left is far below a coin's own moves.
+ */
+export const euroSparkline = (usd: ReadonlyArray<number>, euroNow: number, change7d: number | null): number[] => {
+  const n = usd.length
+  if (n < 2 || usd[0]! <= 0 || usd[n - 1]! <= 0) return []
+  const rateNow = euroNow / usd[n - 1]!
+  const rateThen = change7d === null ? rateNow : euroNow / (1 + change7d) / usd[0]!
+  const euros = usd.map((p, i) => p * (rateThen + ((rateNow - rateThen) * i) / (n - 1)))
+  return euros.filter((_, i) => i % 4 === 0 || i === n - 1)
+}
 
 export type MarketDataOptions = {
   /**
@@ -85,15 +109,43 @@ export const makeLiveMarketData = (fetchFn: typeof fetch, options: MarketDataOpt
   const coinGecko = <T>(path: string, schema: Schema.Decoder<T>) =>
     getJson("CoinGecko", `https://api.coingecko.com/api/v3/${path}`, schema, coinGeckoHeaders)
 
-  const cryptoPrices = (ids: ReadonlyArray<string>) =>
+  const Percent = Schema.optional(Schema.NullOr(Schema.Number))
+  const Markets = Schema.Array(
+    Schema.Struct({
+      id: Schema.String,
+      current_price: Schema.NullOr(Schema.Number),
+      price_change_percentage_24h_in_currency: Percent,
+      price_change_percentage_7d_in_currency: Percent,
+      sparkline_in_7d: Schema.optional(Schema.NullOr(Schema.Struct({ price: Schema.Array(Schema.Number) }))),
+    }),
+  )
+  const cryptoMarkets = (ids: ReadonlyArray<string>) =>
     ids.length === 0
-      ? Effect.succeed(new Map<string, number>())
+      ? Effect.succeed(new Map<string, CoinMarket>())
       : coinGecko(
-          `simple/price?ids=${ids.map(encodeURIComponent).join(",")}&vs_currencies=eur`,
-          Schema.Record(Schema.String, Schema.Struct({ eur: Schema.optional(Schema.Number) })),
+          `coins/markets?vs_currency=eur&ids=${ids.map(encodeURIComponent).join(",")}&per_page=250&sparkline=true&price_change_percentage=24h,7d`,
+          Markets,
         ).pipe(
           Effect.map(
-            (body) => new Map(Object.entries(body).flatMap(([id, p]) => (typeof p.eur === "number" ? [[id, p.eur] as const] : []))),
+            (body) =>
+              new Map(
+                body.flatMap((c) => {
+                  if (c.current_price === null) return []
+                  const fraction = (pct: number | null | undefined) => (typeof pct === "number" ? pct / 100 : null)
+                  const change7d = fraction(c.price_change_percentage_7d_in_currency)
+                  return [
+                    [
+                      c.id,
+                      {
+                        price: c.current_price,
+                        change24h: fraction(c.price_change_percentage_24h_in_currency),
+                        change7d,
+                        sparkline: euroSparkline(c.sparkline_in_7d?.price ?? [], c.current_price, change7d),
+                      },
+                    ] as const,
+                  ]
+                }),
+              ),
           ),
         )
 
@@ -279,7 +331,7 @@ export const makeLiveMarketData = (fetchFn: typeof fetch, options: MarketDataOpt
   }
 
   return MarketData.of({
-    cryptoPrices,
+    cryptoMarkets,
     quotes,
     dvfPricePerM2,
     cryptoHistory,

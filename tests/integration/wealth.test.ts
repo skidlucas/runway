@@ -4,9 +4,10 @@ import { Effect, Result } from "effect"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import { addDays, addMonths, lastDay, monthRange } from "~/domain/dates"
 import { ExternalError } from "~/server/errors"
+import type { CoinMarket } from "~/server/services/market-data"
 import { Accounts } from "~/server/services/accounts"
 import { Transactions } from "~/server/services/transactions"
-import { type AssetInput, Wealth } from "~/server/services/wealth"
+import { type AssetInput, COIN_HISTORIES_PER_REFRESH, Wealth } from "~/server/services/wealth"
 import { createHarness, type Harness } from "./harness"
 
 const NOW = "2026-10-04T10:00:00Z"
@@ -25,6 +26,8 @@ const manual = (overrides: Partial<AssetInput> = {}): AssetInput => ({
   notes: null,
   ...overrides,
 })
+
+const coin = (price: number): CoinMarket => ({ price, change24h: null, change7d: null, sparkline: [] })
 
 const openCourant = (h: Harness, name = "Courant") =>
   h.run(
@@ -83,9 +86,9 @@ describe("Wealth", () => {
     h = await createHarness({
       now: NOW,
       market: {
-        cryptoPrices: (ids) => {
+        cryptoMarkets: (ids) => {
           calls.crypto++
-          return Effect.succeed(new Map(ids.filter((id) => id === "bitcoin").map((id) => [id, 60_000])))
+          return Effect.succeed(new Map(ids.filter((id) => id === "bitcoin").map((id) => [id, coin(60_000)])))
         },
         quotes: (symbols) => {
           calls.quotes++
@@ -366,7 +369,7 @@ describe("Wealth", () => {
 
 describe("Wealth creation", () => {
   it("keeps the new asset, and only one, when its first estimate fails", async () => {
-    const h = await createHarness({ now: NOW, market: { cryptoPrices: () => Effect.die(new Error("Connexion perdue")) } })
+    const h = await createHarness({ now: NOW, market: { cryptoMarkets: () => Effect.die(new Error("Connexion perdue")) } })
     try {
       const crypto = manual({
         name: "Bitcoin",
@@ -386,13 +389,14 @@ describe("Wealth creation", () => {
 })
 
 describe("Coin histories", () => {
-  const coins = ["bitcoin", "ethereum", "solana", "cardano", "polkadot"]
+  // Two more coins than a refresh fetches histories for.
+  const coins = Array.from({ length: COIN_HISTORIES_PER_REFRESH + 2 }, (_, i) => `coin-${i}`)
   const setup = async (history: (id: string) => Effect.Effect<Array<{ date: string; price: number }>, ExternalError>) => {
     let priced = false
     const h = await createHarness({
       now: NOW,
       market: {
-        cryptoPrices: (ids) => Effect.succeed(new Map(priced ? ids.map((id) => [id, 100]) : [])),
+        cryptoMarkets: (ids) => Effect.succeed(new Map(priced ? ids.map((id) => [id, coin(100)]) : [])),
         cryptoHistory: history,
       },
     })
@@ -426,18 +430,18 @@ describe("Coin histories", () => {
       }),
     )
     try {
-      expect((await refresh()).updated).toBe(5)
-      expect(fetched).toHaveLength(3)
+      expect((await refresh()).updated).toBe(coins.length)
+      expect(fetched).toHaveLength(COIN_HISTORIES_PER_REFRESH)
       expect(maxInFlight).toBe(1)
       await refresh()
       expect(fetched.toSorted()).toEqual(coins.toSorted())
       await refresh()
-      expect(fetched).toHaveLength(5)
+      expect(fetched).toHaveLength(coins.length)
       const { results } = await h.d1
         .prepare("SELECT COUNT(DISTINCT asset_id) AS n FROM asset_valuations WHERE date < ?")
         .bind(`${month}-01`)
         .all<{ n: number }>()
-      expect(results[0]!.n).toBe(5)
+      expect(results[0]!.n).toBe(coins.length)
     } finally {
       await h.dispose()
     }
@@ -465,7 +469,86 @@ describe("Coin histories", () => {
     try {
       const result = await refresh()
       expect(calls).toBe(1)
-      expect(result).toEqual({ updated: 5, failures: [] })
+      expect(result).toEqual({ updated: coins.length, failures: [] })
+    } finally {
+      await h.dispose()
+    }
+  })
+
+  it("keeps each coin's trend and yearly prices, so charts never call CoinGecko", async () => {
+    let historyCalls = 0
+    const h = await createHarness({
+      now: NOW,
+      market: {
+        cryptoMarkets: (ids) => Effect.succeed(new Map(ids.map((id) => [id, { price: 120, change24h: -0.02, change7d: 0.05, sparkline: [110, 115, 120] }]))),
+        cryptoHistory: () => {
+          historyCalls++
+          return Effect.succeed(yearOf(100))
+        },
+      },
+    })
+    try {
+      const create = (name: string) =>
+        h.run(
+          Wealth.use((w) =>
+            w.create(manual({ name, type: "crypto", purchase: null, declared: null, retained: "estimated", source: { kind: "crypto", coinId: "solana", quantity: 1 } })),
+          ),
+        )
+      await create("Wallet 1")
+      // A second wallet of the same coin reads the prices already stored.
+      await create("Wallet 2")
+      expect(historyCalls).toBe(1)
+
+      const overview = await h.run(Wealth.use((w) => w.overview))
+      for (const item of overview.items) {
+        expect(item.trend).toEqual({ date: today, change24h: -0.02, change7d: 0.05, sparkline: [110, 115, 120] })
+      }
+      const prices = await h.run(Wealth.use((w) => w.coinHistory("solana")))
+      expect(prices).toHaveLength(366)
+      expect(prices[0]!.date).toBe(addDays(today, -365))
+      // Today's row is the refresh's price, not the history's.
+      expect(prices.at(-1)).toEqual({ date: today, price: 120 })
+      const { results } = await h.d1.prepare("SELECT COUNT(DISTINCT asset_id) AS n FROM asset_valuations WHERE date < ?").bind(`${month}-01`).all<{ n: number }>()
+      expect(results[0]!.n).toBe(2)
+
+      await h.run(Wealth.use((w) => w.refresh({ ids: overview.items.map((i) => i.id) })))
+      expect(historyCalls).toBe(1)
+    } finally {
+      await h.dispose()
+    }
+  })
+
+  it("fills a gap in a coin's daily prices with one more yearly history", async () => {
+    let historyCalls = 0
+    const h = await createHarness({
+      now: NOW,
+      market: {
+        cryptoMarkets: (ids) => Effect.succeed(new Map(ids.map((id) => [id, coin(120)]))),
+        cryptoHistory: () => {
+          historyCalls++
+          return Effect.succeed(yearOf(100))
+        },
+      },
+    })
+    try {
+      const asset = await h.run(
+        Wealth.use((w) =>
+          w.create(manual({ name: "Solana", type: "crypto", purchase: null, declared: null, retained: "estimated", source: { kind: "crypto", coinId: "solana", quantity: 1 } })),
+        ),
+      )
+      const refresh = () => h.run(Wealth.use((w) => w.refresh({ ids: [asset] })))
+      expect(historyCalls).toBe(1)
+
+      // Fetched days ago, and a refresh every day since: nothing missing.
+      await h.d1.prepare("UPDATE coins SET history_date = ? WHERE id = 'solana'").bind(addDays(today, -3)).run()
+      await refresh()
+      expect(historyCalls).toBe(1)
+
+      // No refresh yesterday: the year is fetched again, and the day is back.
+      await h.d1.prepare("DELETE FROM coin_prices WHERE coin_id = 'solana' AND date = ?").bind(addDays(today, -1)).run()
+      await refresh()
+      expect(historyCalls).toBe(2)
+      expect((await h.run(Wealth.use((w) => w.coinHistory("solana")))).map((p) => p.date)).toContain(addDays(today, -1))
     } finally {
       await h.dispose()
     }

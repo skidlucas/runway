@@ -64,7 +64,7 @@ export type Harness = Awaited<ReturnType<typeof createHarness>>
 const offlineMarket: MarketData["Service"] = (() => {
   const down = Effect.fail(new ExternalError({ service: "test", message: "Hors ligne" }))
   return MarketData.of({
-    cryptoPrices: () => down,
+    cryptoMarkets: () => down,
     quotes: (symbols) => Effect.succeed(new Map(symbols.map((s) => [s, Result.fail(new ExternalError({ service: "test", message: "Hors ligne" }))]))),
     dvfPricePerM2: () => down,
     cryptoHistory: () => down,

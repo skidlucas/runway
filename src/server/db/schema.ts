@@ -214,6 +214,33 @@ export const assetValuations = sqliteTable(
   (t) => [index("asset_valuations_asset_date_idx").on(t.assetId, t.date)],
 )
 
+/**
+ * Market data per CoinGecko coin, shared by every asset holding it. Filled by the daily refresh,
+ * so that showing trends and charts never calls CoinGecko.
+ */
+export const coins = sqliteTable("coins", {
+  id: text("id").primaryKey(),
+  trendDate: text("trend_date"),
+  /** Fractions (0.012 = +1.2 %), in euros. */
+  change24h: real("change_24h"),
+  change7d: real("change_7d"),
+  /** Euro prices over the last 7 days, oldest first, one every 4 hours. */
+  sparkline: text("sparkline", { mode: "json" }).$type<number[]>(),
+  /** When the yearly daily history was last fetched; null until it has been. */
+  historyDate: text("history_date"),
+})
+
+/** Daily euro price of a coin: the yearly history, then one price per refresh. */
+export const coinPrices = sqliteTable(
+  "coin_prices",
+  {
+    coinId: text("coin_id").notNull(),
+    date: text("date").notNull(),
+    price: real("price").notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.coinId, t.date] })],
+)
+
 export type InsightViewConfig = typeof InsightQuery.Type
 
 export const savedViews = sqliteTable("saved_views", {

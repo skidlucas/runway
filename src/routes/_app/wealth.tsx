@@ -3,12 +3,13 @@ import { createFileRoute, Link, useNavigate } from "@tanstack/react-router"
 import { MoreHorizontal, Pencil, Plus, RefreshCw, Trash2 } from "lucide-react"
 import * as React from "react"
 import { AssetDialog } from "~/components/asset-dialog"
+import { LineChart, Sparkline } from "~/components/charts"
 import { creditOf, DataCredit } from "~/components/data-credit"
 import { LoanScheduleDialog } from "~/components/loan-schedule"
 import { PageHeader } from "~/components/shell"
 import { toast } from "~/components/toast"
-import { Button, Chip, cx, DateInput, EmptyState, heroAmountClass, IconButton, Input, Menu, Money, SectionTitle, Sheet, SkeletonRows, Tabs, useConfirm } from "~/components/ui"
-import { type Day, formatDayLong, formatDayShort, formatMonthLong, formatMonthShort, type Month } from "~/domain/dates"
+import { Button, Chip, cx, DateInput, EmptyState, heroAmountClass, IconButton, Input, Menu, Money, SectionTitle, Segmented, Sheet, SkeletonRows, Tabs, useConfirm } from "~/components/ui"
+import { addDays, type Day, formatDayLong, formatDayShort, formatMonthLong, formatMonthShort, type Month } from "~/domain/dates"
 import { formatMoney, formatPercent, parseAmount } from "~/domain/money"
 import {
   type AllocationSlice,
@@ -152,6 +153,8 @@ function WealthPage() {
                   </Button>
                 }
               />
+            ) : type === "crypto" ? (
+              <CryptoTable items={shown} selectedId={selected?.id ?? null} onSelect={(i) => setSelectedId(i.id)} today={data.today} />
             ) : (
               <AssetTable items={shown} selectedId={selected?.id ?? null} onSelect={(i) => setSelectedId(i.id)} today={data.today} />
             )}
@@ -352,15 +355,91 @@ function AssetTable({
               <span className={cx("num text-[12px]", item.retainedUsed !== "estimated" && "text-muted")}>
                 {item.estimate ? euros(sign * own(item.estimate.amount)) : "—"}
               </span>
-              <span
-                className={cx(
-                  "max-w-full truncate text-[11px]",
-                  caption.tone === "live" ? "text-positive" : caption.tone === "stale" ? "text-warning" : "text-faint",
-                )}
-              >
-                {caption.text}
-              </span>
+              {item.trend && item.trend.change24h !== null ? (
+                <Trend change={item.trend.change24h} period="24h" date={item.trend.date} today={today} className="max-w-full truncate text-[11px]" />
+              ) : (
+                <span
+                  className={cx(
+                    "max-w-full truncate text-[11px]",
+                    caption.tone === "live" ? "text-positive" : caption.tone === "stale" ? "text-warning" : "text-faint",
+                  )}
+                >
+                  {caption.text}
+                </span>
+              )}
             </span>
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
+/** "▲ 1,2 % sur 24h", dated when the last refresh is not today's. */
+function Trend({ change, period, date, today, className }: { change: number | null; period?: string; date?: Day; today?: Day; className?: string }) {
+  if (change === null) return <span className={cx("text-faint", className)}>—</span>
+  return (
+    <span className={cx(change >= 0 ? "text-positive" : "text-negative", className)}>
+      {change >= 0 ? "▲" : "▼"} {formatPercent(Math.abs(change))}
+      {period ? ` sur ${period}` : ""}
+      {date && date !== today ? <span className="text-faint"> · {formatDayShort(date)}</span> : null}
+    </span>
+  )
+}
+
+// Coins worth a fraction of a cent still need a readable price.
+const unitPrice = (euros: number) =>
+  euros >= 1 ? formatMoney(Math.round(euros * 100)) : `${euros.toLocaleString("fr-FR", { maximumSignificantDigits: 3 })} €`
+
+const CRYPTO_COLUMNS = "grid grid-cols-[minmax(0,1fr)_110px_80px_80px_120px_110px] items-center gap-3 px-5"
+
+/** The Crypto tab: price and trends instead of the purchase and declared values. */
+function CryptoTable({
+  items,
+  selectedId,
+  onSelect,
+  today,
+}: {
+  items: WealthItem[]
+  selectedId: string | null
+  onSelect: (item: WealthItem) => void
+  today: string
+}) {
+  return (
+    <div role="group" aria-label="Crypto">
+      <div aria-hidden className={cx(CRYPTO_COLUMNS, "h-[34px] border-b border-line text-[12px] text-faint")}>
+        <span>Bien</span>
+        <span className="text-right">Cours</span>
+        <span className="text-right">24h</span>
+        <span className="text-right">7 j</span>
+        <span className="text-right">7 derniers jours</span>
+        <span className="text-right">Valeur</span>
+      </div>
+      {items.map((item) => {
+        const unit = item.estimate?.unitPrice ?? null
+        return (
+          <button
+            key={item.id}
+            type="button"
+            aria-pressed={selectedId === item.id}
+            data-testid="asset-row"
+            onClick={() => onSelect(item)}
+            className={cx(CRYPTO_COLUMNS, "h-[46px] w-full border-b border-line-subtle text-left hover:bg-hover", selectedId === item.id && "bg-hover")}
+          >
+            <span className="flex min-w-0 flex-col gap-0.5">
+              <span className="flex min-w-0 items-center gap-1.5">
+                <span className="truncate" title={item.name}>{item.name}</span>
+                {item.share === FULL_SHARE ? null : <Chip className="shrink-0">{formatShare(item.share)}</Chip>}
+              </span>
+              <span className="truncate text-[11px] text-faint">{estimateCaption(item, today).text}</span>
+            </span>
+            <span className="num text-right text-[12px]">{unit === null ? "—" : unitPrice(unit)}</span>
+            <Trend change={item.trend?.change24h ?? null} className="num text-right text-[12px]" />
+            <Trend change={item.trend?.change7d ?? null} className="num text-right text-[12px]" />
+            <span className="flex justify-end">
+              {item.trend ? <Sparkline values={item.trend.sparkline} label={`Cours de ${item.name} sur 7 jours`} /> : null}
+            </span>
+            <span className="num text-right text-[12px]">{euros(item.value)}</span>
           </button>
         )
       })}
@@ -525,7 +604,11 @@ function Detail({ item, months, today, onEdit }: { item: WealthItem; months: Mon
           </div>
         ) : null}
 
-        <HistoryBars values={item.history} months={months} />
+        {item.source?.kind === "crypto" ? (
+          <CoinChart coinId={item.source.coinId} quantity={item.source.quantity} share={item.share} today={today} fallback={<HistoryBars values={item.history} months={months} />} />
+        ) : (
+          <HistoryBars values={item.history} months={months} />
+        )}
 
         {isAsset && item.source?.kind === "manual" ? <AddEstimate assetId={item.id} today={today} shared={shared} /> : null}
 
@@ -581,6 +664,58 @@ function HistoryBars({ values, months }: { values: number[]; months: Month[] }) 
           />
         ))}
       </div>
+    </div>
+  )
+}
+
+/**
+ * The value of a crypto asset day by day, over the year or the last 30 days, at today's quantity.
+ * Both periods slice one stored history: switching never calls the server again.
+ */
+function CoinChart({
+  coinId,
+  quantity,
+  share,
+  today,
+  fallback,
+}: {
+  coinId: string
+  quantity: number
+  share: number
+  today: Day
+  fallback: React.ReactNode
+}) {
+  const [period, setPeriod] = React.useState<"year" | "month">("year")
+  const prices = useQuery(q.coinHistory(coinId))
+  const since = addDays(today, period === "year" ? -365 : -30)
+  const shown = (prices.data ?? []).filter((p) => p.date >= since)
+  if (shown.length < 2) return fallback
+  const values = shown.map((p) => applyShare(Math.round(p.price * quantity * 100), share))
+  const change = values[0]! > 0 ? values.at(-1)! / values[0]! - 1 : null
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="flex items-center justify-between gap-2">
+        <span className="flex min-w-0 items-baseline gap-2 text-[12px]">
+          <span className="text-faint">Valeur sur {period === "year" ? "12 mois" : "30 jours"}</span>
+          <Trend change={change} />
+        </span>
+        <Segmented
+          size="sm"
+          label="Période du graphique"
+          value={period}
+          onChange={setPeriod}
+          options={[
+            { value: "year", label: "Année" },
+            { value: "month", label: "Mois" },
+          ]}
+        />
+      </div>
+      <LineChart
+        ariaLabel={`Valeur sur ${period === "year" ? "12 mois" : "30 jours"}`}
+        series={[{ label: "Valeur", values, color: change !== null && change < 0 ? "var(--negative)" : "var(--positive)", area: true }]}
+        labels={shown.map((p) => (period === "year" ? formatDayLong : formatDayShort)(p.date))}
+        height={110}
+      />
     </div>
   )
 }
@@ -710,7 +845,11 @@ function MobileRows({
         >
           <span className="flex min-w-0 flex-1 flex-col gap-0.5">
             <span className="truncate font-medium" title={item.name}>{item.name}</span>
-            <span className="truncate text-[12px] text-faint">{estimateCaption(item, today).text}</span>
+            {item.trend && item.trend.change7d !== null ? (
+              <Trend change={item.trend.change7d} period="7 j" date={item.trend.date} today={today} className="truncate text-[12px]" />
+            ) : (
+              <span className="truncate text-[12px] text-faint">{estimateCaption(item, today).text}</span>
+            )}
           </span>
           <Money value={item.value} decimals={0} className="text-[14px]" />
         </button>

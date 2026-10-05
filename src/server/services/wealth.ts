@@ -1,6 +1,6 @@
 import { eq } from "drizzle-orm"
 import { Context, Effect, Layer, Result } from "effect"
-import { addMonths, type Day, diffDays, firstDay, isDay, lastDay, type Month, monthOf, monthRange } from "~/domain/dates"
+import { addDays, addMonths, type Day, diffDays, firstDay, isDay, lastDay, type Month, monthOf, monthRange } from "~/domain/dates"
 import {
   type AllocationSlice,
   allocation,
@@ -31,7 +31,7 @@ import { bulkInsertStatements, Db, type DbError, newId } from "../db/client"
 import { readSource } from "../db/json-columns"
 import { assets, assetValuations, type ValuationSource } from "../db/schema"
 import { type ExternalError, Invalid, NotFound } from "../errors"
-import { MarketData } from "./market-data"
+import { type CoinMarket, MarketData, type PricePoint } from "./market-data"
 import { Settings } from "./settings"
 
 type EstimateDto = {
@@ -49,6 +49,9 @@ type EstimateDto = {
   /** Last month of data behind the estimate, when the source lags (DVF). */
   asOf: Month | null
 }
+
+/** A coin's trend at its last refresh. */
+export type CoinTrend = { date: Day; change24h: number | null; change7d: number | null; sparkline: number[] }
 
 export type WealthItem = {
   id: string
@@ -77,6 +80,8 @@ export type WealthItem = {
   stale: boolean
   source: ValuationSource | null
   notes: string | null
+  /** Crypto only, once a refresh has priced the coin. */
+  trend: CoinTrend | null
 }
 
 export type WealthOverview = {
@@ -128,9 +133,9 @@ type ValuationRow = {
 }
 
 const HISTORY_MONTHS = 12
-// CoinGecko's public API answers 429 beyond a few calls a minute: the yearly histories of new
-// coins are fetched one at a time, a few per refresh, and the next refreshes fetch the rest.
-const COIN_HISTORIES_PER_REFRESH = 3
+// CoinGecko only serves histories coin by coin, and answers 429 beyond 30 calls a minute with a
+// Demo key: they are fetched one at a time, up to this many per refresh, the rest next refresh.
+export const COIN_HISTORIES_PER_REFRESH = 10
 const STALE_MANUAL_DAYS = 183
 const DVF_REFRESH_DAYS = 30
 
@@ -181,7 +186,13 @@ const estimateOf = (source: ValuationSource, latest: ValuationRow | undefined, t
 }
 
 /** `valuations`: the asset's own, by ascending date. `days`: the day each history month is read at. */
-const assetItem = (asset: AssetRow, valuations: ReadonlyArray<ValuationRow>, days: ReadonlyArray<Day>, today: Day): WealthItem => {
+const assetItem = (
+  asset: AssetRow,
+  valuations: ReadonlyArray<ValuationRow>,
+  days: ReadonlyArray<Day>,
+  today: Day,
+  trend: CoinTrend | null,
+): WealthItem => {
   const source = asset.source
   // Computed once for today and every month of the history.
   const schedule = source.kind === "loan" ? loanSchedule(source) : []
@@ -217,6 +228,7 @@ const assetItem = (asset: AssetRow, valuations: ReadonlyArray<ValuationRow>, day
     stale: source.kind === "manual" && estimate !== null && diffDays(estimate.date, today) > STALE_MANUAL_DAYS,
     source,
     notes: asset.notes,
+    trend,
   }
 }
 
@@ -264,6 +276,7 @@ const accountItems = (accounts: ReadonlyArray<AccountRow>, monthly: ReadonlyArra
       stale: false,
       source: null,
       notes: null,
+      trend: null,
     })
   }
   return { open, closed, excluded }
@@ -298,6 +311,8 @@ export class Wealth extends Context.Service<
     update(id: string, input: AssetInput): Effect.Effect<void, DbError | Invalid | NotFound>
     remove(id: string): Effect.Effect<void, DbError>
     addValuation(input: { assetId: string; date: Day; amount: number }): Effect.Effect<void, DbError | Invalid | NotFound>
+    /** Daily euro prices of a coin over the last year, oldest first, read from D1 only. */
+    coinHistory(coinId: string): Effect.Effect<PricePoint[], DbError>
     /** Changes installments of a loan's amortization schedule, alone or onward; a null payment goes back to the computed one. */
     setLoanPayments(id: string, changes: ReadonlyArray<LoanPaymentChange>): Effect.Effect<void, DbError | Invalid | NotFound>
     /**
@@ -333,6 +348,22 @@ export class Wealth extends Context.Service<
             .all<ValuationRow>()
           return results
         })
+
+      const coinTrends = db
+        .use((_, d1) =>
+          d1
+            .prepare(
+              `SELECT id, trend_date AS date, change_24h AS change24h, change_7d AS change7d, sparkline
+               FROM coins WHERE trend_date IS NOT NULL`,
+            )
+            .all<{ id: string; date: Day; change24h: number | null; change7d: number | null; sparkline: string | null }>(),
+        )
+        .pipe(
+          Effect.map(
+            ({ results }) =>
+              new Map(results.map(({ id, sparkline, ...trend }) => [id, { ...trend, sparkline: sparkline ? (JSON.parse(sparkline) as number[]) : [] }])),
+          ),
+        )
 
       const lastAutomaticDates = db
         .use((_, d1) =>
@@ -383,11 +414,12 @@ export class Wealth extends Context.Service<
         const months = monthRange(addMonths(current, -HISTORY_MONTHS), current)
         // Past months are read at their last day, the current one today.
         const days = months.map((m) => (m === current ? today : lastDay(m)))
-        const [rows, valuations, lastAuto, accountData] = yield* Effect.all(
+        const [rows, valuations, lastAuto, trends, accountData] = yield* Effect.all(
           [
             loadAssets,
             loadValuations(days[0]!),
             lastAutomaticDates,
+            coinTrends,
             withAccounts ? accountRows(firstDay(months[0]!), today) : Effect.succeed({ accounts: [], monthly: [] }),
           ],
           { concurrency: "unbounded" },
@@ -395,7 +427,8 @@ export class Wealth extends Context.Service<
 
         const byAsset = groupBy(valuations, (v) => v.assetId)
         const accounts = accountItems(accountData.accounts, accountData.monthly, months, today)
-        const items = [...rows.map((a) => assetItem(a, byAsset.get(a.id) ?? [], days, today)), ...accounts.open]
+        const trendOf = (a: AssetRow) => (a.source.kind === "crypto" ? (trends.get(a.source.coinId) ?? null) : null)
+        const items = [...rows.map((a) => assetItem(a, byAsset.get(a.id) ?? [], days, today, trendOf(a))), ...accounts.open]
         const closed = accounts.closed
 
         const history = months.map(
@@ -453,7 +486,11 @@ export class Wealth extends Context.Service<
        * the net worth trend means something from day one instead of jumping on the creation day.
        * Best effort: a source without history just leaves the past empty.
        */
-      const backfillHistory = Effect.fn("Wealth.backfillHistory")(function* (fresh: ReadonlyArray<AssetRow>, today: Day) {
+      const backfillHistory = Effect.fn("Wealth.backfillHistory")(function* (
+        fresh: ReadonlyArray<AssetRow>,
+        today: Day,
+        coinHistories: ReadonlyMap<string, PricePoint[]>,
+      ) {
         const rows: Array<{ assetId: string; date: Day; amount: number; source: string; unitPrice: number }> = []
         if (fresh.length === 0) return rows
         const current = monthOf(today)
@@ -475,11 +512,7 @@ export class Wealth extends Context.Service<
             { concurrency: 4 },
           ),
         )
-        for (const key of keys.filter((k) => k.startsWith("crypto|")).slice(0, COIN_HISTORIES_PER_REFRESH)) {
-          const history = yield* market.cryptoHistory(key.slice("crypto|".length)).pipe(Effect.result)
-          if (history._tag === "Success") histories.set(key, history.success)
-          else if (history.failure.rateLimited) break
-        }
+        for (const [coinId, points] of coinHistories) histories.set(`crypto|${coinId}`, points)
         for (const asset of fresh) {
           const s = asset.source
           const key = keyOf(s)
@@ -495,6 +528,78 @@ export class Wealth extends Context.Service<
           }
         }
         return rows
+      })
+
+      const readCoinPrices = (coinIds: ReadonlyArray<string>, since: Day) =>
+        db.use(async (_, d1) => {
+          const { results } = await d1
+            .prepare(
+              `SELECT coin_id AS coinId, date, price FROM coin_prices
+               WHERE coin_id IN (SELECT value FROM json_each(?1)) AND date >= ?2 ORDER BY coin_id, date`,
+            )
+            .bind(JSON.stringify(coinIds), since)
+            .all<{ coinId: string; date: Day; price: number }>()
+          return groupBy(results, (r) => r.coinId)
+        })
+
+      /**
+       * The daily prices of the last year for `coinIds`. A coin's yearly history is fetched and saved
+       * when it never was, or when a day is missing since (no refresh yesterday): one call fills the
+       * whole gap. The coins of `fresh` assets go first; those already complete are read back from
+       * D1 for their backfill.
+       */
+      const coinHistories = Effect.fn("Wealth.coinHistories")(function* (coinIds: ReadonlyArray<string>, fresh: ReadonlySet<string>, today: Day) {
+        const histories = new Map<string, PricePoint[]>()
+        if (coinIds.length === 0) return histories
+        const { results } = yield* db.use((_, d1) =>
+          d1
+            .prepare(
+              `SELECT c.id, c.history_date AS historyDate,
+                 EXISTS (SELECT 1 FROM coin_prices p WHERE p.coin_id = c.id AND p.date = ?2) AS hasYesterday
+               FROM coins c WHERE c.id IN (SELECT value FROM json_each(?1))`,
+            )
+            .bind(JSON.stringify(coinIds), addDays(today, -1))
+            .all<{ id: string; historyDate: Day | null; hasYesterday: number }>(),
+        )
+        const known = new Map(results.map((r) => [r.id, r]))
+        const complete = new Set(
+          results.filter((r) => r.historyDate !== null && (r.historyDate === today || r.hasYesterday === 1)).map((r) => r.id),
+        )
+        // New assets first, then coins never fetched, then the gaps.
+        const rank = (id: string) => (fresh.has(id) ? 0 : known.get(id)?.historyDate ? 2 : 1)
+        const missing = coinIds.filter((id) => !complete.has(id)).toSorted((a, b) => rank(a) - rank(b))
+        for (const coinId of missing.slice(0, COIN_HISTORIES_PER_REFRESH)) {
+          const history = yield* market.cryptoHistory(coinId).pipe(Effect.result)
+          if (history._tag === "Failure") {
+            if (history.failure.rateLimited) break
+            continue
+          }
+          histories.set(coinId, history.success)
+          yield* db.batch([
+            ...bulkInsertStatements(
+              db.d1,
+              "coin_prices",
+              ["coin_id", "date", "price"],
+              history.success.map((p) => [coinId, p.date, p.price]),
+              "replace",
+            ),
+            db.d1
+              .prepare("INSERT INTO coins (id, history_date) VALUES (?1, ?2) ON CONFLICT (id) DO UPDATE SET history_date = excluded.history_date")
+              .bind(coinId, today),
+          ])
+        }
+        const stored = [...fresh].filter((id) => !histories.has(id) && known.get(id)?.historyDate)
+        if (stored.length > 0) {
+          const byCoin = yield* readCoinPrices(stored, addDays(today, -366))
+          for (const [coinId, rows] of byCoin) histories.set(coinId, rows.map(({ date, price }) => ({ date, price })))
+        }
+        return histories
+      })
+
+      const coinHistory = Effect.fn("Wealth.coinHistory")(function* (coinId: string) {
+        const today = yield* settings.today
+        const byCoin = yield* readCoinPrices([coinId], addDays(today, -365))
+        return (byCoin.get(coinId) ?? []).map(({ date, price }) => ({ date, price }))
       })
 
       const refresh = Effect.fn("Wealth.refresh")(function* (options: { ids?: ReadonlyArray<string> } = {}) {
@@ -513,12 +618,13 @@ export class Wealth extends Context.Service<
         const stocks = due.flatMap((a) => (a.source.kind === "stock" ? [{ asset: a, source: a.source }] : []))
         const homes = due.flatMap((a) => (a.source.kind === "real_estate" ? [{ asset: a, source: a.source }] : []))
         const dvfKeys = [...new Set(homes.map((h) => `${h.source.inseeCode}|${h.source.propertyType}`))]
-        const none = Effect.succeed(Result.succeed(new Map<string, number>()))
+        const coinIds = [...new Set(crypto.map((c) => c.source.coinId))]
+        const none = Effect.succeed(Result.succeed(new Map<string, CoinMarket>()))
         // The three sources are independent: their timeouts add up when called one after another.
         // Together they stay within the 6 connections a Worker may open at once (1 + 3 + 2).
-        const [cryptoPrices, stockPrices, dvfEntries] = yield* Effect.all(
+        const [cryptoMarkets, stockPrices, dvfEntries] = yield* Effect.all(
           [
-            crypto.length ? market.cryptoPrices([...new Set(crypto.map((c) => c.source.coinId))]).pipe(Effect.result) : none,
+            crypto.length ? market.cryptoMarkets(coinIds).pipe(Effect.result) : none,
             market.quotes([...new Set(stocks.map((s) => s.source.symbol))]),
             Effect.forEach(
               dvfKeys,
@@ -532,9 +638,13 @@ export class Wealth extends Context.Service<
           { concurrency: "unbounded" },
         )
 
+        const markets = cryptoMarkets._tag === "Success" ? coinIds.flatMap((id) => {
+          const m = cryptoMarkets.success.get(id)
+          return m ? [[id, m] as const] : []
+        }) : []
         for (const { asset, source } of crypto) {
-          const price = cryptoPrices._tag === "Success" ? cryptoPrices.success.get(source.coinId) : undefined
-          if (price === undefined) fail(asset, cryptoPrices._tag === "Failure" ? errorMessage(cryptoPrices.failure) : "Cours indisponible.")
+          const price = cryptoMarkets._tag === "Success" ? cryptoMarkets.success.get(source.coinId)?.price : undefined
+          if (price === undefined) fail(asset, cryptoMarkets._tag === "Failure" ? errorMessage(cryptoMarkets.failure) : "Cours indisponible.")
           else estimates.push({ assetId: asset.id, amount: Math.round(price * source.quantity * 100), source: "coingecko", unitPrice: price })
         }
         for (const { asset, source } of stocks) {
@@ -556,14 +666,24 @@ export class Wealth extends Context.Service<
           }
         }
 
-        const backfill = yield* backfillHistory(
-          due.filter((a) => lacksHistory(a, spans.get(a.id)?.first ?? null, today) && estimates.some((e) => e.assetId === a.id)),
-          today,
-        )
+        const fresh = due.filter((a) => lacksHistory(a, spans.get(a.id)?.first ?? null, today) && estimates.some((e) => e.assetId === a.id))
+        const freshCoins = new Set(fresh.flatMap((a) => (a.source.kind === "crypto" ? [a.source.coinId] : [])))
+        const histories = yield* coinHistories([...new Set([...freshCoins, ...markets.map(([id]) => id)])], freshCoins, today)
+        const backfill = yield* backfillHistory(fresh, today, histories)
 
         // One automatic estimate per asset and day: a second refresh the same day replaces it.
-        yield* db.batch(
-          estimates.flatMap((e) => [
+        yield* db.batch([
+          ...markets.map(([id, m]) =>
+            db.d1
+              .prepare(
+                `INSERT INTO coins (id, trend_date, change_24h, change_7d, sparkline) VALUES (?1, ?2, ?3, ?4, ?5)
+                 ON CONFLICT (id) DO UPDATE SET trend_date = excluded.trend_date, change_24h = excluded.change_24h,
+                   change_7d = excluded.change_7d, sparkline = excluded.sparkline`,
+              )
+              .bind(id, today, m.change24h, m.change7d, JSON.stringify(m.sparkline)),
+          ),
+          ...bulkInsertStatements(db.d1, "coin_prices", ["coin_id", "date", "price"], markets.map(([id, m]) => [id, today, m.price]), "replace"),
+          ...estimates.flatMap((e) => [
             db.d1.prepare("DELETE FROM asset_valuations WHERE asset_id = ? AND date = ? AND automatic = 1").bind(e.assetId, today),
             db.d1
               .prepare(
@@ -571,7 +691,7 @@ export class Wealth extends Context.Service<
               )
               .bind(newId(), e.assetId, today, e.amount, e.source, e.unitPrice, e.asOf ?? null),
           ]),
-        )
+        ])
         const backfilledDates = new Map<string, string[]>()
         for (const b of backfill) backfilledDates.set(b.assetId, [...(backfilledDates.get(b.assetId) ?? []), b.date])
         yield* db.batch([
@@ -657,6 +777,7 @@ export class Wealth extends Context.Service<
         update,
         remove,
         addValuation,
+        coinHistory,
         setLoanPayments,
         refresh,
       })

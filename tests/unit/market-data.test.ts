@@ -1,7 +1,7 @@
 import { Effect, Result } from "effect"
 import { describe, expect, it } from "vitest"
 import type { ExternalError } from "~/server/errors"
-import { makeLiveMarketData } from "~/server/services/market-data"
+import { euroSparkline, makeLiveMarketData } from "~/server/services/market-data"
 
 // Routes a URL to a canned JSON body; anything else is a 404.
 const fakeFetch = (routes: Array<[RegExp, unknown]>) =>
@@ -130,7 +130,7 @@ describe("Unexpected responses", () => {
 describe("requests", () => {
   it("report a 429 as rate limited, with a message the user can act on", async () => {
     const market = makeLiveMarketData((async () => new Response("slow down", { status: 429 })) as typeof fetch)
-    const error = await run(Effect.flip(market.cryptoPrices(["bitcoin"])))
+    const error = await run(Effect.flip(market.cryptoMarkets(["bitcoin"])))
     expect(error).toMatchObject({ rateLimited: true, message: "CoinGecko limite les requêtes, réessaie dans une minute." })
   })
 
@@ -138,10 +138,10 @@ describe("requests", () => {
     const keys: Array<string | null> = []
     const recording = (async (_: RequestInfo | URL, init?: RequestInit) => {
       keys.push(new Headers(init?.headers).get("x-cg-demo-api-key"))
-      return new Response(JSON.stringify({ bitcoin: { eur: 1 } }), { status: 200 })
+      return new Response(JSON.stringify([]), { status: 200 })
     }) as typeof fetch
-    await run(makeLiveMarketData(recording, { coinGeckoKey: "demo-key" }).cryptoPrices(["bitcoin"]))
-    await run(makeLiveMarketData(recording).cryptoPrices(["bitcoin"]))
+    await run(makeLiveMarketData(recording, { coinGeckoKey: "demo-key" }).cryptoMarkets(["bitcoin"]))
+    await run(makeLiveMarketData(recording).cryptoMarkets(["bitcoin"]))
     expect(keys).toEqual(["demo-key", null])
   })
 
@@ -152,7 +152,44 @@ describe("requests", () => {
       return new Promise<Response>(() => {})
     }) as typeof fetch
     const market = makeLiveMarketData(hanging)
-    await run(market.cryptoPrices(["bitcoin"]).pipe(Effect.timeoutOption("20 millis")))
+    await run(market.cryptoMarkets(["bitcoin"]).pipe(Effect.timeoutOption("20 millis")))
     expect(received?.aborted).toBe(true)
+  })
+})
+
+describe("CoinGecko markets", () => {
+  it("reads price, euro changes as fractions and a sparkline put back in euros", async () => {
+    // A dollar line rising 10 % over the week while the euro change is only +5 %: the dollar fell.
+    const usd = Array.from({ length: 169 }, (_, i) => 100 + (10 * i) / 168)
+    const market = makeLiveMarketData(
+      fakeFetch([
+        [
+          /coins\/markets/,
+          [
+            {
+              id: "solana",
+              current_price: 105,
+              price_change_percentage_24h_in_currency: -1.5,
+              price_change_percentage_7d_in_currency: 5,
+              sparkline_in_7d: { price: usd },
+            },
+            { id: "delisted", current_price: null },
+          ],
+        ],
+      ]),
+    )
+    const markets = await run(market.cryptoMarkets(["solana", "delisted"]))
+    expect([...markets.keys()]).toEqual(["solana"])
+    const sol = markets.get("solana")!
+    expect(sol).toMatchObject({ price: 105, change24h: -0.015, change7d: 0.05 })
+    expect(sol.sparkline).toHaveLength(43)
+    expect(sol.sparkline[0]).toBeCloseTo(100)
+    expect(sol.sparkline.at(-1)).toBeCloseTo(105)
+  })
+
+  it("keeps no sparkline it cannot place", () => {
+    expect(euroSparkline([], 100, 0.1)).toEqual([])
+    expect(euroSparkline([0, 50], 100, 0.1)).toEqual([])
+    expect(euroSparkline([50, 50], 100, null)).toEqual([100, 100])
   })
 })
