@@ -50,6 +50,20 @@ export const addAssetValuation = createServerFn({ method: "POST" })
   .validator(v(Schema.Struct({ assetId: Id, date: Day, amount: Schema.Int })))
   .handler(({ data }) => runApp(Wealth.use((w) => w.addValuation(data))))
 
+export const setLoanPayments = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
+  .validator(
+    v(
+      Schema.Struct({
+        id: Id,
+        changes: Schema.Array(
+          Schema.Struct({ installment: Schema.Int, payment: Schema.NullOr(Schema.Union([Schema.Int, Schema.Literal("interest_only")])) }),
+        ),
+      }),
+    ),
+  )
+  .handler(({ data }) => runApp(Wealth.use((w) => w.setLoanPayments(data.id, data.changes))))
+
 export const refreshValuations = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
   .validator(v(Schema.Struct({ ids: Schema.optional(Ids) })))

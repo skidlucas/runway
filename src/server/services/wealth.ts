@@ -13,7 +13,12 @@ import {
   isShare,
   latestOn,
   type PropertyType,
-  loanBalance,
+  loanBalanceAt,
+  loanChangesProblem,
+  type LoanPaymentChange,
+  type LoanRow,
+  mergeOverrides,
+  loanSchedule,
   type RetainedKind,
   historyChange,
   isAutomaticSource,
@@ -156,9 +161,9 @@ const groupBy = <T>(rows: ReadonlyArray<T>, key: (row: T) => string) => {
   return groups
 }
 
-const estimateOf = (source: ValuationSource, latest: ValuationRow | undefined, today: Day): EstimateDto | null => {
+const estimateOf = (source: ValuationSource, latest: ValuationRow | undefined, today: Day, schedule: ReadonlyArray<LoanRow>): EstimateDto | null => {
   if (source.kind === "loan") {
-    return { kind: "loan", amount: loanBalance(source, today), date: today, label: "Tableau d'amortissement", automatic: true, unitPrice: null, asOf: null }
+    return { kind: "loan", amount: loanBalanceAt(source, schedule, today), date: today, label: "Tableau d'amortissement", automatic: true, unitPrice: null, asOf: null }
   }
   if (!latest) return null
   return {
@@ -175,19 +180,21 @@ const estimateOf = (source: ValuationSource, latest: ValuationRow | undefined, t
 /** `valuations`: the asset's own, by ascending date. `days`: the day each history month is read at. */
 const assetItem = (asset: AssetRow, valuations: ReadonlyArray<ValuationRow>, days: ReadonlyArray<Day>, today: Day): WealthItem => {
   const source = asset.source
+  // Computed once for today and every month of the history.
+  const schedule = source.kind === "loan" ? loanSchedule(source) : []
   const values: AssetValues = {
     purchase: asset.purchaseAmount === null ? null : { amount: asset.purchaseAmount, date: asset.purchaseDate },
     declared: asset.declaredAmount === null ? null : { amount: asset.declaredAmount, date: asset.declaredDate },
     estimateAt:
       source.kind === "loan"
-        ? (day) => (day < source.startDate ? null : { amount: loanBalance(source, day), date: day })
+        ? (day) => (day < source.startDate ? null : { amount: loanBalanceAt(source, schedule, day), date: day })
         : (day) => latestOn(valuations, day),
     retained: asset.retained,
   }
   const sign = asset.isLiability ? -1 : 1
   const ownedPart = (amount: number | undefined) => sign * applyShare(amount ?? 0, asset.share)
   const retainedToday = retainedValueAt(values, today)
-  const estimate = estimateOf(source, valuations.at(-1), today)
+  const estimate = estimateOf(source, valuations.at(-1), today, schedule)
   return {
     id: asset.id,
     kind: "asset",
@@ -267,6 +274,8 @@ export const sourceProblem = (type: string, s: ValuationSource): string | null =
     if (!positive(s.principal) || !positive(s.months) || !(Number.isFinite(s.annualRatePct) && s.annualRatePct >= 0) || !isDay(s.startDate)) {
       return "Renseigne le capital, le taux, la durée et la date de début de l'emprunt."
     }
+    const changes = loanChangesProblem(s)
+    if (changes) return changes
   }
   if ((s.kind === "crypto" || s.kind === "stock") && !positive(s.quantity)) return "La quantité doit être positive."
   if (s.kind === "crypto" && s.coinId.trim() === "") return "Choisis une crypto-monnaie."
@@ -285,6 +294,8 @@ export class Wealth extends Context.Service<
     update(id: string, input: AssetInput): Effect.Effect<void, DbError | Invalid | NotFound>
     remove(id: string): Effect.Effect<void, DbError>
     addValuation(input: { assetId: string; date: Day; amount: number }): Effect.Effect<void, DbError | Invalid | NotFound>
+    /** Changes installments of a loan's amortization schedule; a null payment goes back to the computed one. */
+    setLoanPayments(id: string, changes: ReadonlyArray<LoanPaymentChange>): Effect.Effect<void, DbError | Invalid | NotFound>
     /**
      * Fetches automatic estimates (crypto, quotes, DVF) for the assets that are due, or for `ids`
      * regardless of age. One request per source, not per asset, where the source allows it.
@@ -621,6 +632,16 @@ export class Wealth extends Context.Service<
         )
       })
 
+      const setLoanPayments = Effect.fn("Wealth.setLoanPayments")(function* (id: string, changes: ReadonlyArray<LoanPaymentChange>) {
+        const [asset] = yield* db.use((orm) => orm.select({ type: assets.type, source: assets.source }).from(assets).where(eq(assets.id, id)))
+        if (!asset) return yield* new NotFound({ entity: "Bien", id })
+        if (asset.source.kind !== "loan") return yield* new Invalid({ message: "Le tableau d'amortissement est réservé aux emprunts." })
+        const source = { ...asset.source, overrides: mergeOverrides(asset.source.overrides, changes) }
+        const problem = sourceProblem(asset.type, source)
+        if (problem) return yield* new Invalid({ message: problem })
+        yield* db.use((orm) => orm.update(assets).set({ source }).where(eq(assets.id, id)))
+      })
+
       return Wealth.of({
         overview,
         assetsOverview,
@@ -628,6 +649,7 @@ export class Wealth extends Context.Service<
         update,
         remove,
         addValuation,
+        setLoanPayments,
         refresh,
       })
     }),

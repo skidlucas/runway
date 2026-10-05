@@ -10,9 +10,12 @@ import {
   isAutomaticSource,
   latestOn,
   loanBalance,
+  loanChangesProblem,
   loanEndMonth,
   loanMonthlyPayment,
   loanPaymentsMade,
+  loanSchedule,
+  mergeOverrides,
   relativeChange,
   retainedValueAt,
 } from "~/domain/wealth"
@@ -106,6 +109,65 @@ describe("loans", () => {
     expect(loanEndMonth(terms)).toBe("2040-05")
     expect(loanEndMonth({ ...free, startDate: "2026-12-15", months: 1 })).toBe("2027-01")
     expect(loanEndMonth({ ...free, startDate: "2026-01-15", months: 11 })).toBe("2026-12")
+  })
+
+  it("keeps the textbook schedule while no installment is changed", () => {
+    const schedule = loanSchedule(terms)
+    expect(schedule).toHaveLength(240)
+    expect(new Set(schedule.map((row) => row.payment))).toEqual(new Set([1_109_20]))
+    const r = 0.0025
+    const closedForm = 200_000_00 * (1 + r) ** 120 - (loanMonthlyPayment(terms) * ((1 + r) ** 120 - 1)) / r
+    expect(schedule[119]).toMatchObject({ installment: 120, date: "2030-05-10", remaining: Math.round(closedForm) })
+    expect(schedule.at(-1)).toMatchObject({ date: "2040-05-10", remaining: 0 })
+  })
+
+  it("defers six installments to their interest, then goes back to the contract's payment and ends six months later", () => {
+    const deferral = { ...terms, overrides: [13, 14, 15, 16, 17, 18].map((installment) => ({ installment, payment: "interest_only" as const })) }
+    const deferred = loanSchedule(deferral)
+    expect(deferred.slice(0, 12)).toEqual(loanSchedule(terms).slice(0, 12))
+    const before = deferred[11]!.remaining
+    for (const row of deferred.slice(12, 18)) expect(row).toMatchObject({ capital: 0, payment: row.interest, remaining: before, override: "interest_only" })
+    expect(deferred[18]).toMatchObject({ payment: 1_109_20, override: null })
+    expect(deferred.at(-1)).toMatchObject({ installment: 246, remaining: 0 })
+    expect(loanEndMonth(deferral)).toBe("2040-11")
+    expect(loanBalance(deferral, "2040-08-10")).toBeGreaterThan(0)
+  })
+
+  it("adds unpaid interest to the capital, and ends the loan early on a payment that repays it", () => {
+    const changed = loanSchedule({
+      ...terms,
+      overrides: [
+        { installment: 1, payment: 0 },
+        { installment: 2, payment: 300_000_00 },
+      ],
+    })
+    expect(changed[0]).toMatchObject({ payment: 0, capital: -500_00, remaining: 200_500_00, override: "amount" })
+    expect(changed).toHaveLength(2)
+    expect(changed[1]).toMatchObject({ payment: 200_500_00 + 501_25, remaining: 0 })
+    expect(loanBalance({ ...terms, overrides: [{ installment: 2, payment: 300_000_00 }] }, "2030-01-01")).toBe(0)
+  })
+
+  it("merges installment changes and refuses those outside the schedule", () => {
+    const merged = mergeOverrides(
+      [
+        { installment: 5, payment: 0 },
+        { installment: 2, payment: "interest_only" },
+      ],
+      [
+        { installment: 5, payment: null },
+        { installment: 1, payment: 100_00 },
+      ],
+    )
+    expect(merged).toEqual([
+      { installment: 1, payment: 100_00 },
+      { installment: 2, payment: "interest_only" },
+    ])
+    expect(loanChangesProblem({ ...terms, overrides: merged, insurance: 40_00 })).toBeNull()
+    expect(loanChangesProblem({ ...terms, overrides: [{ installment: 480, payment: 0 }] })).toBeNull()
+    expect(loanChangesProblem({ ...terms, overrides: [{ installment: 481, payment: 0 }] })).toMatch(/hors du tableau/)
+    expect(loanChangesProblem({ ...terms, overrides: [{ installment: 3, payment: 0 }, { installment: 3, payment: 1 }] })).toMatch(/hors du tableau/)
+    expect(loanChangesProblem({ ...terms, overrides: [{ installment: 3, payment: -1 }] })).toMatch(/positif/)
+    expect(loanChangesProblem({ ...terms, insurance: 12.5 })).toMatch(/assurance/)
   })
 })
 

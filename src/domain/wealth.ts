@@ -2,7 +2,8 @@
 // picks which one counts. Amounts are positive cents; the caller (Wealth.overview) negates
 // liabilities.
 
-import { addMonths, type Day, daysInMonth, type Month, monthOf, parseDay } from "./dates"
+import { type Day, daysInMonth, type Month, monthOf, parseDay } from "./dates"
+import { occurrence } from "./recurrence"
 import { formatPercent } from "./money"
 
 /** In display order. */
@@ -155,34 +156,132 @@ export const formatShare = (share: number): string => formatPercent(share / FULL
 
 // --- Loans -------------------------------------------------------------------------
 
-export type LoanTerms = { principal: number; annualRatePct: number; months: number; startDate: Day }
-
-export const loanMonthlyPayment = ({ principal, annualRatePct, months }: LoanTerms): number => {
-  const r = annualRatePct / 1200
-  if (months <= 0) return principal
-  return r === 0 ? principal / months : (principal * r) / (1 - (1 + r) ** -months)
+/** What an installment pays, capital and interest: an amount in cents, or the month's interest only. */
+export type LoanPayment = number | "interest_only"
+export type LoanOverride = { readonly installment: number; readonly payment: LoanPayment }
+export type LoanTerms = {
+  readonly principal: number
+  readonly annualRatePct: number
+  readonly months: number
+  readonly startDate: Day
+  /** Installments that differ from the computed ones: a deferral, a modulation, an early repayment. */
+  readonly overrides?: ReadonlyArray<LoanOverride>
+  /** Monthly insurance, shown beside the installments: it repays no capital. */
+  readonly insurance?: number
 }
 
-/** Installments paid by `day`: the first one falls one month after the start date. */
-export const loanPaymentsMade = (terms: LoanTerms, day: Day): number => {
+const annuity = (capital: number, monthlyRate: number, months: number) =>
+  months <= 0 ? capital : monthlyRate === 0 ? capital / months : (capital * monthlyRate) / (1 - (1 + monthlyRate) ** -months)
+
+/** The constant payment of the loan as signed, before any change to its installments. */
+export const loanMonthlyPayment = ({ principal, annualRatePct, months }: LoanTerms): number => annuity(principal, annualRatePct / 1200, months)
+
+/** Installment dates passed by `day`, past the end of the contract too: the first falls one month after the start date. */
+const installmentsDue = (terms: LoanTerms, day: Day): number => {
   const start = parseDay(terms.startDate)
   const at = parseDay(day)
   let n = (at.y - start.y) * 12 + (at.m - start.m)
   if (at.d < start.d && at.d !== daysInMonth(monthOf(day))) n--
-  return Math.min(Math.max(n, 0), terms.months)
+  return Math.max(n, 0)
 }
 
-/** Capital still owed on `day`, from a standard constant-payment amortization schedule. */
-export const loanBalance = (terms: LoanTerms, day: Day): number => {
-  if (day < terms.startDate) return 0
-  const k = loanPaymentsMade(terms, day)
+/** Installments of the contract paid by `day`. */
+export const loanPaymentsMade = (terms: LoanTerms, day: Day): number => Math.min(installmentsDue(terms, day), terms.months)
+
+/** A deferral or unpaid interest lengthens the loan, up to twice its duration: its last installment then settles the rest. */
+export const loanMaxInstallments = (terms: Pick<LoanTerms, "months">): number => terms.months * 2
+
+/** One installment, in cents. `capital` is negative when the payment leaves interest unpaid. */
+export type LoanRow = {
+  readonly installment: number
+  readonly date: Day
+  readonly payment: number
+  readonly interest: number
+  readonly capital: number
+  /** Capital still owed once the installment is paid. */
+  readonly remaining: number
+  readonly override: "amount" | "interest_only" | null
+}
+
+const MONTHLY = { unit: "month", interval: 1 } as const
+
+/**
+ * The amortization schedule, one row per installment until the capital is repaid. Every month pays
+ * the interest on what is still owed; an installment left unchanged pays the contract's constant
+ * payment, so a deferral pushes the end of the loan back and an extra payment brings it forward,
+ * as banks do by default. Without changes, the loan ends after its duration.
+ */
+export const loanSchedule = (terms: LoanTerms): LoanRow[] => {
   const r = terms.annualRatePct / 1200
-  const p = terms.principal
-  const remaining = r === 0 ? p - (p * k) / terms.months : p * (1 + r) ** k - (loanMonthlyPayment(terms) * ((1 + r) ** k - 1)) / r
-  return Math.max(0, Math.round(remaining))
+  const constant = loanMonthlyPayment(terms)
+  const overrides = new Map((terms.overrides ?? []).map((o) => [o.installment, o.payment]))
+  const last = loanMaxInstallments(terms)
+  const rows: LoanRow[] = []
+  let owed = terms.principal
+  for (let k = 1; k <= last && owed >= 0.5; k++) {
+    const interest = owed * r
+    const override = overrides.get(k)
+    let payment = override === undefined ? constant : override === "interest_only" ? interest : override
+    // No installment repays more than is owed, and the last one possible settles the rest.
+    if (k === last || payment > owed + interest) payment = owed + interest
+    owed -= payment - interest
+    rows.push({
+      installment: k,
+      date: occurrence({ startDate: terms.startDate, endDate: null, recurrence: MONTHLY }, k),
+      payment: Math.round(payment),
+      interest: Math.round(interest),
+      capital: Math.round(payment - interest),
+      remaining: Math.max(0, Math.round(owed)),
+      override: override === undefined ? null : override === "interest_only" ? "interest_only" : "amount",
+    })
+  }
+  return rows
 }
 
-export const loanEndMonth = (terms: LoanTerms): Month => addMonths(monthOf(terms.startDate), terms.months)
+/** Capital still owed on `day`, read from the loan's `schedule` so that many days share one computation. */
+export const loanBalanceAt = (terms: LoanTerms, schedule: ReadonlyArray<LoanRow>, day: Day): number => {
+  if (day < terms.startDate) return 0
+  const paid = installmentsDue(terms, day)
+  return paid === 0 ? terms.principal : (schedule[Math.min(paid, schedule.length) - 1]?.remaining ?? 0)
+}
+
+/** Capital still owed on `day`. */
+export const loanBalance = (terms: LoanTerms, day: Day): number => loanBalanceAt(terms, loanSchedule(terms), day)
+
+/** The next installment due after `day`, or null once the loan is repaid. */
+export const nextInstallment = (terms: LoanTerms, schedule: ReadonlyArray<LoanRow>, day: Day): LoanRow | null =>
+  day < terms.startDate ? (schedule[0] ?? null) : (schedule[installmentsDue(terms, day)] ?? null)
+
+export const loanEndMonth = (terms: LoanTerms): Month => {
+  const last = loanSchedule(terms).at(-1)
+  return monthOf(last?.date ?? terms.startDate)
+}
+
+/** A change to one installment: a payment, or null to go back to the computed one. */
+export type LoanPaymentChange = { readonly installment: number; readonly payment: LoanPayment | null }
+
+export const mergeOverrides = (current: ReadonlyArray<LoanOverride> | undefined, changes: ReadonlyArray<LoanPaymentChange>): LoanOverride[] => {
+  const byInstallment = new Map((current ?? []).map((o) => [o.installment, o.payment]))
+  for (const change of changes) {
+    if (change.payment === null) byInstallment.delete(change.installment)
+    else byInstallment.set(change.installment, change.payment)
+  }
+  return [...byInstallment].sort(([a], [b]) => a - b).map(([installment, payment]) => ({ installment, payment }))
+}
+
+/** Why a loan's changed installments or insurance cannot be used, or null. */
+export const loanChangesProblem = (terms: LoanTerms): string | null => {
+  const seen = new Set<number>()
+  for (const o of terms.overrides ?? []) {
+    if (!Number.isInteger(o.installment) || o.installment < 1 || o.installment > loanMaxInstallments(terms) || seen.has(o.installment)) {
+      return "Échéance hors du tableau d'amortissement."
+    }
+    seen.add(o.installment)
+    if (o.payment !== "interest_only" && (!Number.isInteger(o.payment) || o.payment < 0)) return "Une mensualité doit être un montant positif."
+  }
+  if (terms.insurance !== undefined && (!Number.isInteger(terms.insurance) || terms.insurance < 0)) return "L'assurance doit être un montant positif."
+  return null
+}
 
 // --- Aggregates --------------------------------------------------------------------
 

@@ -8,6 +8,8 @@ import {
   isShare,
   loanBalance,
   loanEndMonth,
+  type LoanOverride,
+  loanMaxInstallments,
   loanMonthlyPayment,
   PROPERTY_TYPE_LABELS,
   PROPERTY_TYPES,
@@ -68,6 +70,9 @@ type Draft = {
   rate: string
   years: string
   startDate: string
+  insurance: string
+  /** Changed installments, kept as they are: the schedule in the asset's detail edits them. */
+  overrides: ReadonlyArray<LoanOverride>
   // Manual estimate, recorded as a valuation dated today
   estimate: string
   notes: string
@@ -96,6 +101,8 @@ const draftOf = (item: WealthItem | null): Draft => {
     rate: s.kind === "loan" ? String(s.annualRatePct).replace(".", ",") : "",
     years: s.kind === "loan" ? String(s.months / 12).replace(".", ",") : "",
     startDate: s.kind === "loan" ? s.startDate : "",
+    insurance: s.kind === "loan" ? centsText(s.insurance) : "",
+    overrides: s.kind === "loan" ? (s.overrides ?? []) : [],
     estimate: "",
     notes: item?.notes ?? "",
   }
@@ -125,7 +132,20 @@ const toInput = (d: Draft): { error: string } | { input: Parameters<typeof creat
       if (principal === null || rate === null || years === null || !d.startDate) {
         return { error: "Renseigne le capital, le taux, la durée et la date de début." }
       }
-      source = { kind: "loan", principal, annualRatePct: rate, months: Math.round(years * 12), startDate: d.startDate }
+      const insurance = optionalAmount(d.insurance)
+      if (insurance === null && d.insurance.trim() !== "") return { error: "L'assurance doit être un montant." }
+      const months = Math.round(years * 12)
+      // A shorter loan drops the changed installments that its schedule can no longer reach.
+      const overrides = d.overrides.filter((o) => o.installment <= loanMaxInstallments({ months }))
+      source = {
+        kind: "loan",
+        principal,
+        annualRatePct: rate,
+        months,
+        startDate: d.startDate,
+        ...(overrides.length > 0 ? { overrides } : {}),
+        ...(insurance !== null ? { insurance } : {}),
+      }
       break
     }
     case "crypto": {
@@ -215,7 +235,8 @@ export function AssetDialog({
     const share = parsed.input.share
     const owned = (amount: number) => formatMoney(applyShare(amount, share))
     const payment = share === FULL_SHARE ? "Mensualité" : `Ta part (${formatShare(share)}) : mensualité`
-    return `${payment} ${owned(Math.round(loanMonthlyPayment(terms)))} · capital restant ${owned(loanBalance(terms, localToday()))} · fin ${formatMonthLong(loanEndMonth(terms)).toLowerCase()}`
+    const insurance = terms.insurance ? ` + assurance ${owned(terms.insurance)}` : ""
+    return `${payment} ${owned(Math.round(loanMonthlyPayment(terms)))}${insurance} · capital restant ${owned(loanBalance(terms, localToday()))} · fin ${formatMonthLong(loanEndMonth(terms)).toLowerCase()}`
   })()
 
   return (
@@ -282,6 +303,9 @@ export function AssetDialog({
               </Field>
               <Field label="Date de déblocage">
                 <DateInput value={d.startDate} onChange={(v) => set("startDate", v)} />
+              </Field>
+              <Field label="Assurance mensuelle">
+                <Input value={d.insurance} onChange={(e) => set("insurance", e.target.value)} className="num" inputMode="decimal" placeholder="—" />
               </Field>
             </div>
             {loanPreview ? <p className="text-[12px] text-muted">{loanPreview}</p> : null}

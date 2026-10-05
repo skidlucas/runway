@@ -4,10 +4,11 @@ import { MoreHorizontal, Pencil, Plus, RefreshCw, Trash2 } from "lucide-react"
 import * as React from "react"
 import { AssetDialog } from "~/components/asset-dialog"
 import { creditOf, DataCredit } from "~/components/data-credit"
+import { LoanScheduleDialog } from "~/components/loan-schedule"
 import { PageHeader } from "~/components/shell"
 import { toast } from "~/components/toast"
 import { Button, Chip, cx, DateInput, EmptyState, heroAmountClass, IconButton, Input, Menu, Money, Sheet, SkeletonRows, Tabs, useConfirm } from "~/components/ui"
-import { formatDayLong, formatDayShort, formatMonthLong, formatMonthShort, type Month } from "~/domain/dates"
+import { type Day, formatDayLong, formatDayShort, formatMonthLong, formatMonthShort, type Month } from "~/domain/dates"
 import { formatMoney, formatPercent, parseAmount } from "~/domain/money"
 import {
   type AllocationSlice,
@@ -21,6 +22,8 @@ import {
   isAutomaticSource,
   loanEndMonth,
   loanMonthlyPayment,
+  loanSchedule,
+  nextInstallment,
   PROPERTY_TYPE_LABELS,
   RETAINED_LABELS,
   type RetainedKind,
@@ -342,7 +345,7 @@ function AssetTable({
 
 // --- Detail ----------------------------------------------------------------------
 
-function sourceDescription(item: WealthItem): string | null {
+function sourceDescription(item: WealthItem, today: Day): string | null {
   const s = item.source
   const unit = item.estimate?.unitPrice
   if (!s) return null
@@ -354,11 +357,13 @@ function sourceDescription(item: WealthItem): string | null {
     case "stock":
       return `${String(s.quantity).replace(".", ",")} parts de ${s.label ?? s.symbol}${unit ? ` à ${formatMoney(Math.round(unit * 100))}` : ""}`
     case "loan": {
-      const payment = Math.round(loanMonthlyPayment(s))
+      // The installment due next, which a deferral or an early repayment may have changed.
+      const payment = nextInstallment(s, loanSchedule(s), today)?.payment ?? Math.round(loanMonthlyPayment(s))
+      const insurance = s.insurance ? ` + assurance ${formatMoney(applyShare(s.insurance, item.share))}` : ""
       const yours =
         item.share === FULL_SHARE
-          ? `mensualité ${formatMoney(payment)}`
-          : `ta part de la mensualité ${formatMoney(applyShare(payment, item.share))} sur ${formatMoney(payment)}`
+          ? `mensualité ${formatMoney(payment)}${insurance}`
+          : `ta part de la mensualité ${formatMoney(applyShare(payment, item.share))}${insurance} sur ${formatMoney(payment)}`
       return `${euros(s.principal)} à ${String(s.annualRatePct).replace(".", ",")} % sur ${s.months / 12} ans · ${yours} · fin ${formatMonthLong(loanEndMonth(s)).toLowerCase()}`
     }
     default:
@@ -375,7 +380,8 @@ function Detail({ item, months, today, onEdit }: { item: WealthItem; months: Mon
   const shared = item.share !== FULL_SHARE
   const purchase = item.purchase ? applyShare(item.purchase.amount, item.share) : null
   const gain = purchase !== null && !item.isLiability && item.retainedUsed !== "purchase" ? item.value - purchase : null
-  const description = sourceDescription(item)
+  const description = sourceDescription(item, today)
+  const [scheduleOpen, setScheduleOpen] = React.useState(false)
   const credit = creditOf(item.source)
 
   const value = (kind: RetainedKind, label: string, whole: number | null, caption: string) => ({
@@ -502,6 +508,11 @@ function Detail({ item, months, today, onEdit }: { item: WealthItem; months: Mon
           <div className="flex flex-col gap-1.5 text-fg-3">
             <span className="text-[12px] text-faint">Infos</span>
             {description ? <span>{description}</span> : null}
+            {item.source?.kind === "loan" ? (
+              <button type="button" onClick={() => setScheduleOpen(true)} className="self-start text-accent-fg hover:underline">
+                Tableau d'amortissement
+              </button>
+            ) : null}
             {credit ? <DataCredit source={credit} /> : null}
             {item.notes ? <span className="whitespace-pre-line">{item.notes}</span> : null}
             {item.kind === "account" ? (
@@ -515,6 +526,9 @@ function Detail({ item, months, today, onEdit }: { item: WealthItem; months: Mon
           </div>
         ) : null}
       </div>
+      {scheduleOpen && item.source?.kind === "loan" ? (
+        <LoanScheduleDialog assetId={item.id} terms={item.source} today={today} onClose={() => setScheduleOpen(false)} />
+      ) : null}
       {confirmDialog}
     </div>
   )

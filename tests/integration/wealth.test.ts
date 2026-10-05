@@ -228,6 +228,39 @@ describe("Wealth", () => {
     await h.run(Wealth.use((w) => w.remove(loan)))
   })
 
+  it("follows the installments changed in a loan's schedule, and goes back to the computed ones", async () => {
+    const loan = await h.run(
+      Wealth.use((w) =>
+        w.create(
+          manual({
+            name: "Prêt reporté",
+            type: "loan",
+            purchase: null,
+            declared: null,
+            retained: "estimated",
+            source: { kind: "loan", principal: 100_000_00, annualRatePct: 0, months: 100, startDate: `${addMonths(month, -10)}-01` },
+          }),
+        ),
+      ),
+    )
+    const estimate = async () => (await h.run(Wealth.use((w) => w.overview))).items.find((i) => i.id === loan)!.estimate?.amount
+    expect(await estimate()).toBe(90_000_00)
+
+    // The 5th installment skipped: one installment of 1 000 € fewer paid by now.
+    await h.run(Wealth.use((w) => w.setLoanPayments(loan, [{ installment: 5, payment: 0 }])))
+    expect(await estimate()).toBe(91_000_00)
+
+    await h.run(Wealth.use((w) => w.setLoanPayments(loan, [{ installment: 5, payment: null }])))
+    expect(await estimate()).toBe(90_000_00)
+
+    expect(await h.fail(Wealth.use((w) => w.setLoanPayments(loan, [{ installment: 201, payment: 0 }])))).toMatchObject({ _tag: "Invalid" })
+    const watch = await h.run(Wealth.use((w) => w.create(manual())))
+    expect(await h.fail(Wealth.use((w) => w.setLoanPayments(watch, [{ installment: 1, payment: 0 }])))).toMatchObject({ _tag: "Invalid" })
+    expect(await h.fail(Wealth.use((w) => w.setLoanPayments("missing", [{ installment: 1, payment: 0 }])))).toMatchObject({ _tag: "NotFound" })
+    await h.run(Wealth.use((w) => w.remove(loan)))
+    await h.run(Wealth.use((w) => w.remove(watch)))
+  })
+
   it("flags manual estimates older than six months", async () => {
     const id = await h.run(Wealth.use((w) => w.create(manual({ name: "Tableau", type: "art", retained: "estimated" }))))
     await h.run(Wealth.use((w) => w.addValuation({ assetId: id, date: `${addMonths(month, -8)}-01`, amount: 4_000_00 })))

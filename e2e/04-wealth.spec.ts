@@ -73,7 +73,18 @@ test("adds a loan and nets it against real estate", async ({ page }) => {
   expect(owed).toBeGreaterThan(-100_000_00)
   await expect.poll(async () => cents(await netWorth.innerText())).toBe(before + owed)
 
-  await page.getByTestId("asset-row").filter({ hasText: "Crédit test" }).click()
+  // Deferring the first installment leaves one installment more owed today (the row shows whole euros).
+  await row.click()
+  await visible(page.getByTestId("asset-detail")).getByRole("button", { name: "Tableau d'amortissement" }).click()
+  const schedule = page.getByRole("dialog", { name: "Tableau d'amortissement" })
+  await expect(schedule.getByTestId("loan-row")).toHaveCount(120)
+  await schedule.getByRole("button", { name: /^Actions de l'échéance de février 2020$/i }).click()
+  await page.getByRole("menuitem", { name: "Intérêts seuls" }).click()
+  await expect(schedule.getByTestId("loan-row").first()).toContainText("Intérêts seuls")
+  await expect.poll(async () => Math.abs((await amountIn(row)) - (owed - 833_33))).toBeLessThan(100)
+  await expect(schedule.getByTestId("loan-row")).toHaveCount(121)
+  await page.keyboard.press("Escape")
+
   await visible(page.getByTestId("asset-detail")).getByRole("button", { name: "Actions du bien" }).click()
   await page.getByRole("menuitem", { name: "Supprimer" }).click()
   await page.getByTestId("confirm-dialog-confirm").click()
