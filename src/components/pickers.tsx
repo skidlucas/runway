@@ -152,7 +152,7 @@ export type PayeeValue =
   | { kind: "name"; name: string }
   | { kind: "transfer"; accountId: string; name: string }
 
-export const payeeLabel = (value: PayeeValue) => (value.kind === "none" ? "" : value.name)
+const payeeLabel = (value: PayeeValue) => (value.kind === "none" ? "" : value.name)
 
 export function PayeePicker({
   value,

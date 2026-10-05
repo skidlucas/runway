@@ -14,7 +14,7 @@ import { MarketData } from "~/server/services/market-data"
 type Services = Layer.Success<ReturnType<typeof makeCoreLayer>>
 
 /** Applies the drizzle migrations to a D1 database, statement by statement. */
-export const migrate = async (d1: D1Database) => {
+const migrate = async (d1: D1Database) => {
   const dir = join(process.cwd(), "drizzle")
   for (const migration of readdirSync(dir).sort()) {
     const statements = readFileSync(join(dir, migration, "migration.sql"), "utf8")
@@ -61,7 +61,7 @@ export type Harness = Awaited<ReturnType<typeof createHarness>>
  * migrations applied and the application layer ready to run effects against it.
  */
 /** Tests never reach the network: every market source is down unless a test provides one. */
-export const offlineMarket: MarketData["Service"] = (() => {
+const offlineMarket: MarketData["Service"] = (() => {
   const down = Effect.fail(new ExternalError({ service: "test", message: "Hors ligne" }))
   return MarketData.of({
     cryptoPrices: () => down,
@@ -80,7 +80,7 @@ export const offlineMarket: MarketData["Service"] = (() => {
  * A clock that reads `now` (an ISO instant) and then moves 1 ms per read, so that creation stamps
  * stay ordered while "today" stays put. `set` moves it to another instant.
  */
-export const frozenClock = (now: string) => {
+const frozenClock = (now: string) => {
   const live = Clock.Clock.defaultValue()
   const parse = (instant: string) => {
     const millis = Date.parse(instant)

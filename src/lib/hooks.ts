@@ -34,7 +34,7 @@ const browserTimeZone = () => {
 
 // Workers run in UTC: server rendering assumes the default zone, which the browser then
 // reports to the server (see the /_app route) so both agree on "today".
-export const localTimeZone = createIsomorphicFn()
+const localTimeZone = createIsomorphicFn()
   .server(() => DEFAULT_TIME_ZONE)
   .client(browserTimeZone)
 

@@ -278,8 +278,3 @@ export function PageHeader({
   )
 }
 
-export const MobileOnly = ({ children }: { children: React.ReactNode }) => <div className="md:hidden">{children}</div>
-export const DesktopOnly = ({ children }: { children: React.ReactNode }) => (
-  <div className="max-md:hidden">{children}</div>
-)
-

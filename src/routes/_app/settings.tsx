@@ -3,7 +3,7 @@ import { cx } from "~/components/ui"
 
 export const Route = createFileRoute("/_app/settings")({ component: SettingsLayout })
 
-export const SETTINGS_NAV = [
+const SETTINGS_NAV = [
   { to: "/settings", label: "Général", exact: true },
   { to: "/settings/categories", label: "Catégories" },
   { to: "/settings/rules", label: "Règles" },

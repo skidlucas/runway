@@ -19,7 +19,7 @@ import type { AccountDto } from "~/server/services/accounts"
 import type { TxCursor, TxFilter } from "~/server/services/transactions"
 import { toast, toastError } from "~/components/toast"
 
-export const TX_PAGE = 200
+const TX_PAGE = 200
 
 /** The forecast opens on the first budget account in the user's order, or on every account ("all") when there is none. */
 export const defaultForecastAccount = (accounts: ReadonlyArray<AccountDto>) =>

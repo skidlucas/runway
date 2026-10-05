@@ -13,7 +13,7 @@ export const IS_INTERNAL_TRANSFER = `EXISTS (
   WHERE tp.id = t.payee_id AND tto.off_budget = tfrom.off_budget)`
 
 /** Lines the budget reads: those of budgeted accounts, without split parents (their lines carry the categories). Needs `a`. */
-export const BUDGET_LINE = "a.off_budget = 0 AND t.is_parent = 0"
+const BUDGET_LINE = "a.off_budget = 0 AND t.is_parent = 0"
 
 /**
  * BUDGET_LINE without joining the account: SQLite then reads each line once, where a join reads

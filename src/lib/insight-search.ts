@@ -11,7 +11,7 @@ export type InsightSearch = {
   rolling?: InsightRolling
 }
 
-export const DEFAULT_QUERY: InsightViewConfig = { measure: "expenses", target: { kind: "all" }, months: 12, rolling: 6 }
+const DEFAULT_QUERY: InsightViewConfig = { measure: "expenses", target: { kind: "all" }, months: 12, rolling: 6 }
 
 const isTargetKind = (kind: string): kind is InsightTargetKind => INSIGHT_TARGET_KINDS.includes(kind as InsightTargetKind)
 const isMonths = (n: number): n is InsightMonths => INSIGHT_MONTHS.includes(n as InsightMonths)
