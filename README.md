@@ -109,3 +109,7 @@ Automatic estimates are refreshed when the Net worth page opens, at most once a 
 - **Yahoo Finance**: Yahoo has no official public API. The endpoints Runway uses are undocumented, for personal use only, and can change or be blocked without notice. Each instance operator is responsible for complying with Yahoo's terms.
 - **Real estate**: contains information from *Statistiques DVF* (data.gouv.fr), available under the [Open Database License (ODbL)](https://opendatacommons.org/licenses/odbl/1-0/).
 - **Communes**: [API Découpage administratif](https://geo.api.gouv.fr) (geo.api.gouv.fr), under the [Licence Ouverte 2.0](https://www.etalab.gouv.fr/licence-ouverte-open-licence/).
+
+## License
+
+[MIT](LICENSE). Runway reads and writes Actual Budget's formats and ships an empty Actual database template: see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

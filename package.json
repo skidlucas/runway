@@ -1,6 +1,7 @@
 {
   "name": "runway",
   "private": true,
+  "license": "MIT",
   "type": "module",
   "scripts": {
     "dev": "alchemy dev",
