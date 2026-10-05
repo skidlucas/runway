@@ -59,6 +59,8 @@ describe("Reports and dashboards", () => {
     expect(worth.current).toBe(100_000 + 1_000_000 + 250_000 - 97_000)
     expect(worth.months.at(-2)?.value).toBe(100_000 + 1_000_000 + 250_000 - 95_000)
     expect(worth.change).toBe(250_000 - 97_000)
+    expect(worth.months).toHaveLength(4)
+    expect(worth.months[0]).toEqual({ month: addMonths(month, -3), value: worth.current - worth.change })
   })
 
   it("ranks categories and compares this month with the same day last month", async () => {

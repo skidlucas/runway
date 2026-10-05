@@ -78,9 +78,14 @@ export class Reports extends Context.Service<
             monthly: (monthly?.results ?? []) as Array<{ month: Month; total: number }>,
           }
         })
-        const series = runningBalances(raw.opening, new Map(raw.monthly.map((m) => [m.month, m.total])), w.months)
+        // The series opens on the balance at the end of the month before the window: the change is
+        // measured from it, so the curve shows every movement the change counts, and a 1-month window
+        // still has two points.
+        const series = [
+          { month: addMonths(w.from, -1), value: raw.opening },
+          ...runningBalances(raw.opening, new Map(raw.monthly.map((m) => [m.month, m.total])), w.months),
+        ]
         const current = series.at(-1)?.value ?? raw.opening
-        // Measured from the balance before the window, so a 1-month window still shows a change.
         return { months: series, current, change: current - raw.opening } satisfies AccountsTotalReport
       })
 
