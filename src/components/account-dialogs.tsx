@@ -91,7 +91,7 @@ export function EditAccountDialog({ account, onClose }: { account: AccountDto; o
   const [kind, setKind] = React.useState<AccountKind>(account.kind)
   const [inForecast, setInForecast] = React.useState(account.inForecast)
   const [offBudget, setOffBudget] = React.useState(account.offBudget)
-  const update = useAction(updateAccount, { success: "Compte modifié", onSuccess: onClose, writes: ["accounts"] })
+  const update = useAction(updateAccount, { success: "Compte modifié", onSuccess: onClose, writes: ["accounts", "transactionCategories"] })
   return (
     <Dialog
       open

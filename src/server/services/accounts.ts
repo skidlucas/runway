@@ -3,7 +3,9 @@ import { Context, Effect, Layer } from "effect"
 import type { AccountKind } from "~/domain/accounts"
 import { isDay } from "~/domain/dates"
 import { Db, type DbError, newId } from "../db/client"
-import { accounts, payees, transactions } from "../db/schema"
+import { readRule } from "../db/json-columns"
+import { IS_INTERNAL_TRANSFER } from "../db/predicates"
+import { accounts, payees, rules, transactions } from "../db/schema"
 import { Invalid, NotFound } from "../errors"
 import { Categories } from "./categories"
 import { Payees } from "./payees"
@@ -151,7 +153,7 @@ export class Accounts extends Context.Service<
         id: string,
         patch: { name?: string; kind?: AccountKind; offBudget?: boolean; inForecast?: boolean },
       ) {
-        yield* find(id)
+        const before = yield* find(id)
         const values: Partial<typeof accounts.$inferInsert> = {}
         if (patch.name !== undefined) {
           const name = patch.name.trim()
@@ -166,6 +168,25 @@ export class Accounts extends Context.Service<
         if (values.name) {
           yield* db.use((orm) => orm.update(payees).set({ name: values.name! }).where(eq(payees.transferAccountId, id)))
         }
+        if (values.offBudget !== undefined && values.offBudget !== before.offBudget) {
+          const startingBalanceCategory = values.offBudget ? null : yield* categoriesService.startingBalanceCategory
+          yield* db.batch([
+            // The account's transfers follow the rule applied when they are entered: the off-budget
+            // side and transfers within the same side carry no category.
+            db.d1
+              .prepare(
+                `UPDATE transactions AS t SET category_id = NULL
+                 WHERE t.category_id IS NOT NULL AND t.transfer_id IS NOT NULL
+                   AND (t.account_id = ?1 OR t.transfer_id IN (SELECT id FROM transactions WHERE account_id = ?1))
+                   AND ((SELECT off_budget FROM accounts WHERE id = t.account_id) = 1 OR ${IS_INTERNAL_TRANSFER})`,
+              )
+              .bind(id),
+            // A starting balance funds the budget only from a budgeted account.
+            db.d1
+              .prepare("UPDATE transactions SET category_id = ? WHERE account_id = ? AND starting_balance = 1")
+              .bind(startingBalanceCategory, id),
+          ])
+        }
       })
 
       const setClosed = Effect.fn("Accounts.setClosed")(function* (id: string, closed: boolean) {
@@ -174,22 +195,50 @@ export class Accounts extends Context.Service<
       })
 
       const remove = Effect.fn("Accounts.remove")(function* (id: string) {
-        yield* find(id)
+        const account = yield* find(id)
+        // Transfers with this account become ordinary operations, paid to or received from a payee
+        // named after it.
+        const transferred = yield* db.use((_, d1) =>
+          d1
+            .prepare(
+              `SELECT EXISTS (SELECT 1 FROM transactions WHERE transfer_id IN (SELECT id FROM transactions WHERE account_id = ?1))
+                   OR EXISTS (SELECT 1 FROM transactions t JOIN payees p ON p.id = t.payee_id WHERE p.transfer_account_id = ?1 AND t.account_id != ?1)
+                   OR EXISTS (SELECT 1 FROM schedules s JOIN payees p ON p.id = s.payee_id WHERE p.transfer_account_id = ?1 AND s.account_id != ?1)
+                   AS used`,
+            )
+            .bind(id)
+            .first<{ used: number }>(),
+        )
+        const payeeId = transferred?.used ? ((yield* payeesService.resolveNames([account.name])).get(account.name) ?? null) : null
+        const ruleUpdates = (yield* db.use((orm) => orm.select().from(rules).all()))
+          .map(readRule)
+          .filter((r) => r.conditions.some((c) => c.field === "account" && c.value === id))
+          .map((r) => {
+            const conditions = r.conditions.filter((c) => !(c.field === "account" && c.value === id))
+            // "Account is …" can no longer match: a rule that required it is switched off rather
+            // than left to apply to every account.
+            const enabled = r.enabled && r.conditionsOp === "or" && conditions.length > 0
+            return db.d1
+              .prepare("UPDATE rules SET conditions = ?, enabled = ? WHERE id = ?")
+              .bind(JSON.stringify(conditions), enabled ? 1 : 0, r.id)
+          })
         yield* db.use(async (_, d1) => {
           await d1.batch([
-            // Mirrors on other accounts lose their link and their transfer payee.
             d1
               .prepare(
-                `UPDATE transactions SET transfer_id = NULL, payee_id = NULL
-                 WHERE transfer_id IN (SELECT id FROM transactions WHERE account_id = ?)`,
+                `UPDATE transactions SET transfer_id = NULL, payee_id = ?2
+                 WHERE transfer_id IN (SELECT id FROM transactions WHERE account_id = ?1)`,
               )
-              .bind(id),
+              .bind(id, payeeId),
             d1.prepare("DELETE FROM transactions WHERE account_id = ?").bind(id),
             d1.prepare("DELETE FROM schedules WHERE account_id = ?").bind(id),
             d1
-              .prepare("UPDATE transactions SET payee_id = NULL WHERE payee_id IN (SELECT id FROM payees WHERE transfer_account_id = ?)")
-              .bind(id),
-            d1.prepare("UPDATE schedules SET payee_id = NULL WHERE payee_id IN (SELECT id FROM payees WHERE transfer_account_id = ?)").bind(id),
+              .prepare("UPDATE transactions SET payee_id = ?2 WHERE payee_id IN (SELECT id FROM payees WHERE transfer_account_id = ?1)")
+              .bind(id, payeeId),
+            d1
+              .prepare("UPDATE schedules SET payee_id = ?2 WHERE payee_id IN (SELECT id FROM payees WHERE transfer_account_id = ?1)")
+              .bind(id, payeeId),
+            ...ruleUpdates,
             d1.prepare("DELETE FROM payees WHERE transfer_account_id = ?").bind(id),
             d1.prepare("DELETE FROM accounts WHERE id = ?").bind(id),
           ])

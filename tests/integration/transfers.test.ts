@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import { Accounts } from "~/server/services/accounts"
 import { Budget } from "~/server/services/budget"
 import { Categories } from "~/server/services/categories"
+import { Rules } from "~/server/services/rules"
 import { Schedules } from "~/server/services/schedules"
 import { type TxPayeeInput, Transactions } from "~/server/services/transactions"
 import { createHarness, type Harness } from "./harness"
@@ -130,6 +131,29 @@ describe("Transfers", () => {
     await h.run(Transactions.use((t) => t.create({ accountId: checking, date: "2026-11-03", amount: -3_000, payee: { kind: "transfer", accountId: broker }, categoryId: groceries })))
     expect(await spent()).toBe(before + 3_000)
   })
+
+  it("updates the categories of an account's transfers and opening balance when it enters or leaves the budget", async () => {
+    const pea = await account("PEA", true)
+    const leaving = await transfer(checking, pea, -6_000, groceries)
+    const update = (offBudget: boolean) => h.run(Accounts.use((a) => a.update(pea, { offBudget })))
+    const categories = async () => (await sides(leaving)).map((s) => s.categoryId)
+
+    await update(false)
+    expect(await categories()).toEqual([null, null])
+    await h.run(Transactions.use((t) => t.update(leaving, { categoryId: groceries })))
+    await update(true)
+    expect(await categories()).toEqual([null, null])
+
+    const funded = await h.run(
+      Accounts.use((a) => a.create({ name: "Héritage", kind: "savings", offBudget: true, startingBalance: 90_000, startingDate: "2026-12-01" })),
+    )
+    const income = async () => (await h.run(Budget.use((b) => b.month("2026-12")))).income
+    const before = await income()
+    await h.run(Accounts.use((a) => a.update(funded, { offBudget: false })))
+    expect(await income()).toBe(before + 90_000)
+    await h.run(Accounts.use((a) => a.update(funded, { offBudget: true })))
+    expect(await income()).toBe(before)
+  })
 })
 
 describe("Removing an account", () => {
@@ -174,7 +198,7 @@ describe("Removing an account", () => {
     expect(await h.run(Budget.use((b) => b.month(month)))).toMatchObject({ income: before.income, spent: before.spent, toBudget: before.toBudget })
   })
 
-  it("leaves the other side of its transfers as an uncategorized line with no payee", async () => {
+  it("leaves the other side of its transfers as an uncategorized line paid to a payee named after it", async () => {
     const kept = await account("Gardé")
     const doomed = await account("À fermer")
     const id = await h.run(
@@ -184,13 +208,48 @@ describe("Removing an account", () => {
 
     await h.run(Accounts.use((a) => a.remove(doomed)))
     const row = await h.run(Transactions.use((t) => t.get(id)))
-    expect(row).toMatchObject({ accountId: kept, amount: -8_000, transferId: null, payeeId: null, transferAccountId: null, categoryId: null })
+    expect(row).toMatchObject({ accountId: kept, amount: -8_000, transferId: null, transferAccountId: null, categoryId: null })
+    expect(await count("SELECT COUNT(*) AS n FROM payees WHERE id = ? AND name = 'À fermer' AND transfer_account_id IS NULL", row.payeeId)).toBe(1)
     expect(await count("SELECT COUNT(*) AS n FROM payees WHERE transfer_account_id = ?", doomed)).toBe(0)
     // Money that used to move inside the budget now leaves it: the budget asks to categorize it.
     expect((await h.run(Budget.use((b) => b.month("2026-09")))).uncategorized).toEqual({ count: before.count + 1, amount: before.amount - 8_000 })
   })
 
-  it("deletes its schedules and unlinks the schedules that pay into it", async () => {
+  it("creates no payee for an account that had no transfers", async () => {
+    const doomed = await account("Sans virement")
+    await h.run(Accounts.use((a) => a.remove(doomed)))
+    expect(await count("SELECT COUNT(*) AS n FROM payees WHERE name = 'Sans virement'")).toBe(0)
+  })
+
+  it("drops the conditions on it from rules, and switches off the rules that required it", async () => {
+    const kept = await account("Gardé")
+    const doomed = await account("À fermer")
+    const rule = (conditionsOp: "and" | "or", accountId: string) =>
+      h.run(
+        Rules.use((r) =>
+          r.create({
+            conditionsOp,
+            conditions: [
+              { field: "account", op: "is", value: accountId },
+              { field: "payee", op: "contains", value: "carrefour" },
+            ],
+            actions: [{ type: "set_category", categoryId: groceries }],
+          }),
+        ),
+      )
+    const required = await rule("and", doomed)
+    const either = await rule("or", doomed)
+    const other = await rule("and", kept)
+
+    await h.run(Accounts.use((a) => a.remove(doomed)))
+    const rules = await h.run(Rules.use((r) => r.list))
+    const byId = (id: string) => rules.find((r) => r.id === id)!
+    expect(byId(required.id)).toMatchObject({ enabled: false, conditions: [{ field: "payee", op: "contains", value: "carrefour" }] })
+    expect(byId(either.id)).toMatchObject({ enabled: true, conditions: [{ field: "payee", op: "contains", value: "carrefour" }] })
+    expect(byId(other.id)).toMatchObject({ enabled: true, conditions: other.conditions })
+  })
+
+  it("deletes its schedules and repoints the schedules that pay into it", async () => {
     const kept = await account("Gardé")
     const doomed = await account("À fermer")
     const schedule = (accountId: string, payee: TxPayeeInput, name: string) =>
@@ -205,6 +264,6 @@ describe("Removing an account", () => {
     await h.run(Accounts.use((a) => a.remove(doomed)))
     const list = await h.run(Schedules.use((s) => s.list))
     expect(list.find((s) => s.id === own)).toBeUndefined()
-    expect(list.find((s) => s.id === into)).toMatchObject({ accountId: kept, payeeId: null, active: true })
+    expect(list.find((s) => s.id === into)).toMatchObject({ accountId: kept, payeeName: "À fermer", active: true })
   })
 })
