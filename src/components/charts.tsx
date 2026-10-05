@@ -105,13 +105,11 @@ export function Sparkline({
   values,
   width = 120,
   height = 28,
-  label,
   className,
 }: {
   values: ReadonlyArray<number>
   width?: number
   height?: number
-  label: string
   className?: string
 }) {
   if (values.length < 2) return null
@@ -119,7 +117,7 @@ export function Sparkline({
   const span = Math.max(...values) - lo || 1
   const points = values.map((v, i) => `${((i / (values.length - 1)) * width).toFixed(1)},${(height - 1 - ((v - lo) / span) * (height - 2)).toFixed(1)}`)
   return (
-    <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} role="img" aria-label={label} className={className}>
+    <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} aria-hidden className={className}>
       <polyline
         points={points.join(" ")}
         fill="none"

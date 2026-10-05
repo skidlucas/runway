@@ -115,7 +115,7 @@ describe("Unexpected responses", () => {
       ]),
     )
     const calls: Array<Effect.Effect<unknown, ExternalError>> = [
-      market.cryptoHistory("bitcoin"),
+      market.cryptoHistory("bitcoin", 365),
       market.searchCoins("btc"),
       market.dvfPricePerM2("69387", "house"),
     ]
@@ -175,12 +175,15 @@ describe("CoinGecko markets", () => {
               last_updated: "2026-10-05T09:12:00.000Z",
             },
             { id: "delisted", current_price: null },
+            { id: "odd", current_price: 2, sparkline_in_7d: { price: [1, null, 2] } },
+            { id: "broken" },
           ],
         ],
       ]),
     )
-    const markets = await run(market.cryptoMarkets(["solana", "delisted"]))
-    expect([...markets.keys()]).toEqual(["solana"])
+    const markets = await run(market.cryptoMarkets(["solana", "delisted", "odd", "broken"]))
+    expect([...markets.keys()]).toEqual(["solana", "odd"])
+    expect(markets.get("odd")).toMatchObject({ price: 2, hourly: [] })
     const sol = markets.get("solana")!
     expect(sol).toMatchObject({ price: 105, change24h: -0.015, change7d: 0.05, updatedAt: "2026-10-05T09:12:00.000Z" })
     expect(sol.hourly).toHaveLength(169)
@@ -192,5 +195,6 @@ describe("CoinGecko markets", () => {
     expect(euroSparkline([], 100, 0.1)).toEqual([])
     expect(euroSparkline([0, 50], 100, 0.1)).toEqual([])
     expect(euroSparkline([50, 50], 100, null)).toEqual([100, 100])
+    expect(euroSparkline([50, 50], 100, -1)).toEqual([100, 100])
   })
 })

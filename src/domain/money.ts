@@ -50,6 +50,12 @@ export const formatPercent = (ratio: number, options: { sign?: boolean; decimals
   return value
 }
 
+const smallPrice = new Intl.NumberFormat("fr-FR", { maximumSignificantDigits: 3 })
+
+/** A unit price in euros: to the cent from 1 €, otherwise 3 significant digits (coins worth a fraction of a cent). */
+export const formatUnitPrice = (euros: number): string =>
+  euros >= 1 ? formatMoney(Math.round(euros * 100)) : `${smallPrice.format(euros)} €`
+
 /** Cents as typed in an amount field: "1234,50", no grouping, no currency. */
 export const amountInput = (cents: number): string => (cents / 100).toFixed(2).replace(".", ",")
 

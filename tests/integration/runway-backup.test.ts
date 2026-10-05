@@ -196,6 +196,22 @@ describe("Runway backup settings", () => {
       await target.dispose()
     }
   })
+
+  it("counts in the net worth the accounts of a backup made before the setting existed", async () => {
+    const source = await createHarness({ now: NOW })
+    const target = await createHarness({ now: NOW })
+    try {
+      await source.run(Accounts.use((a) => a.create({ name: "Courant", kind: "checking", offBudget: false, startingBalance: 0, startingDate: "2026-01-01" })))
+      const meta = await source.run(ImportExport.use((s) => s.exportMeta))
+      const accounts = meta.accounts.map(({ inNetWorth: _, ...a }) => a)
+      await restore(target, { ...meta, accounts, format: "runway-backup", transactions: [] } as unknown as RunwayBackup)
+      const restored = await target.d1.prepare("SELECT in_net_worth AS w FROM accounts WHERE name = 'Courant'").first<{ w: number }>()
+      expect(restored?.w).toBe(1)
+    } finally {
+      await source.dispose()
+      await target.dispose()
+    }
+  })
 })
 
 describe("Runway backup round trip", () => {

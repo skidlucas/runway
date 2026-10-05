@@ -32,7 +32,7 @@ export const getWealthAssets = createServerFn({ method: "GET" })
 
 export const getCoinHistory = createServerFn({ method: "GET" })
   .middleware([authMiddleware])
-  .validator(v(Schema.Struct({ coinId: Name })))
+  .validator(v(Schema.Struct({ coinId: Id })))
   .handler(({ data }) => runApp(Wealth.use((w) => w.coinHistory(data.coinId))))
 
 export const createAsset = createServerFn({ method: "POST" })

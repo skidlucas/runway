@@ -10,7 +10,7 @@ import { PageHeader } from "~/components/shell"
 import { toast } from "~/components/toast"
 import { Button, Chip, cx, DateInput, EmptyState, heroAmountClass, IconButton, Input, Menu, Money, SectionTitle, Segmented, Sheet, SkeletonRows, Tabs, useConfirm } from "~/components/ui"
 import { addDays, type Day, formatDayLong, formatDayShort, formatMonthLong, formatMonthShort, type Month } from "~/domain/dates"
-import { formatMoney, formatPercent, parseAmount } from "~/domain/money"
+import { formatMoney, formatPercent, formatUnitPrice, parseAmount } from "~/domain/money"
 import {
   type AllocationSlice,
   applyShare,
@@ -72,6 +72,7 @@ const sortItems = (items: ReadonlyArray<WealthItem>) =>
     (a, b) =>
       BUCKET_ORDER.indexOf(a.bucket) - BUCKET_ORDER.indexOf(b.bucket) ||
       Number(a.kind === "account") - Number(b.kind === "account") ||
+      Number(a.trend === null) - Number(b.trend === null) ||
       b.value - a.value,
   )
 
@@ -86,10 +87,11 @@ function WealthPage() {
   const items = React.useMemo(() => sortItems(data?.items ?? []), [data])
   const type = mobile ? undefined : search.type
   const shown = type ? items.filter((i) => i.type === type) : items
-  const excluded = (data?.excluded ?? []).filter((i) => !type || i.type === type)
+  const allExcluded = React.useMemo(() => sortItems(data?.excluded ?? []), [data])
+  const excluded = allExcluded.filter((i) => !type || i.type === type)
   const selected =
     [...shown, ...excluded].find((i) => i.id === selectedId) ?? shown.find((i) => i.kind === "asset") ?? shown[0] ?? excluded[0] ?? null
-  const types = assetTypeTotals([...items, ...(data?.excluded ?? [])], { includeAccounts: true })
+  const types = assetTypeTotals([...items, ...allExcluded], { includeAccounts: true })
   const credits = [...new Set(items.map((i) => creditOf(i.source)).filter((c) => c !== null))]
   const editing = dialog ?? (search.new ? { item: null } : null)
 
@@ -130,7 +132,7 @@ function WealthPage() {
       {!data ? (
         <SkeletonRows rows={10} height={46} />
       ) : mobile ? (
-        <MobileWealth data={data} items={items} onOpen={(i) => setSelectedId(i.id)} openId={selectedId} onClose={() => setSelectedId(null)} onEdit={(item) => setDialog({ item })} />
+        <MobileWealth data={data} items={items} allExcluded={allExcluded} onOpen={(i) => setSelectedId(i.id)} openId={selectedId} onClose={() => setSelectedId(null)} onEdit={(item) => setDialog({ item })} />
       ) : (
         <div className="grid min-h-[calc(100vh-48px)] grid-cols-[minmax(0,1fr)_340px] max-[1100px]:grid-cols-1">
           <div className="flex min-w-0 flex-col border-r border-line max-[1100px]:border-r-0">
@@ -145,14 +147,16 @@ function WealthPage() {
             ) : null}
             {type ? <TypeSummary type={type} items={shown} closed={data.closed.filter((c) => c.type === type)} months={data.months} /> : <Summary data={data} />}
             {shown.length === 0 ? (
-              <EmptyState
-                title="Aucun bien pour l'instant."
-                action={
-                  <Button variant="primary" onClick={() => setDialog({ item: null })}>
-                    Ajouter un bien
-                  </Button>
-                }
-              />
+              excluded.length > 0 ? null : (
+                <EmptyState
+                  title="Aucun bien pour l'instant."
+                  action={
+                    <Button variant="primary" onClick={() => setDialog({ item: null })}>
+                      Ajouter un bien
+                    </Button>
+                  }
+                />
+              )
             ) : type === "crypto" ? (
               <CryptoTable items={shown} selectedId={selected?.id ?? null} onSelect={(i) => setSelectedId(i.id)} today={data.today} />
             ) : (
@@ -162,7 +166,7 @@ function WealthPage() {
               <section aria-label="Hors patrimoine" className="mt-4">
                 <ExcludedTitle items={excluded} />
                 <AssetTable
-                  label="Hors patrimoine"
+                  label="Comptes"
                   items={excluded}
                   selectedId={selected?.id ?? null}
                   onSelect={(i) => setSelectedId(i.id)}
@@ -293,6 +297,8 @@ const COLUMNS = "grid grid-cols-[minmax(0,1fr)_110px_110px_160px] items-center g
 /** DVF publishes sales months late: the estimate says which month its data stops at. */
 const dataAge = (e: { asOf: string | null }) => (e.asOf ? ` · ventes jusqu'à ${formatMonthLong(e.asOf).toLowerCase()}` : "")
 
+const captionTone = { live: "text-positive", stale: "text-warning", manual: "text-faint" } as const
+
 function estimateCaption(item: WealthItem, today: string): { text: string; tone: "live" | "manual" | "stale" } {
   const e = item.estimate
   if (!e) return { text: isAutomaticSource(item.source) ? "En attente de cotation" : "Déclarative uniquement", tone: "manual" }
@@ -336,7 +342,6 @@ function AssetTable({
               </div>
             ) : null}
             <button
-              key={item.id}
               type="button"
               aria-pressed={selectedId === item.id}
               data-testid="asset-row"
@@ -370,7 +375,7 @@ function AssetTable({
                   <span
                     className={cx(
                       "max-w-full truncate text-[11px]",
-                      caption.tone === "live" ? "text-positive" : caption.tone === "stale" ? "text-warning" : "text-faint",
+                      captionTone[caption.tone],
                     )}
                   >
                     {caption.text}
@@ -385,19 +390,28 @@ function AssetTable({
   )
 }
 
-function Trend({ change, className }: { change: number | null; className?: string }) {
-  if (change === null) return <span className={cx("text-faint", className)}>—</span>
-  return <span className={cx(change >= 0 ? "text-positive" : "text-negative", className)}>{formatPercent(change, { sign: true })}</span>
+/** A change as a signed percentage; `label` names it for screen readers when no visible header does. */
+function Trend({ change, label, className }: { change: number | null; label?: string; className?: string }) {
+  const name = label ? <span className="sr-only">{label} </span> : null
+  if (change === null) return <span className={cx("text-faint", className)}>{name}—</span>
+  // Below 0,05 % the rounded figure reads 0,0 %: neither up nor down.
+  const flat = Math.abs(change) < 0.0005
+  return (
+    <span className={cx(flat ? "text-muted" : change > 0 ? "text-positive" : "text-negative", className)}>
+      {name}
+      {formatPercent(flat ? 0 : change, { sign: true })}
+    </span>
+  )
 }
 
 // Fixed-width cells, so the 24h and 7-day changes line up row after row under one label.
-const TREND_CELL = "num w-[7ch] text-right"
+const TREND_CELL = "num w-[8ch] text-right"
 
 function TrendCells({ trend, className }: { trend: CoinTrend; className?: string }) {
   return (
     <span className={cx("flex gap-1.5", className)}>
-      <Trend change={trend.change24h} className={TREND_CELL} />
-      <Trend change={trend.change7d} className={TREND_CELL} />
+      <Trend change={trend.change24h} label="24 h" className={TREND_CELL} />
+      <Trend change={trend.change7d} label="7 jours" className={TREND_CELL} />
     </span>
   )
 }
@@ -405,7 +419,7 @@ function TrendCells({ trend, className }: { trend: CoinTrend; className?: string
 function TrendLabels() {
   return (
     <span className="flex gap-1.5">
-      <span className={TREND_CELL}>24h</span>
+      <span className={TREND_CELL}>24 h</span>
       <span className={TREND_CELL}>7 j</span>
     </span>
   )
@@ -414,11 +428,10 @@ function TrendLabels() {
 // Rows come grouped by bucket, so the coins with a trend follow each other: label them once.
 const startsTrends = (items: ReadonlyArray<WealthItem>, i: number) => items[i]!.trend !== null && (i === 0 || items[i - 1]!.trend === null)
 
-// Coins worth a fraction of a cent still need a readable price.
-const unitPrice = (euros: number) =>
-  euros >= 1 ? formatMoney(Math.round(euros * 100)) : `${euros.toLocaleString("fr-FR", { maximumSignificantDigits: 3 })} €`
-
-const CRYPTO_COLUMNS = "grid grid-cols-[minmax(0,1fr)_110px_80px_80px_120px_110px] items-center gap-3 px-5"
+// Between 1100 and 1300 px the detail panel sits beside the table and leaves no room for the sparkline.
+const CRYPTO_COLUMNS =
+  "grid grid-cols-[minmax(0,1fr)_96px_64px_64px_96px_96px] min-[1101px]:max-[1300px]:grid-cols-[minmax(0,1fr)_96px_64px_64px_96px] items-center gap-3 px-5"
+const SPARKLINE_COLUMN = "min-[1101px]:max-[1300px]:hidden"
 
 /** The Crypto tab: price and trends instead of the purchase and declared values. */
 function CryptoTable({
@@ -437,9 +450,9 @@ function CryptoTable({
       <div aria-hidden className={cx(CRYPTO_COLUMNS, "h-[34px] border-b border-line text-[12px] text-faint")}>
         <span>Bien</span>
         <span className="text-right">Cours</span>
-        <span className="text-right">24h</span>
+        <span className="text-right">24 h</span>
         <span className="text-right">7 j</span>
-        <span className="text-right">7 derniers jours</span>
+        <span className={cx("text-right", SPARKLINE_COLUMN)}>7 derniers jours</span>
         <span className="text-right">Valeur</span>
       </div>
       {items.map((item) => {
@@ -458,13 +471,13 @@ function CryptoTable({
                 <span className="truncate" title={item.name}>{item.name}</span>
                 {item.share === FULL_SHARE ? null : <Chip className="shrink-0">{formatShare(item.share)}</Chip>}
               </span>
-              <span className="truncate text-[11px] text-faint">{estimateCaption(item, today).text}</span>
+              <span className={cx("truncate text-[11px]", captionTone[estimateCaption(item, today).tone])}>{estimateCaption(item, today).text}</span>
             </span>
-            <span className="num text-right text-[12px]">{unit === null ? "—" : unitPrice(unit)}</span>
+            <span className="num text-right text-[12px]">{unit === null ? "—" : formatUnitPrice(unit)}</span>
             <Trend change={item.trend?.change24h ?? null} className="num text-right text-[12px]" />
             <Trend change={item.trend?.change7d ?? null} className="num text-right text-[12px]" />
-            <span className="flex justify-end">
-              {item.trend ? <Sparkline values={item.trend.sparkline} label={`Cours de ${item.name} sur 7 jours`} /> : null}
+            <span className={cx("flex justify-end", SPARKLINE_COLUMN)}>
+              {item.trend ? <Sparkline values={item.trend.sparkline} width={96} /> : null}
             </span>
             <span className="num text-right text-[12px]">{euros(item.value)}</span>
           </button>
@@ -698,7 +711,7 @@ function HistoryBars({ values, months }: { values: number[]; months: Month[] }) 
 type ChartPeriod = "day" | "week" | "month" | "year"
 
 const PERIODS: ReadonlyArray<{ value: ChartPeriod; label: string; caption: string }> = [
-  { value: "day", label: "24h", caption: "24 heures" },
+  { value: "day", label: "24 h", caption: "24 heures" },
   { value: "week", label: "Semaine", caption: "7 jours" },
   { value: "month", label: "Mois", caption: "30 jours" },
   { value: "year", label: "Année", caption: "12 mois" },
@@ -727,21 +740,23 @@ function CoinChart({
   fallback: React.ReactNode
 }) {
   const [chosen, setChosen] = React.useState<ChartPeriod>("year")
-  const history = useQuery(q.coinHistory(coinId)).data
-  const hourly = history?.hourly ?? null
-  const daily = history?.daily ?? []
+  const query = useQuery(q.coinHistory(coinId))
+  const hourly = query.data?.hourly ?? null
+  const daily = query.data?.daily ?? []
   const available = PERIODS.filter((p) => (p.value === "day" || p.value === "week" ? hourly !== null : daily.length >= 2))
   const period = available.find((p) => p.value === chosen) ?? available.at(-1)
+  // Holds the chart's place while loading, instead of flashing the monthly bars first.
+  if (query.isPending) return <div aria-hidden className="h-[146px]" />
   if (!period) return fallback
 
-  let prices: number[]
+  let prices: ReadonlyArray<number>
   let labels: string[]
-  if (period.value === "day" || period.value === "week") {
-    const all = hourly!.prices
-    prices = all.slice(period.value === "day" ? -25 : 0)
-    const end = Date.parse(hourly!.at)
+  if ((period.value === "day" || period.value === "week") && hourly) {
+    const shown = hourly.prices.slice(period.value === "day" ? -25 : 0)
+    const end = Date.parse(hourly.at)
     const format = period.value === "day" ? hourLabel : weekdayHourLabel
-    labels = prices.map((_, i) => format.format(end - (prices.length - 1 - i) * HOUR))
+    prices = shown
+    labels = shown.map((_, i) => format.format(end - (shown.length - 1 - i) * HOUR))
   } else {
     const since = addDays(today, period.value === "year" ? -365 : -30)
     const shown = daily.filter((p) => p.date >= since)
@@ -819,6 +834,7 @@ const MOBILE_FILTERS: Array<{ value: WealthBucket | "all"; label: string }> = [
 function MobileWealth({
   data,
   items,
+  allExcluded,
   openId,
   onOpen,
   onClose,
@@ -826,17 +842,18 @@ function MobileWealth({
 }: {
   data: WealthOverview
   items: WealthItem[]
+  allExcluded: WealthItem[]
   openId: string | null
   onOpen: (item: WealthItem) => void
   onClose: () => void
   onEdit: (item: WealthItem) => void
 }) {
   const [filter, setFilter] = React.useState<WealthBucket | "all">("all")
-  const present = new Set([...items, ...data.excluded].map((i) => i.bucket))
+  const present = new Set([...items, ...allExcluded].map((i) => i.bucket))
   const inFilter = (i: WealthItem) => filter === "all" || i.bucket === filter
   const shown = items.filter(inFilter)
-  const excluded = data.excluded.filter(inFilter)
-  const open = [...items, ...data.excluded].find((i) => i.id === openId) ?? null
+  const excluded = allExcluded.filter(inFilter)
+  const open = [...items, ...allExcluded].find((i) => i.id === openId) ?? null
   return (
     <div className="flex flex-col pb-8">
       <span className="px-5 pt-2 text-[13px] text-muted">Patrimoine net</span>
@@ -897,7 +914,7 @@ function MobileRows({
       {items.map((item, i) => (
         <React.Fragment key={item.id}>
           {startsTrends(items, i) ? (
-            <div aria-hidden className="flex justify-end border-b border-line-subtle px-5 py-1 text-[11px] text-faint">
+            <div aria-hidden className="flex justify-end border-b border-line-subtle px-5 py-1 text-[12px] text-faint">
               <TrendLabels />
             </div>
           ) : null}

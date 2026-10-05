@@ -1,5 +1,5 @@
 import { eq } from "drizzle-orm"
-import { Context, Effect, Layer, Result } from "effect"
+import { Clock, Context, Effect, Layer, Result } from "effect"
 import { addDays, addMonths, type Day, diffDays, firstDay, isDay, lastDay, type Month, monthOf, monthRange } from "~/domain/dates"
 import {
   type AllocationSlice,
@@ -28,7 +28,7 @@ import {
   type WealthChange,
 } from "~/domain/wealth"
 import { bulkInsertStatements, Db, type DbError, newId } from "../db/client"
-import { readSource } from "../db/json-columns"
+import { readSource, readSparkline } from "../db/json-columns"
 import { assets, assetValuations, type ValuationSource } from "../db/schema"
 import { type ExternalError, Invalid, NotFound } from "../errors"
 import { type CoinMarket, MarketData, type PricePoint } from "./market-data"
@@ -58,7 +58,7 @@ export type CoinHistory = {
   /** Daily euro prices over the last year, oldest first. */
   daily: PricePoint[]
   /** Hourly euro prices over the 7 days before `at` (ISO), oldest first; null until a refresh saved them. */
-  hourly: { at: string; prices: number[] } | null
+  hourly: { at: string; prices: ReadonlyArray<number> } | null
 }
 
 export type WealthItem = {
@@ -144,6 +144,7 @@ const HISTORY_MONTHS = 12
 // CoinGecko only serves histories coin by coin, and answers 429 beyond 30 calls a minute with a
 // Demo key: they are fetched one at a time, up to this many per refresh, the rest next refresh.
 export const COIN_HISTORIES_PER_REFRESH = 10
+const YEAR_DAYS = 365
 const STALE_MANUAL_DAYS = 183
 const DVF_REFRESH_DAYS = 30
 
@@ -360,20 +361,22 @@ export class Wealth extends Context.Service<
         .use((_, d1) =>
           d1
             .prepare(
-              `SELECT id, trend_date AS date, change_24h AS change24h, change_7d AS change7d, sparkline, trend_at AS trendAt
-               FROM coins WHERE trend_date IS NOT NULL`,
+              `SELECT id, trend_date AS date, change_24h AS change24h, change_7d AS change7d, sparkline
+               FROM coins
+               WHERE trend_date IS NOT NULL AND id IN (
+                 SELECT json_extract(source, '$.coinId') FROM assets WHERE archived = 0 AND json_extract(source, '$.kind') = 'crypto'
+               )`,
             )
-            .all<{ id: string; date: Day; change24h: number | null; change7d: number | null; sparkline: string | null; trendAt: string | null }>(),
+            .all<{ id: string; date: Day; change24h: number | null; change7d: number | null; sparkline: string | null }>(),
         )
         .pipe(
           Effect.map(
             ({ results }) =>
               new Map(
-                results.map(({ id, sparkline, trendAt, ...trend }) => {
-                  const prices = sparkline ? (JSON.parse(sparkline) as number[]) : []
+                results.map(({ id, sparkline, ...trend }) => {
+                  const prices = readSparkline(sparkline)
                   // A table row needs no more than a price every 4 hours.
-                  const thinned = trendAt === null ? prices : prices.filter((_, i) => i % 4 === (prices.length - 1) % 4)
-                  return [id, { ...trend, sparkline: thinned }]
+                  return [id, { ...trend, sparkline: prices.filter((_, i) => i % 4 === (prices.length - 1) % 4) }]
                 }),
               ),
           ),
@@ -460,7 +463,10 @@ export class Wealth extends Context.Service<
           items,
           closed,
           excluded: accounts.excluded,
-          needsRefresh: rows.some((a) => refreshDue(a.source, lastAuto.get(a.id) ?? null, today)),
+          // A coin CoinGecko no longer lists is marked as tried today, so it does not refresh on every visit.
+          needsRefresh: rows.some(
+            (a) => refreshDue(a.source, lastAuto.get(a.id) ?? null, today) && !(a.source.kind === "crypto" && trends.get(a.source.coinId)?.date === today),
+          ),
         } satisfies WealthOverview
       })
       const overview = overviewOf(true).pipe(Effect.withSpan("Wealth.overview"))
@@ -544,23 +550,24 @@ export class Wealth extends Context.Service<
         return rows
       })
 
-      const readCoinPrices = (coinIds: ReadonlyArray<string>, since: Day) =>
+      /** The last year of daily prices, which also covers the 12 month-ends the backfill prices. */
+      const readCoinPrices = (coinIds: ReadonlyArray<string>, today: Day) =>
         db.use(async (_, d1) => {
           const { results } = await d1
             .prepare(
               `SELECT coin_id AS coinId, date, price FROM coin_prices
                WHERE coin_id IN (SELECT value FROM json_each(?1)) AND date >= ?2 ORDER BY coin_id, date`,
             )
-            .bind(JSON.stringify(coinIds), since)
+            .bind(JSON.stringify(coinIds), addDays(today, -YEAR_DAYS))
             .all<{ coinId: string; date: Day; price: number }>()
-          return groupBy(results, (r) => r.coinId)
+          return new Map([...groupBy(results, (r) => r.coinId)].map(([coinId, rows]) => [coinId, rows.map(({ date, price }): PricePoint => ({ date, price }))]))
         })
 
       /**
-       * The daily prices of the last year for `coinIds`. A coin's yearly history is fetched and saved
-       * when it never was, or when a day is missing since (no refresh yesterday): one call fills the
-       * whole gap. The coins of `fresh` assets go first; those already complete are read back from
-       * D1 for their backfill.
+       * The daily prices of the last year for `coinIds`. A coin's history is fetched when it never
+       * was, or when a day is missing since it last was (no refresh that day): one call covers the
+       * days since, however many are missing. The coins of `fresh` assets go first; those already
+       * complete are read back from D1 for their backfill.
        */
       const coinHistories = Effect.fn("Wealth.coinHistories")(function* (coinIds: ReadonlyArray<string>, fresh: ReadonlySet<string>, today: Day) {
         const histories = new Map<string, PricePoint[]>()
@@ -569,43 +576,44 @@ export class Wealth extends Context.Service<
           d1
             .prepare(
               `SELECT c.id, c.history_date AS historyDate,
-                 EXISTS (SELECT 1 FROM coin_prices p WHERE p.coin_id = c.id AND p.date = ?2) AS hasYesterday
+                 (SELECT COUNT(*) FROM coin_prices p WHERE p.coin_id = c.id AND p.date > c.history_date AND p.date < ?2) AS daysSince
                FROM coins c WHERE c.id IN (SELECT value FROM json_each(?1))`,
             )
-            .bind(JSON.stringify(coinIds), addDays(today, -1))
-            .all<{ id: string; historyDate: Day | null; hasYesterday: number }>(),
+            .bind(JSON.stringify(coinIds), today)
+            .all<{ id: string; historyDate: Day | null; daysSince: number }>(),
         )
         const known = new Map(results.map((r) => [r.id, r]))
         const complete = new Set(
-          results.filter((r) => r.historyDate !== null && (r.historyDate === today || r.hasYesterday === 1)).map((r) => r.id),
+          results.filter((r) => r.historyDate !== null && r.daysSince >= diffDays(r.historyDate, today) - 1).map((r) => r.id),
         )
-        // New assets first, then coins never fetched, then the gaps.
         const rank = (id: string) => (fresh.has(id) ? 0 : known.get(id)?.historyDate ? 2 : 1)
         const missing = coinIds.filter((id) => !complete.has(id)).toSorted((a, b) => rank(a) - rank(b))
+        const writes: D1PreparedStatement[] = []
+        let failures = 0
         for (const coinId of missing.slice(0, COIN_HISTORIES_PER_REFRESH)) {
-          const history = yield* market.cryptoHistory(coinId).pipe(Effect.result)
+          const since = known.get(coinId)?.historyDate
+          const days = since ? Math.min(YEAR_DAYS, diffDays(since, today) + 1) : YEAR_DAYS
+          const history = yield* market.cryptoHistory(coinId, days).pipe(Effect.result)
           if (history._tag === "Failure") {
-            if (history.failure.rateLimited) break
+            yield* Effect.logWarning("Historique crypto indisponible", { coinId, message: history.failure.message })
+            // Each call may wait for its timeout: a second failure ends the round, the rest waits for the next refresh.
+            if (history.failure.rateLimited || ++failures >= 2) break
             continue
           }
           histories.set(coinId, history.success)
-          yield* db.batch([
-            ...bulkInsertStatements(
-              db.d1,
-              "coin_prices",
-              ["coin_id", "date", "price"],
-              history.success.map((p) => [coinId, p.date, p.price]),
-              "replace",
-            ),
+          writes.push(
+            ...bulkInsertStatements(db.d1, "coin_prices", ["coin_id", "date", "price"], history.success.map((p) => [coinId, p.date, p.price]), "replace"),
             db.d1
               .prepare("INSERT INTO coins (id, history_date) VALUES (?1, ?2) ON CONFLICT (id) DO UPDATE SET history_date = excluded.history_date")
               .bind(coinId, today),
-          ])
+          )
         }
-        const stored = [...fresh].filter((id) => !histories.has(id) && known.get(id)?.historyDate)
+        if (writes.length > 0) yield* db.batch(writes)
+        // A gap fill only brings the recent days: the backfill reads the whole year back from D1.
+        const stored = [...fresh].filter((id) => known.get(id)?.historyDate || histories.has(id))
         if (stored.length > 0) {
-          const byCoin = yield* readCoinPrices(stored, addDays(today, -366))
-          for (const [coinId, rows] of byCoin) histories.set(coinId, rows.map(({ date, price }) => ({ date, price })))
+          const byCoin = yield* readCoinPrices(stored, today)
+          for (const [coinId, points] of byCoin) histories.set(coinId, points)
         }
         return histories
       })
@@ -614,16 +622,17 @@ export class Wealth extends Context.Service<
         const today = yield* settings.today
         const [byCoin, trend] = yield* Effect.all(
           [
-            readCoinPrices([coinId], addDays(today, -365)),
+            readCoinPrices([coinId], today),
             db.use((_, d1) =>
               d1.prepare("SELECT sparkline, trend_at AS at FROM coins WHERE id = ?").bind(coinId).first<{ sparkline: string | null; at: string | null }>(),
             ),
           ],
           { concurrency: "unbounded" },
         )
+        const hourly = readSparkline(trend?.sparkline ?? null)
         return {
-          daily: (byCoin.get(coinId) ?? []).map(({ date, price }) => ({ date, price })),
-          hourly: trend?.at && trend.sparkline ? { at: trend.at, prices: JSON.parse(trend.sparkline) as number[] } : null,
+          daily: byCoin.get(coinId) ?? [],
+          hourly: trend?.at && hourly.length >= 2 ? { at: trend.at, prices: hourly } : null,
         } satisfies CoinHistory
       })
 
@@ -663,12 +672,15 @@ export class Wealth extends Context.Service<
           { concurrency: "unbounded" },
         )
 
-        const markets = cryptoMarkets._tag === "Success" ? coinIds.flatMap((id) => {
-          const m = cryptoMarkets.success.get(id)
+        const priced = cryptoMarkets._tag === "Success" ? cryptoMarkets.success : new Map<string, CoinMarket>()
+        const markets = coinIds.flatMap((id) => {
+          const m = priced.get(id)
           return m ? [[id, m] as const] : []
-        }) : []
+        })
+        // Missing from a successful answer: CoinGecko no longer lists the coin.
+        const unlisted = cryptoMarkets._tag === "Success" ? coinIds.filter((id) => !priced.has(id)) : []
         for (const { asset, source } of crypto) {
-          const price = cryptoMarkets._tag === "Success" ? cryptoMarkets.success.get(source.coinId)?.price : undefined
+          const price = priced.get(source.coinId)?.price
           if (price === undefined) fail(asset, cryptoMarkets._tag === "Failure" ? errorMessage(cryptoMarkets.failure) : "Cours indisponible.")
           else estimates.push({ assetId: asset.id, amount: Math.round(price * source.quantity * 100), source: "coingecko", unitPrice: price })
         }
@@ -696,16 +708,21 @@ export class Wealth extends Context.Service<
         const histories = yield* coinHistories([...new Set([...freshCoins, ...markets.map(([id]) => id)])], freshCoins, today)
         const backfill = yield* backfillHistory(fresh, today, histories)
 
+        const now = new Date(yield* Clock.currentTimeMillis).toISOString()
+        const trends = [
+          ...markets.map(([id, m]) => [id, m.change24h, m.change7d, JSON.stringify(m.hourly), m.hourly.length >= 2 ? (m.updatedAt ?? now) : null] as const),
+          ...unlisted.map((id) => [id, null, null, null, null] as const),
+        ]
         // One automatic estimate per asset and day: a second refresh the same day replaces it.
         yield* db.batch([
-          ...markets.map(([id, m]) =>
+          ...trends.map(([id, change24h, change7d, sparkline, at]) =>
             db.d1
               .prepare(
                 `INSERT INTO coins (id, trend_date, change_24h, change_7d, sparkline, trend_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)
                  ON CONFLICT (id) DO UPDATE SET trend_date = excluded.trend_date, change_24h = excluded.change_24h,
                    change_7d = excluded.change_7d, sparkline = excluded.sparkline, trend_at = excluded.trend_at`,
               )
-              .bind(id, today, m.change24h, m.change7d, JSON.stringify(m.hourly), m.updatedAt ?? `${today}T12:00:00.000Z`),
+              .bind(id, today, change24h, change7d, sparkline, at),
           ),
           ...bulkInsertStatements(db.d1, "coin_prices", ["coin_id", "date", "price"], markets.map(([id, m]) => [id, today, m.price]), "replace"),
           ...estimates.flatMap((e) => [

@@ -25,7 +25,7 @@ import { Wealth } from "./services/wealth"
 export const makeCoreLayer = (
   d1: D1Database,
   ai: AiProviders = noAiProviders,
-  market: Layer.Layer<MarketData> = MarketData.layer,
+  market: Layer.Layer<MarketData> = MarketData.layerWith({}),
 ) => {
   const base = Layer.mergeAll(Settings.layer, Ai.layer, LoginGuard.layer, SessionEpoch.layer, Dashboards.layer).pipe(
     Layer.provideMerge(Layer.mergeAll(Db.layer(d1), Layer.succeed(AiConfig, ai), market)),

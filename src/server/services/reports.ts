@@ -67,10 +67,15 @@ export class Reports extends Context.Service<
         const w = yield* window(months)
         const raw = yield* db.use(async (_, d1) => {
           const [opening, monthly] = await d1.batch([
-            d1.prepare("SELECT COALESCE(SUM(amount), 0) AS total FROM transactions WHERE parent_id IS NULL AND date < ?").bind(firstDay(w.from)),
+            d1
+              .prepare(
+                `SELECT COALESCE(SUM(t.amount), 0) AS total FROM transactions t JOIN accounts a ON a.id = t.account_id
+                 WHERE t.parent_id IS NULL AND a.in_net_worth = 1 AND t.date < ?`,
+              )
+              .bind(firstDay(w.from)),
             d1.prepare(
-              `SELECT substr(date, 1, 7) AS month, SUM(amount) AS total FROM transactions
-               WHERE parent_id IS NULL AND date >= ? AND date <= ? GROUP BY 1`,
+              `SELECT substr(t.date, 1, 7) AS month, SUM(t.amount) AS total FROM transactions t JOIN accounts a ON a.id = t.account_id
+               WHERE t.parent_id IS NULL AND a.in_net_worth = 1 AND t.date >= ? AND t.date <= ? GROUP BY 1`,
             ).bind(firstDay(w.from), w.today),
           ])
           return {

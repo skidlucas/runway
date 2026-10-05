@@ -29,6 +29,12 @@ const decodeConfig = Schema.decodeUnknownOption(InsightQuery)
 /** None for an unreadable saved view, which is then left out. */
 export const readInsightConfig = (value: unknown): Option.Option<InsightViewConfig> => decodeConfig(value)
 
+const decodeSparkline = Schema.decodeUnknownOption(Schema.fromJsonString(Schema.Array(Schema.Finite)))
+
+/** A coin's stored hourly prices (a JSON string); empty when missing or unreadable. */
+export const readSparkline = (value: string | null): ReadonlyArray<number> =>
+  value === null ? [] : Option.getOrElse(decodeSparkline(value), () => [])
+
 const decodeWidget = Schema.decodeUnknownOption(DashboardWidget)
 
 /** Unreadable widgets are left out; the others keep their order. */

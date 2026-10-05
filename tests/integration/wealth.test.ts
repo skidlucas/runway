@@ -523,14 +523,16 @@ describe("Coin histories", () => {
     }
   })
 
-  it("fills a gap in a coin's daily prices with one more yearly history", async () => {
+  it("fills a missing day with the days since the last history, wherever the gap is", async () => {
     let historyCalls = 0
+    const asked: number[] = []
     const h = await createHarness({
       now: NOW,
       market: {
         cryptoMarkets: (ids) => Effect.succeed(new Map(ids.map((id) => [id, coin(120)]))),
-        cryptoHistory: () => {
+        cryptoHistory: (_, days) => {
           historyCalls++
+          asked.push(days)
           return Effect.succeed(yearOf(100))
         },
       },
@@ -549,11 +551,57 @@ describe("Coin histories", () => {
       await refresh()
       expect(historyCalls).toBe(1)
 
-      // No refresh yesterday: the year is fetched again, and the day is back.
-      await h.d1.prepare("DELETE FROM coin_prices WHERE coin_id = 'solana' AND date = ?").bind(addDays(today, -1)).run()
+      // No refresh two days ago, though yesterday's price is there: the 4 days since are fetched.
+      await h.d1.prepare("DELETE FROM coin_prices WHERE coin_id = 'solana' AND date = ?").bind(addDays(today, -2)).run()
       await refresh()
       expect(historyCalls).toBe(2)
-      expect((await h.run(Wealth.use((w) => w.coinHistory("solana")))).daily.map((p) => p.date)).toContain(addDays(today, -1))
+      expect(asked).toEqual([365, 4])
+      expect((await h.run(Wealth.use((w) => w.coinHistory("solana")))).daily.map((p) => p.date)).toContain(addDays(today, -2))
+      await refresh()
+      expect(historyCalls).toBe(2)
+    } finally {
+      await h.dispose()
+    }
+  })
+
+  it("still prices the other coins when CoinGecko sends an odd entry or a corrupted sparkline is stored", async () => {
+    const h = await createHarness({
+      now: NOW,
+      market: {
+        cryptoMarkets: (ids) => Effect.succeed(new Map(ids.map((id) => [id, { ...coin(120), hourly: [100, 110, 120] }]))),
+        cryptoHistory: () => Effect.succeed(yearOf(100)),
+      },
+    })
+    try {
+      await h.run(
+        Wealth.use((w) =>
+          w.create(manual({ name: "Solana", type: "crypto", purchase: null, declared: null, retained: "estimated", source: { kind: "crypto", coinId: "solana", quantity: 1 } })),
+        ),
+      )
+      await h.d1.prepare("UPDATE coins SET sparkline = '[1, \"oops\"' WHERE id = 'solana'").run()
+      const overview = await h.run(Wealth.use((w) => w.overview))
+      expect(overview.items[0]!.trend?.sparkline).toEqual([])
+      expect((await h.run(Wealth.use((w) => w.coinHistory("solana")))).hourly).toBeNull()
+      expect(await h.run(Wealth.use((w) => w.coinHistory("unknown")))).toEqual({ daily: [], hourly: null })
+    } finally {
+      await h.dispose()
+    }
+  })
+
+  it("does not refresh on every visit a coin CoinGecko no longer lists", async () => {
+    const h = await createHarness({
+      now: NOW,
+      market: { cryptoMarkets: () => Effect.succeed(new Map()), cryptoHistory: () => Effect.succeed(yearOf(100)) },
+    })
+    try {
+      const id = await h.run(
+        Wealth.use((w) =>
+          w.create(manual({ name: "Delisted", type: "crypto", purchase: null, declared: null, retained: "estimated", source: { kind: "crypto", coinId: "gone", quantity: 1 } })),
+        ),
+      )
+      const result = await h.run(Wealth.use((w) => w.refresh({ ids: [id] })))
+      expect(result.failures).toHaveLength(1)
+      expect((await h.run(Wealth.use((w) => w.overview))).needsRefresh).toBe(false)
     } finally {
       await h.dispose()
     }

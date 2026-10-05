@@ -75,7 +75,7 @@ export const q = {
   wealth: () => queryOptions({ queryKey: ["wealth"], queryFn: () => getWealth() }),
   /** The assets of the wealth overview, without the accounts and their history. */
   wealthAssets: () => queryOptions({ queryKey: ["wealthAssets"], queryFn: () => getWealthAssets() }),
-  /** A coin's daily prices over the last year, from D1: the detail slices it by year or month. */
+  /** A coin's daily prices over the last year and hourly ones over 7 days, from D1: the detail slices them by period. */
   coinHistory: (coinId: string) => queryOptions({ queryKey: ["coinHistory", coinId], queryFn: () => getCoinHistory({ data: { coinId } }) }),
   dashboards: () => queryOptions({ queryKey: ["dashboards"], queryFn: () => getDashboards() }),
   accountsTotal: (months: number) =>

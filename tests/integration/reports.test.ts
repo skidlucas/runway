@@ -54,7 +54,11 @@ describe("Reports and dashboards", () => {
     await expect(h.run(Reports.use((r) => r.cashFlow(5)))).rejects.toThrow("Période invalide")
   })
 
-  it("follows the balance of every account, off-budget ones included", async () => {
+  it("follows the balance of every account, off-budget ones included, but not those left out of the net worth", async () => {
+    const kept = await h.run(
+      Accounts.use((a) => a.create({ name: "AV Zoé", kind: "investment", offBudget: true, startingBalance: 500_000, startingDate: "2020-01-01" })),
+    )
+    await h.run(Accounts.use((a) => a.update(kept, { inNetWorth: false })))
     const worth = await h.run(Reports.use((r) => r.accountsTotal(3)))
     expect(worth.current).toBe(100_000 + 1_000_000 + 250_000 - 97_000)
     expect(worth.months.at(-2)?.value).toBe(100_000 + 1_000_000 + 250_000 - 95_000)

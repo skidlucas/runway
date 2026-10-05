@@ -1,4 +1,4 @@
-import { Context, Effect, Layer, Result, Schema } from "effect"
+import { Context, Effect, Layer, Option, Result, Schema } from "effect"
 import { addMonths, type Day, lastDay, type Month, monthOf } from "~/domain/dates"
 import type { PropertyType } from "~/domain/wealth"
 import { ExternalError } from "../errors"
@@ -37,8 +37,8 @@ export class MarketData extends Context.Service<
     /** Euro price of each symbol, or why it could not be priced (unknown symbol, Yahoo down, no exchange rate). */
     quotes(symbols: ReadonlyArray<string>): Effect.Effect<Map<string, Result.Result<number, ExternalError>>>
     dvfPricePerM2(inseeCode: string, propertyType: PropertyType): Effect.Effect<DvfPrice, ExternalError>
-    /** Daily euro prices over the last year, oldest first. */
-    cryptoHistory(id: string): Effect.Effect<PricePoint[], ExternalError>
+    /** Daily euro prices over the last `days` days (at most 365), oldest first. */
+    cryptoHistory(id: string, days: number): Effect.Effect<PricePoint[], ExternalError>
     /** Month-end euro prices over the last year, oldest first. */
     quoteHistory(symbol: string): Effect.Effect<PricePoint[], ExternalError>
     /** One rolling 12-month price per published month (the month's last day), oldest first. */
@@ -48,7 +48,6 @@ export class MarketData extends Context.Service<
     searchCommunes(query: string): Effect.Effect<CommuneHit[], ExternalError>
   }
 >()("runway/server/services/MarketData") {
-  static readonly layer = Layer.sync(MarketData, () => makeLiveMarketData(fetch))
   static readonly layerWith = (options: MarketDataOptions) => Layer.sync(MarketData, () => makeLiveMarketData(fetch, options))
 }
 
@@ -67,8 +66,8 @@ export const euroSparkline = (usd: ReadonlyArray<number>, euroNow: number, chang
   const n = usd.length
   if (n < 2 || usd[0]! <= 0 || usd[n - 1]! <= 0) return []
   const rateNow = euroNow / usd[n - 1]!
-  const rateThen = change7d === null ? rateNow : euroNow / (1 + change7d) / usd[0]!
-  return usd.map((p, i) => p * (rateThen + ((rateNow - rateThen) * i) / (n - 1)))
+  const rateThen = change7d === null || change7d <= -1 ? rateNow : euroNow / (1 + change7d) / usd[0]!
+  return usd.map((p, i) => Number((p * (rateThen + ((rateNow - rateThen) * i) / (n - 1))).toPrecision(6)))
 }
 
 export type MarketDataOptions = {
@@ -110,31 +109,36 @@ export const makeLiveMarketData = (fetchFn: typeof fetch, options: MarketDataOpt
   const coinGecko = <T>(path: string, schema: Schema.Decoder<T>) =>
     getJson("CoinGecko", `https://api.coingecko.com/api/v3/${path}`, schema, coinGeckoHeaders)
 
-  const Percent = Schema.optional(Schema.NullOr(Schema.Number))
-  const Markets = Schema.Array(
+  // Coins are decoded one by one, and the sparkline apart: an odd entry costs that coin its
+  // price, or only its sparkline, never the prices of all the others.
+  const Percent = Schema.optional(Schema.NullOr(Schema.Finite))
+  const decodeCoin = Schema.decodeUnknownOption(
     Schema.Struct({
       id: Schema.String,
-      current_price: Schema.NullOr(Schema.Number),
+      current_price: Schema.optional(Schema.NullOr(Schema.Finite)),
       last_updated: Schema.optional(Schema.NullOr(Schema.String)),
       price_change_percentage_24h_in_currency: Percent,
       price_change_percentage_7d_in_currency: Percent,
-      sparkline_in_7d: Schema.optional(Schema.NullOr(Schema.Struct({ price: Schema.Array(Schema.Number) }))),
+      sparkline_in_7d: Schema.optional(Schema.Unknown),
     }),
   )
+  const decodeSparkline = Schema.decodeUnknownOption(Schema.Struct({ price: Schema.Array(Schema.Finite) }))
   const cryptoMarkets = (ids: ReadonlyArray<string>) =>
     ids.length === 0
       ? Effect.succeed(new Map<string, CoinMarket>())
       : coinGecko(
           `coins/markets?vs_currency=eur&ids=${ids.map(encodeURIComponent).join(",")}&per_page=250&sparkline=true&price_change_percentage=24h,7d`,
-          Markets,
+          Schema.Array(Schema.Unknown),
         ).pipe(
           Effect.map(
             (body) =>
               new Map(
-                body.flatMap((c) => {
-                  if (c.current_price === null) return []
+                body.flatMap((raw) => {
+                  const c = Option.getOrUndefined(decodeCoin(raw))
+                  if (c === undefined || c.current_price == null) return []
                   const fraction = (pct: number | null | undefined) => (typeof pct === "number" ? pct / 100 : null)
                   const change7d = fraction(c.price_change_percentage_7d_in_currency)
+                  const usd = Option.match(decodeSparkline(c.sparkline_in_7d), { onNone: () => [], onSome: (s) => s.price })
                   return [
                     [
                       c.id,
@@ -142,7 +146,7 @@ export const makeLiveMarketData = (fetchFn: typeof fetch, options: MarketDataOpt
                         price: c.current_price,
                         change24h: fraction(c.price_change_percentage_24h_in_currency),
                         change7d,
-                        hourly: euroSparkline(c.sparkline_in_7d?.price ?? [], c.current_price, change7d),
+                        hourly: euroSparkline(usd, c.current_price, change7d),
                         updatedAt: c.last_updated ?? null,
                       },
                     ] as const,
@@ -251,9 +255,9 @@ export const makeLiveMarketData = (fetchFn: typeof fetch, options: MarketDataOpt
   const dvfHistory = (inseeCode: string, propertyType: PropertyType) =>
     dvfSeries(inseeCode, propertyType).pipe(Effect.map((series) => series.map((p) => ({ date: lastDay(p.to), price: p.pricePerM2 }))))
 
-  const cryptoHistory = (id: string) =>
+  const cryptoHistory = (id: string, days: number) =>
     coinGecko(
-      `coins/${encodeURIComponent(id)}/market_chart?vs_currency=eur&days=365&interval=daily`,
+      `coins/${encodeURIComponent(id)}/market_chart?vs_currency=eur&days=${days}&interval=daily`,
       Schema.Struct({ prices: Schema.Array(Schema.Tuple([Schema.Finite, Schema.Number])) }),
     ).pipe(Effect.map((body) => body.prices.map(([t, price]) => ({ date: new Date(t).toISOString().slice(0, 10), price }))))
 
