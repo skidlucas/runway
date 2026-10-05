@@ -375,24 +375,18 @@ function AssetTable({
   )
 }
 
-/** "▲ 1,2 % sur 24h", dated when the last refresh is not today's. */
-function Trend({ change, period, className }: { change: number | null; period?: string; className?: string }) {
+function Trend({ change, className }: { change: number | null; className?: string }) {
   if (change === null) return <span className={cx("text-faint", className)}>—</span>
-  return (
-    <span className={cx(change >= 0 ? "text-positive" : "text-negative", className)}>
-      {change >= 0 ? "▲" : "▼"} {formatPercent(Math.abs(change))}
-      {period ? ` ${period}` : ""}
-    </span>
-  )
+  return <span className={cx(change >= 0 ? "text-positive" : "text-negative", className)}>{formatPercent(change, { sign: true })}</span>
 }
 
-/** "▲ 0,7 % 24h · ▼ 2,4 % 7 j", dated when the last refresh is not today's. */
 function TrendCaption({ trend, today, className }: { trend: CoinTrend; today: Day; className?: string }) {
   return (
     <span className={className}>
-      <Trend change={trend.change24h} period="24h" />
-      <span className="text-faint"> · </span>
-      <Trend change={trend.change7d} period="7 j" />
+      <span className="text-faint">24h </span>
+      <Trend change={trend.change24h} />
+      <span className="text-faint"> · 7 j </span>
+      <Trend change={trend.change7d} />
       {trend.date !== today ? <span className="text-faint"> · {formatDayShort(trend.date)}</span> : null}
     </span>
   )
@@ -743,6 +737,7 @@ function CoinChart({
         </span>
         <Segmented
           size="sm"
+          className="ml-auto"
           label="Période du graphique"
           value={period.value}
           onChange={setChosen}
