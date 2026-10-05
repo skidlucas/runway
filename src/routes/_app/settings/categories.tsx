@@ -173,7 +173,7 @@ function CategoryRow({
   const update = useAction(updateCategory, { writes: ["categories"] })
   const [deleting, setDeleting] = React.useState(false)
   return (
-    <div className="group flex h-9 items-center gap-2 border-b border-line-subtle pl-9 pr-5 hover:bg-hover">
+    <div data-testid="category-settings-row" className="group flex h-9 items-center gap-2 border-b border-line-subtle pl-9 pr-5 hover:bg-hover">
       <InlineName
         value={category.name}
         className={category.hidden ? "text-faint" : ""}

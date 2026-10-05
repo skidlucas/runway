@@ -1,6 +1,6 @@
 import { expect, type Page, test } from "@playwright/test"
-import { formatDayLong } from "../src/domain/dates"
-import { open, pickInCommand, visible, waitForToast } from "./helpers"
+import { firstDay, formatDayInput, formatDayLong, monthOf } from "../src/domain/dates"
+import { inDays, open, pickInCommand, visible, waitForToast } from "./helpers"
 
 test.describe.configure({ mode: "serial" })
 
@@ -37,7 +37,7 @@ test("enters an expense and updates the balance", async ({ page }) => {
   const row = page.getByTestId("tx-row").filter({ hasText: "Boulangerie" })
   await expect(row).toContainText("Courses")
   await expect(row).toContainText("−42,50 €")
-  await expect(page.getByRole("main").getByText("1 457,50 €").first()).toBeVisible()
+  await expect(page.getByRole("main").getByRole("group", { name: "Aujourd'hui" })).toContainText("1 457,50 €")
 })
 
 test("budgets a category from the month view", async ({ page }) => {
@@ -74,12 +74,6 @@ test("shows what a schedule needs in the budget and budgets it", async ({ page }
   await page.getByRole("button", { name: /^Budgéter 30,00\s€/ }).click()
   await expect(page.getByRole("button", { name: /^Budget Internet/ })).toHaveText(/^30,00\s€$/)
 })
-
-const inDays = (n: number) => {
-  const d = new Date()
-  d.setDate(d.getDate() + n)
-  return d.toLocaleDateString("sv-SE", { timeZone: "Europe/Paris" })
-}
 
 const openJointAccount = async (page: Page) => {
   await open(page, "/accounts")
@@ -123,26 +117,25 @@ test("keeps today's balance apart from operations dated later", async ({ page })
   await dialog.getByRole("button", { name: "Ajouter" }).click()
 
   const main = page.getByRole("main")
-  await expect(main.getByText("Aujourd'hui", { exact: true }).locator("..")).toContainText("1 457,50 €")
-  await expect(main.getByText("Avec les opérations à venir").locator("..")).toContainText("1 447,50 €")
+  await expect(main.getByRole("group", { name: "Aujourd'hui" })).toContainText("1 457,50 €")
+  await expect(main.getByRole("group", { name: "Avec les opérations à venir" })).toContainText("1 447,50 €")
   await expect(page.getByTestId("tx-row").filter({ hasText: "Pressing" })).toContainText("−10,00 €")
 })
 
 test("moves an operation to another day from the register", async ({ page }) => {
   await openJointAccount(page)
   const row = page.getByTestId("tx-row").filter({ hasText: "Pressing" })
-  const [y, m, d] = inDays(1).split("-")
-  await row.getByTitle(/ \d{4}$/).click()
-  await page.getByRole("dialog").getByLabel("Date").fill(`${d}/${m}/${y}`)
+  const tomorrow = inDays(1)
+  await row.getByTitle(formatDayLong(inDays(3))).click()
+  await page.getByRole("dialog").getByLabel("Date").fill(formatDayInput(tomorrow))
   await page.keyboard.press("Enter")
   await expect(page.getByRole("dialog")).toHaveCount(0)
 
-  await row.getByTitle(/ \d{4}$/).click()
-  await expect(page.getByRole("dialog").getByLabel("Date")).toHaveValue(`${d}/${m}/${y}`)
+  await row.getByTitle(formatDayLong(tomorrow)).click()
+  await expect(page.getByRole("dialog").getByLabel("Date")).toHaveValue(formatDayInput(tomorrow))
   const later = inDays(40)
-  const [ly, lm, ld] = later.split("-")
-  await page.getByRole("dialog").getByLabel("Date").fill(`${ld}/${lm}/${ly}`)
-  await expect(page.getByRole("dialog").locator(`[data-day="${later}"]`)).toBeVisible()
+  await page.getByRole("dialog").getByLabel("Date").fill(formatDayInput(later))
+  await expect(page.getByRole("dialog").getByRole("button", { name: formatDayLong(later), exact: true })).toBeVisible()
   await page.keyboard.press("Escape")
 })
 
@@ -186,6 +179,5 @@ test("saves the short date typed just before pressing Enter", async ({ page }) =
   await dialog.getByLabel("Date").fill("1")
   await dialog.getByLabel("Date").press("Enter")
   await expect(dialog).toHaveCount(0)
-  const [y, m] = inDays(0).split("-")
-  await expect(page.getByTestId("tx-row").filter({ hasText: "Kiosque" }).getByTitle(formatDayLong(`${y}-${m}-01`))).toBeVisible()
+  await expect(page.getByTestId("tx-row").filter({ hasText: "Kiosque" }).getByTitle(formatDayLong(firstDay(monthOf(inDays(0)))))).toBeVisible()
 })

@@ -1,5 +1,6 @@
 import { expect, test } from "@playwright/test"
-import { open, pickInCommand, visible, waitForToast } from "./helpers"
+import { formatMoney } from "../src/domain/money"
+import { amountIn, open, pickInCommand, visible, waitForToast } from "./helpers"
 
 const tabs = [
   { name: "Accueil", url: /\/forecast/ },
@@ -45,8 +46,10 @@ test("moves money from a category that is not overspent", async ({ page }) => {
 
 test("wealth opens an asset in a sheet", async ({ page }) => {
   await open(page, "/wealth")
-  // The last desktop spec replaced everything with an Actual export: only accounts are left.
-  await page.getByRole("main").getByRole("button", { name: /^Compte courant/ }).click()
+  // The backup spec replaced everything with an Actual export: only accounts are left.
+  const account = page.getByRole("main").getByRole("button", { name: /^Compte courant/ })
+  const value = await amountIn(account)
+  await account.click()
   await expect(visible(page.getByTestId("asset-detail"))).toContainText("Valeur retenue")
-  await expect(visible(page.getByTestId("asset-detail"))).toContainText("11 576 €")
+  await expect(visible(page.getByTestId("asset-detail"))).toContainText(formatMoney(value, { decimals: 0 }))
 })

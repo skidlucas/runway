@@ -2,6 +2,7 @@
 import type { QueryClient } from "@tanstack/react-query"
 import { createRootRouteWithContext, HeadContent, Outlet, Scripts } from "@tanstack/react-router"
 import type * as React from "react"
+import { useEffect } from "react"
 import { useThemeSync } from "~/components/theme"
 import { Toaster } from "~/components/toast"
 import appCss from "~/styles/app.css?url"
@@ -31,6 +32,11 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
 
 function RootComponent() {
   useThemeSync()
+  // The root's effect runs once the whole server-rendered page is hydrated: end-to-end tests
+  // wait for this flag, since a click landing before React attaches its handlers is lost.
+  useEffect(() => {
+    document.documentElement.dataset.hydrated = "true"
+  }, [])
   return <Outlet />
 }
 

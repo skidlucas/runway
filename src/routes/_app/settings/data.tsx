@@ -488,7 +488,7 @@ function ExportSection() {
       </div>
       <div className="rounded-[10px] border border-line">
         {rows.map((r, i) => (
-          <div key={r.key} className={cx("flex items-center gap-3 px-4 py-3.5", i > 0 && "border-t border-line")}>
+          <div key={r.key} role="group" aria-label={r.title} className={cx("flex items-center gap-3 px-4 py-3.5", i > 0 && "border-t border-line")}>
             <span className="flex flex-1 flex-col gap-0.5">
               <span className="font-medium">{r.title}</span>
               <span className="text-muted">{r.hint}</span>

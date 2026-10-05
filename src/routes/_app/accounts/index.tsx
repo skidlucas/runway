@@ -79,10 +79,10 @@ function AccountsPage() {
           </Link>
           {sections.map(([title, items], si) =>
             items.length === 0 ? null : (
-              <section key={title} className="mt-4">
+              <section key={title} aria-label={title} className="mt-4">
                 <div className="px-5 pb-1.5 text-[12px] text-faint">{title}</div>
                 {items.map((a, i) => (
-                  <div key={a.id} className="group flex items-center border-b border-line-subtle pr-3 hover:bg-hover">
+                  <div key={a.id} data-testid="account-row" className="group flex items-center border-b border-line-subtle pr-3 hover:bg-hover">
                     <Link
                       to="/accounts/$accountId"
                       params={{ accountId: a.id }}

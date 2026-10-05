@@ -9,12 +9,10 @@ const accountBalances = async (page: Page) => {
   return page.getByRole("main").getByRole("link").filter({ hasText: /€/ }).allInnerTexts()
 }
 
-const exportFile = async (page: Page, row: string) => {
+const exportFile = async (page: Page, format: string) => {
   await open(page, "/settings/data")
   const download = page.waitForEvent("download")
-  // The innermost block holding both the format name and a button is that format's row.
-  const formatRow = page.getByRole("main").locator("div").filter({ hasText: row }).filter({ has: page.getByRole("button") }).last()
-  await formatRow.getByRole("button", { name: /^Exporter/ }).click()
+  await page.getByRole("group", { name: format }).getByRole("button", { name: /^Exporter/ }).click()
   return (await download).path()
 }
 

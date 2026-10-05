@@ -1148,13 +1148,16 @@ export const Kpi = ({
   size?: "md" | "lg"
   className?: string
   valueClassName?: string
-}) => (
-  <div className={cx("flex min-w-0 flex-col gap-1", className)}>
-    <span className="text-[12px] text-faint">{label}</span>
-    <span className={cx("num truncate", size === "lg" ? "text-[24px]" : "text-[18px]", valueClassName)}>{value}</span>
-    {hint ? <span className="text-[12px] text-muted">{hint}</span> : null}
-  </div>
-)
+}) => {
+  const labelId = React.useId()
+  return (
+    <div role="group" aria-labelledby={labelId} className={cx("flex min-w-0 flex-col gap-1", className)}>
+      <span id={labelId} className="text-[12px] text-faint">{label}</span>
+      <span className={cx("num truncate", size === "lg" ? "text-[24px]" : "text-[18px]", valueClassName)}>{value}</span>
+      {hint ? <span className="text-[12px] text-muted">{hint}</span> : null}
+    </div>
+  )
+}
 
 export const ProgressBar = ({ ratio, tone = "accent", className }: { ratio: number; tone?: "accent" | "negative"; className?: string }) => (
   <div className={cx("h-1 overflow-hidden rounded-full bg-bar", className)}>

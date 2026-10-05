@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test"
-import { cents, open, visible, waitForToast } from "./helpers"
+import { amountIn, cents, open, visible, waitForToast } from "./helpers"
 
 test.describe.configure({ mode: "serial" })
 
@@ -68,7 +68,7 @@ test("adds a loan and nets it against real estate", async ({ page }) => {
   // 100 000 € over 120 months at 0 %: 833,33 € less owed each month since 2020.
   const row = page.getByTestId("asset-row").filter({ hasText: "Crédit test" })
   await expect(row).toContainText("Tableau d'amortissement")
-  const owed = cents((await row.innerText()).split("\n").find((l) => l.includes("€"))!)
+  const owed = await amountIn(row)
   expect(owed).toBeLessThan(0)
   expect(owed).toBeGreaterThan(-100_000_00)
   await expect.poll(async () => cents(await netWorth.innerText())).toBe(before + owed)

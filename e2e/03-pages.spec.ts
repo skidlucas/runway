@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test"
-import { cents, open, visible } from "./helpers"
+import { amountIn, cents, open, visible } from "./helpers"
 
 // The fixture's dates are fixed (March to October 2026): these checks hold whatever today is.
 
@@ -9,7 +9,7 @@ test("the forecast reconciles today's balance with the projection", async ({ pag
   await expect(main.getByText("Solde aujourd'hui")).toBeVisible()
   await expect(main.getByText(/Solde projeté au/)).toBeVisible()
   await expect(main.getByText("Solde projeté jour par jour")).toBeVisible()
-  const projected = cents(await main.getByText(/Solde projeté au/).locator("..").innerText().then((t) => t.split("\n")[1] ?? ""))
+  const projected = await amountIn(main.getByRole("group", { name: /Solde projeté au/ }))
   // The budget header shows the same end-of-month projection.
   await open(page, "/budget")
   await expect(page.getByTestId("chip-end-of-month")).toHaveText(/€/)
@@ -17,25 +17,34 @@ test("the forecast reconciles today's balance with the projection", async ({ pag
 })
 
 test("the forecast opens on the first budget account, in the order set on the accounts page", async ({ page }) => {
-  await open(page, "/accounts")
-  const rows = page.getByRole("main").locator("section").first().locator(":scope > div").filter({ has: page.getByRole("link") })
-  const second = (await rows.nth(1).getByRole("link").innerText()).split("\n")[0] ?? ""
-  await rows.nth(1).getByRole("button", { name: "Monter" }).click()
-  await expect(rows.first().getByRole("link")).toContainText(second)
+  // The forecast's account tabs list the budget accounts in the accounts page order, then "Tous".
   await open(page, "/forecast")
-  await expect(page.getByRole("tablist", { name: "Compte" }).getByRole("tab", { name: second })).toHaveAttribute("aria-selected", "true")
+  const tabs = page.getByRole("tablist", { name: "Compte" })
+  const [first, second] = await tabs.getByRole("tab").allTextContents()
+  expect(second).not.toBe("Tous")
+  await expect(tabs.getByRole("tab", { name: first })).toHaveAttribute("aria-selected", "true")
+
   await open(page, "/accounts")
-  await rows.first().getByRole("button", { name: "Descendre" }).click()
-  await expect(rows.nth(1).getByRole("link")).toContainText(second)
+  const rows = page.getByRole("region", { name: "Budget", exact: true }).getByTestId("account-row")
+  const row = (name: string) => rows.filter({ has: page.getByRole("link", { name: new RegExp(`^${name}\\s`) }) })
+  await row(second!).getByRole("button", { name: "Monter" }).click()
+  await expect(rows.first()).toContainText(second!)
+  await open(page, "/forecast")
+  await expect(tabs.getByRole("tab", { name: second })).toHaveAttribute("aria-selected", "true")
+
+  await open(page, "/accounts")
+  await row(second!).getByRole("button", { name: "Descendre" }).click()
+  await expect(rows.first()).toContainText(first!)
 })
 
 test("insights chart a year of spending and break it down by payee", async ({ page }) => {
   await open(page, "/insights")
   const chart = visible(page.getByRole("img", { name: "Toutes les dépenses par mois" }))
+  // The bars are plain SVG paths drawn by the chart library, with no role of their own.
   const bars = chart.locator(".ts-chart__bar-y path")
   await expect(bars).toHaveCount(12)
   await bars.last().hover()
-  await expect(page.locator(".ts-chart-tooltip").filter({ visible: true })).toContainText("Total")
+  await expect(visible(page.getByRole("status").filter({ hasText: "Total" }))).toBeVisible()
   await expect(visible(page.getByText(/Par bénéficiaire/)).first()).toBeVisible()
   // No AI key in the e2e server: the page says how to enable the written analysis.
   await expect(visible(page.getByText(/OPENAI_API_KEY ou ANTHROPIC_API_KEY/)).first()).toBeVisible()
