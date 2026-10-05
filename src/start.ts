@@ -1,4 +1,5 @@
 import { createCsrfMiddleware, createMiddleware, createStart } from "@tanstack/react-start"
+import { clientErrors } from "./server/client-errors"
 
 export const securityHeaders = createMiddleware().server(async ({ next, request }) => {
   const result = await next()
@@ -19,4 +20,5 @@ export const securityHeaders = createMiddleware().server(async ({ next, request 
 // CSRF check on server functions: it has to be listed again here.
 export const startInstance = createStart(() => ({
   requestMiddleware: [securityHeaders, createCsrfMiddleware({ filter: (ctx) => ctx.handlerType === "serverFn" })],
+  functionMiddleware: [clientErrors],
 }))

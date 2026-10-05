@@ -95,3 +95,22 @@ test("a saved view becomes a tab of the insights page", async ({ page }) => {
   await page.getByTestId("confirm-dialog-confirm").click()
   await expect(tabs).toHaveCount(0)
 })
+
+test("a server call rejected for its input shows a generic message, without the server's details", async ({ page }) => {
+  await open(page, "/budget")
+  let body = ""
+  await page.route(/\/_serverFn\//, async (route) => {
+    const url = decodeURIComponent(route.request().url())
+    if (route.request().method() !== "GET" || !/\d{4}-\d{2}/.test(url)) return route.continue()
+    const tampered = new URL(route.request().url())
+    tampered.search = new URLSearchParams(
+      [...tampered.searchParams].map(([key, value]) => [key, value.replace(/\d{4}-\d{2}/g, "pas-un-mois")]),
+    ).toString()
+    const response = await route.fetch({ url: tampered.toString() })
+    body = await response.text()
+    await route.fulfill({ response, body })
+  })
+  await page.getByRole("button", { name: "Mois suivant" }).first().click()
+  await expect(page.getByRole("status").filter({ hasText: "Une erreur inattendue est survenue" })).toBeVisible()
+  expect(body).not.toMatch(/stack|Expected|issues|node_modules|\.ts:\d/)
+})

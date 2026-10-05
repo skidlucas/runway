@@ -1,7 +1,7 @@
 import { env } from "./env"
 import { Cause, type Effect, Exit, type Layer, ManagedRuntime, Option } from "effect"
 import { makeAppLayer } from "./app-layer"
-import { clientError, ExternalError, Invalid, NotFound, userMessageOf } from "./errors"
+import { clientError, ExternalError, Invalid, NotFound, UNEXPECTED_ERROR, userMessageOf } from "./errors"
 
 type AppServices = Layer.Success<ReturnType<typeof makeAppLayer>>
 
@@ -25,5 +25,5 @@ export const runApp = async <A, E>(effect: Effect.Effect<A, E, AppServices>): Pr
   // HTTP status) and database failures have to reach the Workers logs.
   if (failure instanceof ExternalError) console.warn(`[${failure.service}] ${failure.message}`, failure.cause)
   else if (!(failure instanceof NotFound || failure instanceof Invalid)) console.error(Cause.pretty(exit.cause))
-  throw clientError(userMessageOf(failure) ?? "Une erreur inattendue est survenue")
+  throw clientError(userMessageOf(failure) ?? UNEXPECTED_ERROR)
 }
