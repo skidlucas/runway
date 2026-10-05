@@ -12,6 +12,7 @@ import {
   FULL_SHARE,
   isShare,
   latestOn,
+  type PropertyType,
   loanBalance,
   type RetainedKind,
   historyChange,
@@ -448,7 +449,7 @@ export class Wealth extends Context.Service<
           yield* Effect.forEach(
             keys.filter((key) => !key.startsWith("crypto|")),
             (key) => {
-              const [kind, id, type] = key.split("|") as [string, string, "apartment" | "house"]
+              const [kind, id, type] = key.split("|") as [string, string, PropertyType]
               const fetch = kind === "stock" ? market.quoteHistory(id) : market.dvfHistory(id, type)
               return fetch.pipe(
                 Effect.option,
@@ -506,7 +507,7 @@ export class Wealth extends Context.Service<
             Effect.forEach(
               dvfKeys,
               (key) => {
-                const [insee, type] = key.split("|") as [string, "apartment" | "house"]
+                const [insee, type] = key.split("|") as [string, PropertyType]
                 return market.dvfPricePerM2(insee, type).pipe(Effect.result, Effect.map((r) => [key, r] as const))
               },
               { concurrency: 2 },

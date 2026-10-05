@@ -1,5 +1,6 @@
 import { Context, Effect, Layer, Result, Schema } from "effect"
 import { addMonths, type Day, lastDay, type Month, monthOf } from "~/domain/dates"
+import type { PropertyType } from "~/domain/wealth"
 import { ExternalError } from "../errors"
 
 // Free public sources, no API key. Each one can disappear or rate-limit: callers treat every
@@ -24,13 +25,13 @@ export class MarketData extends Context.Service<
     cryptoPrices(ids: ReadonlyArray<string>): Effect.Effect<Map<string, number>, ExternalError>
     /** Euro price of each symbol, or why it could not be priced (unknown symbol, Yahoo down, no exchange rate). */
     quotes(symbols: ReadonlyArray<string>): Effect.Effect<Map<string, Result.Result<number, ExternalError>>>
-    dvfPricePerM2(inseeCode: string, propertyType: "apartment" | "house"): Effect.Effect<DvfPrice, ExternalError>
+    dvfPricePerM2(inseeCode: string, propertyType: PropertyType): Effect.Effect<DvfPrice, ExternalError>
     /** Daily euro prices over the last year, oldest first. */
     cryptoHistory(id: string): Effect.Effect<PricePoint[], ExternalError>
     /** Month-end euro prices over the last year, oldest first. */
     quoteHistory(symbol: string): Effect.Effect<PricePoint[], ExternalError>
     /** One rolling 12-month price per published month (the month's last day), oldest first. */
-    dvfHistory(inseeCode: string, propertyType: "apartment" | "house"): Effect.Effect<PricePoint[], ExternalError>
+    dvfHistory(inseeCode: string, propertyType: PropertyType): Effect.Effect<PricePoint[], ExternalError>
     searchCoins(query: string): Effect.Effect<CoinHit[], ExternalError>
     searchSymbols(query: string): Effect.Effect<SymbolHit[], ExternalError>
     searchCommunes(query: string): Effect.Effect<CommuneHit[], ExternalError>
@@ -142,7 +143,7 @@ export const makeLiveMarketData = (fetchFn: typeof fetch): MarketData["Service"]
 
   // Monthly medians are noisy (a few dozen sales): each point is the sales-weighted average of
   // the medians of the 12 months up to it.
-  const dvfSeries = (inseeCode: string, propertyType: "apartment" | "house") =>
+  const dvfSeries = (inseeCode: string, propertyType: PropertyType) =>
     getJson("DVF", `${DVF_MONTHLY}?code_geo__exact=${encodeURIComponent(inseeCode)}&annee_mois__sort=desc&page_size=24`, DvfPage).pipe(
       Effect.map(({ data }) => {
         const byMonth = new Map<Month, { n: number; median: number }>()
@@ -169,7 +170,7 @@ export const makeLiveMarketData = (fetchFn: typeof fetch): MarketData["Service"]
       }),
     )
 
-  const dvfPricePerM2 = (inseeCode: string, propertyType: "apartment" | "house") =>
+  const dvfPricePerM2 = (inseeCode: string, propertyType: PropertyType) =>
     dvfSeries(inseeCode, propertyType).pipe(
       Effect.flatMap((series) =>
         series.length > 0
@@ -180,7 +181,7 @@ export const makeLiveMarketData = (fetchFn: typeof fetch): MarketData["Service"]
       ),
     )
 
-  const dvfHistory = (inseeCode: string, propertyType: "apartment" | "house") =>
+  const dvfHistory = (inseeCode: string, propertyType: PropertyType) =>
     dvfSeries(inseeCode, propertyType).pipe(Effect.map((series) => series.map((p) => ({ date: lastDay(p.to), price: p.pricePerM2 }))))
 
   const cryptoHistory = (id: string) =>

@@ -1,5 +1,6 @@
 import * as React from "react"
 import {
+  ASSET_TYPES,
   type AssetType,
   applyShare,
   FULL_SHARE,
@@ -8,6 +9,11 @@ import {
   loanBalance,
   loanEndMonth,
   loanMonthlyPayment,
+  PROPERTY_TYPE_LABELS,
+  PROPERTY_TYPES,
+  type PropertyType,
+  RETAINED_KINDS,
+  RETAINED_LABELS,
   type RetainedKind,
   TYPE_LABELS,
 } from "~/domain/wealth"
@@ -56,7 +62,7 @@ type Draft = {
   commune: { id: string; label: string } | null
   quantity: string
   surface: string
-  propertyType: "apartment" | "house"
+  propertyType: PropertyType
   // Loan
   principal: string
   rate: string
@@ -244,7 +250,7 @@ export function AssetDialog({
             <Select
               value={d.type}
               onChange={changeType}
-              options={(Object.keys(TYPE_LABELS) as AssetType[]).map((t) => ({ value: t, label: TYPE_LABELS[t] }))}
+              options={ASSET_TYPES.map((t) => ({ value: t, label: TYPE_LABELS[t] }))}
             />
           </Field>
         </div>
@@ -322,11 +328,7 @@ export function AssetDialog({
                 label="Valeur retenue dans le total"
                 value={d.retained}
                 onChange={(v) => set("retained", v)}
-                options={[
-                  { value: "purchase", label: "Achat" },
-                  { value: "declared", label: "Déclarée" },
-                  { value: "estimated", label: "Estimée" },
-                ]}
+                options={RETAINED_KINDS.map((kind) => ({ value: kind, label: RETAINED_LABELS[kind] }))}
               />
             </div>
           </>
@@ -360,10 +362,7 @@ function SourceFields({ d, set }: { d: Draft; set: <K extends keyof Draft>(key: 
             label="Type de bien"
             value={d.propertyType}
             onChange={(v) => set("propertyType", v)}
-            options={[
-              { value: "apartment", label: "Appartement" },
-              { value: "house", label: "Maison" },
-            ]}
+            options={PROPERTY_TYPES.map((type) => ({ value: type, label: PROPERTY_TYPE_LABELS[type] }))}
           />
           <p className="col-span-2 text-[12px] text-faint">
             Prix médian au m² des ventes des 12 derniers mois publiés (DVF), multiplié par la surface. Mis à jour chaque mois.{" "}

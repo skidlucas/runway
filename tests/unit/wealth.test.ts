@@ -156,7 +156,7 @@ describe("assetTypeTotals", () => {
   ] as const
 
   it("sums assets by type in a fixed order, leaving accounts and empty types out", () => {
-    expect(assetTypeTotals(items, { accounts: false })).toEqual([
+    expect(assetTypeTotals(items, { includeAccounts: false })).toEqual([
       { type: "real_estate", total: 250_000_00, count: 1 },
       { type: "loan", total: -150_000_00, count: 1 },
       { type: "crypto", total: 8_500_00, count: 2 },
@@ -164,7 +164,7 @@ describe("assetTypeTotals", () => {
   })
 
   it("counts accounts under their type when asked", () => {
-    expect(assetTypeTotals(items, { accounts: true }).map((t) => t.type)).toEqual(["real_estate", "loan", "investment", "crypto"])
+    expect(assetTypeTotals(items, { includeAccounts: true }).map((t) => t.type)).toEqual(["real_estate", "loan", "investment", "crypto"])
   })
 })
 

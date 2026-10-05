@@ -93,7 +93,7 @@ function AssetTypeSection({ path }: { path: string }) {
   const wealth = useQuery(q.wealthAssets())
   const activeType = useRouterState({ select: (s) => (s.location.search as { type?: string }).type })
   // Accounts already have their own sections above.
-  const types = assetTypeTotals(wealth.data?.items ?? [], { accounts: false })
+  const types = assetTypeTotals(wealth.data?.items ?? [], { includeAccounts: false })
   if (types.length === 0) return null
   return (
     <div className="flex flex-col gap-px max-[1100px]:hidden">

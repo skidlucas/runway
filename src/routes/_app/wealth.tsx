@@ -18,8 +18,11 @@ import {
   FULL_SHARE,
   formatShare,
   historyChange,
+  isAutomaticSource,
   loanEndMonth,
   loanMonthlyPayment,
+  PROPERTY_TYPE_LABELS,
+  RETAINED_LABELS,
   type RetainedKind,
   TYPE_LABELS,
   TYPE_PLURAL_LABELS,
@@ -57,8 +60,6 @@ const BUCKET_COLOR: Record<WealthBucket, string> = {
 
 const BUCKET_ORDER: WealthBucket[] = ["real_estate", "investments", "crypto", "vehicles", "objects", "cash"]
 
-const RETAINED_LABEL: Record<RetainedKind, string> = { purchase: "achat", declared: "déclarée", estimated: "estimée" }
-
 const euros = (cents: number) => formatMoney(cents, { decimals: 0 })
 
 const sortItems = (items: ReadonlyArray<WealthItem>) =>
@@ -81,7 +82,7 @@ function WealthPage() {
   const type = mobile ? undefined : search.type
   const shown = type ? items.filter((i) => i.type === type) : items
   const selected = shown.find((i) => i.id === selectedId) ?? shown.find((i) => i.kind === "asset") ?? shown[0] ?? null
-  const types = assetTypeTotals(items, { accounts: true })
+  const types = assetTypeTotals(items, { includeAccounts: true })
   const credits = [...new Set(items.map((i) => creditOf(i.source)).filter((c) => c !== null))]
   const editing = dialog ?? (search.new ? { item: null } : null)
 
@@ -96,7 +97,7 @@ function WealthPage() {
   }, [data?.needsRefresh, refresh])
 
   const refreshAll = () =>
-    refresh.mutate({ data: { ids: items.filter((i) => i.source && isAutomaticSource(i)).map((i) => i.id) } }, { onSuccess: toastRefresh })
+    refresh.mutate({ data: { ids: items.filter((i) => isAutomaticSource(i.source)).map((i) => i.id) } }, { onSuccess: toastRefresh })
 
   return (
     <>
@@ -183,9 +184,6 @@ const toastRefresh = (r: RefreshResult) =>
     { duration: r.failures.length ? 7000 : 3500 },
   )
 
-const isAutomaticSource = (item: WealthItem) =>
-  item.source?.kind === "crypto" || item.source?.kind === "stock" || item.source?.kind === "real_estate"
-
 // --- Summary ---------------------------------------------------------------------
 
 function Change({ change, months, className }: { change: WealthChange | null; months: ReadonlyArray<Month>; className?: string }) {
@@ -268,9 +266,9 @@ const dataAge = (e: { asOf: string | null }) => (e.asOf ? ` · ventes jusqu'à $
 
 function estimateCaption(item: WealthItem, today: string): { text: string; tone: "live" | "manual" | "stale" } {
   const e = item.estimate
-  if (!e) return { text: isAutomaticSource(item) ? "En attente de cotation" : "Déclarative uniquement", tone: "manual" }
+  if (!e) return { text: isAutomaticSource(item.source) ? "En attente de cotation" : "Déclarative uniquement", tone: "manual" }
   if (item.stale) return { text: `À mettre à jour · ${formatDayLong(e.date)}`, tone: "stale" }
-  const when = e.label === "Compte suivi" || e.label === "Tableau d'amortissement" ? "" : ` · ${e.date === today ? "aujourd'hui" : formatDayShort(e.date)}`
+  const when = e.kind === "valuation" ? ` · ${e.date === today ? "aujourd'hui" : formatDayShort(e.date)}` : ""
   return { text: `${e.label}${when}${dataAge(e)}`, tone: e.automatic ? "live" : "manual" }
 }
 
@@ -350,7 +348,7 @@ function sourceDescription(item: WealthItem): string | null {
   if (!s) return null
   switch (s.kind) {
     case "real_estate":
-      return `${s.label ?? `Commune ${s.inseeCode}`} · ${s.surface} m² ${s.propertyType === "apartment" ? "(appartement)" : "(maison)"}${unit ? ` × ${euros(unit * 100)}/m²` : ""}`
+      return `${s.label ?? `Commune ${s.inseeCode}`} · ${s.surface} m² (${PROPERTY_TYPE_LABELS[s.propertyType].toLowerCase()})${unit ? ` × ${euros(unit * 100)}/m²` : ""}`
     case "crypto":
       return `${String(s.quantity).replace(".", ",")} × ${s.label ?? s.coinId}${unit ? ` à ${formatMoney(Math.round(unit * 100))}` : ""}`
     case "stock":
@@ -421,7 +419,7 @@ function Detail({ item, months, today, onEdit }: { item: WealthItem; months: Mon
     <div className="flex flex-col" data-testid="asset-detail">
       <div className="flex h-12 items-center gap-2 border-b border-line px-[18px]">
         <span className="min-w-0 flex-1 truncate font-medium" title={item.name}>{item.name}</span>
-        {isAutomaticSource(item) ? (
+        {isAutomaticSource(item.source) ? (
           <IconButton
             label="Mettre à jour l'estimation"
             size="sm"
@@ -454,7 +452,7 @@ function Detail({ item, months, today, onEdit }: { item: WealthItem; months: Mon
       <div className="flex flex-col gap-[18px] p-[18px]">
         <div className="flex flex-col gap-1">
           <span className="text-[12px] text-faint">
-            Valeur retenue{item.retainedUsed ? ` · ${RETAINED_LABEL[item.retainedUsed]}` : ""}
+            Valeur retenue{item.retainedUsed ? ` · ${RETAINED_LABELS[item.retainedUsed].toLowerCase()}` : ""}
             {shared ? ` · ta part ${formatShare(item.share)}` : ""}
           </span>
           <span className="num text-[26px]">{euros(item.value)}</span>

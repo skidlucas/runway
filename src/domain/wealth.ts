@@ -10,6 +10,11 @@ export const ASSET_TYPES = ["real_estate", "loan", "investment", "crypto", "vehi
 export type AssetType = (typeof ASSET_TYPES)[number]
 export const RETAINED_KINDS = ["purchase", "declared", "estimated"] as const
 export type RetainedKind = (typeof RETAINED_KINDS)[number]
+export const RETAINED_LABELS: Record<RetainedKind, string> = { purchase: "Achat", declared: "Déclarée", estimated: "Estimée" }
+/** The DVF price series a real estate valuation follows. */
+export const PROPERTY_TYPES = ["apartment", "house"] as const
+export type PropertyType = (typeof PROPERTY_TYPES)[number]
+export const PROPERTY_TYPE_LABELS: Record<PropertyType, string> = { apartment: "Appartement", house: "Maison" }
 export type DatedAmount = { amount: number; date: Day | null }
 
 export type WealthBucket = "real_estate" | "investments" | "crypto" | "objects" | "vehicles" | "cash"
@@ -63,11 +68,11 @@ export const TYPE_PLURAL_LABELS: Record<AssetType, string> = {
 /** Items summed by type, in `ASSET_TYPES` order; values are signed, so loans are negative. */
 export const assetTypeTotals = (
   items: ReadonlyArray<{ kind: "asset" | "account"; type: AssetType; value: number }>,
-  { accounts }: { accounts: boolean },
+  { includeAccounts }: { includeAccounts: boolean },
 ) => {
   const totals = new Map<AssetType, { total: number; count: number }>()
   for (const item of items) {
-    if (!accounts && item.kind !== "asset") continue
+    if (!includeAccounts && item.kind !== "asset") continue
     const t = totals.get(item.type) ?? { total: 0, count: 0 }
     totals.set(item.type, { total: t.total + item.value, count: t.count + 1 })
   }

@@ -4,7 +4,7 @@ import { isDay, isMonth } from "~/domain/dates"
 import { INSIGHT_MEASURES, INSIGHT_MONTHS, INSIGHT_ROLLING, INSIGHT_TARGET_KINDS } from "~/domain/insights"
 import { RECURRENCE_UNITS } from "~/domain/recurrence"
 import { RULE_CONDITION_FIELDS, RULE_CONDITION_OPS, RULE_CONDITIONS_OPS, RULE_ORIGINS } from "~/domain/rules"
-import { ASSET_TYPES, RETAINED_KINDS } from "~/domain/wealth"
+import { ASSET_TYPES, PROPERTY_TYPES, RETAINED_KINDS } from "~/domain/wealth"
 
 // Upper bounds on free-form inputs. Import payloads keep their own, unbounded schemas: they
 // carry whatever the source app allowed and are already split into chunks by the client.
@@ -64,7 +64,7 @@ export const ValuationSource = Schema.Union([
     kind: Schema.Literal("real_estate"),
     inseeCode: Schema.String,
     surface: Schema.Finite,
-    propertyType: Schema.Literals(["apartment", "house"]),
+    propertyType: Schema.Literals(PROPERTY_TYPES),
     label: Schema.optional(Schema.String),
   }),
   Schema.Struct({
