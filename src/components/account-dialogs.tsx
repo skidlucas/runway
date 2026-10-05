@@ -91,6 +91,7 @@ export function EditAccountDialog({ account, onClose }: { account: AccountDto; o
   const [kind, setKind] = React.useState<AccountKind>(account.kind)
   const [inForecast, setInForecast] = React.useState(account.inForecast)
   const [offBudget, setOffBudget] = React.useState(account.offBudget)
+  const [inNetWorth, setInNetWorth] = React.useState(account.inNetWorth)
   const update = useAction(updateAccount, { success: "Compte modifié", onSuccess: onClose, writes: ["accounts", "transactionCategories"] })
   return (
     <Dialog
@@ -104,7 +105,7 @@ export function EditAccountDialog({ account, onClose }: { account: AccountDto; o
           <Button
             variant="primary"
             loading={update.isPending}
-            onClick={() => update.mutate({ data: { id: account.id, name, kind, inForecast, offBudget } })}
+            onClick={() => update.mutate({ data: { id: account.id, name, kind, inForecast, offBudget, inNetWorth } })}
           >
             Enregistrer
           </Button>
@@ -131,6 +132,13 @@ export function EditAccountDialog({ account, onClose }: { account: AccountDto; o
             <span className="block text-[12px] text-faint">Son solde compte dans « Fin de mois »</span>
           </span>
           <Switch checked={inForecast} onCheckedChange={setInForecast} label="Inclus dans la prévision" />
+        </label>
+        <label className="flex items-center justify-between gap-3">
+          <span>
+            Compté dans le patrimoine
+            <span className="block text-[12px] text-faint">Sinon, il reste suivi à part, sous « Hors patrimoine »</span>
+          </span>
+          <Switch checked={inNetWorth} onCheckedChange={setInNetWorth} label="Compté dans le patrimoine" />
         </label>
       </div>
     </Dialog>

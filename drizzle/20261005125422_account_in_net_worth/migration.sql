@@ -1,0 +1,1 @@
+ALTER TABLE `accounts` ADD `in_net_worth` integer DEFAULT true NOT NULL;

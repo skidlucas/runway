@@ -20,6 +20,7 @@ export type AccountDto = {
   offBudget: boolean
   closed: boolean
   inForecast: boolean
+  inNetWorth: boolean
   sortOrder: number
   lastReconciledAt: string | null
   /** Every transaction, future-dated ones included. */
@@ -45,7 +46,7 @@ export class Accounts extends Context.Service<
     create(input: AccountInput): Effect.Effect<string, DbError | Invalid | NotFound>
     update(
       id: string,
-      patch: { name?: string; kind?: AccountKind; offBudget?: boolean; inForecast?: boolean },
+      patch: { name?: string; kind?: AccountKind; offBudget?: boolean; inForecast?: boolean; inNetWorth?: boolean },
     ): Effect.Effect<void, DbError | Invalid | NotFound>
     setClosed(id: string, closed: boolean): Effect.Effect<void, DbError | NotFound>
     /** Deletes an account and its transactions. Transfers to it become plain transactions on the other side. */
@@ -72,7 +73,7 @@ export class Accounts extends Context.Service<
           d1
             .prepare(
               `SELECT a.id, a.name, a.kind, a.off_budget AS offBudget, a.closed, a.in_forecast AS inForecast,
-                      a.sort_order AS sortOrder, a.last_reconciled_at AS lastReconciledAt,
+                      a.in_net_worth AS inNetWorth, a.sort_order AS sortOrder, a.last_reconciled_at AS lastReconciledAt,
                       COALESCE(SUM(t.amount), 0) AS balance,
                       COALESCE(SUM(CASE WHEN t.date <= ? THEN t.amount END), 0) AS balanceToday,
                       COALESCE(SUM(CASE WHEN t.cleared = 1 THEN t.amount END), 0) AS clearedBalance,
@@ -83,13 +84,21 @@ export class Accounts extends Context.Service<
                ORDER BY a.closed, a.off_budget, a.sort_order, a.name COLLATE NOCASE`,
             )
             .bind(today)
-            .all<Omit<AccountDto, "offBudget" | "closed" | "inForecast"> & { offBudget: number; closed: number; inForecast: number }>(),
+            .all<
+              Omit<AccountDto, "offBudget" | "closed" | "inForecast" | "inNetWorth"> & {
+                offBudget: number
+                closed: number
+                inForecast: number
+                inNetWorth: number
+              }
+            >(),
         )
         return rows.results.map((r) => ({
           ...r,
           offBudget: r.offBudget === 1,
           closed: r.closed === 1,
           inForecast: r.inForecast === 1,
+          inNetWorth: r.inNetWorth === 1,
         }))
       }).pipe(Effect.withSpan("Accounts.list"))
 
@@ -151,7 +160,7 @@ export class Accounts extends Context.Service<
 
       const update = Effect.fn("Accounts.update")(function* (
         id: string,
-        patch: { name?: string; kind?: AccountKind; offBudget?: boolean; inForecast?: boolean },
+        patch: { name?: string; kind?: AccountKind; offBudget?: boolean; inForecast?: boolean; inNetWorth?: boolean },
       ) {
         const before = yield* find(id)
         const values: Partial<typeof accounts.$inferInsert> = {}
@@ -163,6 +172,7 @@ export class Accounts extends Context.Service<
         if (patch.kind !== undefined) values.kind = patch.kind
         if (patch.offBudget !== undefined) values.offBudget = patch.offBudget
         if (patch.inForecast !== undefined) values.inForecast = patch.inForecast
+        if (patch.inNetWorth !== undefined) values.inNetWorth = patch.inNetWorth
         if (Object.keys(values).length === 0) return
         yield* db.use((orm) => orm.update(accounts).set(values).where(eq(accounts.id, id)))
         if (values.name) {

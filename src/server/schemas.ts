@@ -131,6 +131,8 @@ export const BundleStructure = Schema.Struct({
       kind: Schema.optional(Schema.String),
       /** Runway backups only. */
       inForecast: Schema.optional(Schema.Boolean),
+      /** Runway backups only. */
+      inNetWorth: Schema.optional(Schema.Boolean),
       lastReconciledAt: Schema.optional(NullableString),
     }),
   ),

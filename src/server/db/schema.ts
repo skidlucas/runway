@@ -23,6 +23,8 @@ export const accounts = sqliteTable("accounts", {
   closed: integer("closed", { mode: "boolean" }).notNull().default(false),
   // Whether the balance counts as "money available now" in the end-of-month projection.
   inForecast: integer("in_forecast", { mode: "boolean" }).notNull().default(true),
+  // Whether the balance counts in the net worth: savings put aside for someone else do not.
+  inNetWorth: integer("in_net_worth", { mode: "boolean" }).notNull().default(true),
   sortOrder: real("sort_order").notNull().default(0),
   lastReconciledAt: text("last_reconciled_at"),
   createdAt: createdAt(),

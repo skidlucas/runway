@@ -7,7 +7,7 @@ import { creditOf, DataCredit } from "~/components/data-credit"
 import { LoanScheduleDialog } from "~/components/loan-schedule"
 import { PageHeader } from "~/components/shell"
 import { toast } from "~/components/toast"
-import { Button, Chip, cx, DateInput, EmptyState, heroAmountClass, IconButton, Input, Menu, Money, Sheet, SkeletonRows, Tabs, useConfirm } from "~/components/ui"
+import { Button, Chip, cx, DateInput, EmptyState, heroAmountClass, IconButton, Input, Menu, Money, SectionTitle, Sheet, SkeletonRows, Tabs, useConfirm } from "~/components/ui"
 import { type Day, formatDayLong, formatDayShort, formatMonthLong, formatMonthShort, type Month } from "~/domain/dates"
 import { formatMoney, formatPercent, parseAmount } from "~/domain/money"
 import {
@@ -85,8 +85,10 @@ function WealthPage() {
   const items = React.useMemo(() => sortItems(data?.items ?? []), [data])
   const type = mobile ? undefined : search.type
   const shown = type ? items.filter((i) => i.type === type) : items
-  const selected = shown.find((i) => i.id === selectedId) ?? shown.find((i) => i.kind === "asset") ?? shown[0] ?? null
-  const types = assetTypeTotals(items, { includeAccounts: true })
+  const excluded = (data?.excluded ?? []).filter((i) => !type || i.type === type)
+  const selected =
+    [...shown, ...excluded].find((i) => i.id === selectedId) ?? shown.find((i) => i.kind === "asset") ?? shown[0] ?? excluded[0] ?? null
+  const types = assetTypeTotals([...items, ...(data?.excluded ?? [])], { includeAccounts: true })
   const credits = [...new Set(items.map((i) => creditOf(i.source)).filter((c) => c !== null))]
   const editing = dialog ?? (search.new ? { item: null } : null)
 
@@ -153,6 +155,18 @@ function WealthPage() {
             ) : (
               <AssetTable items={shown} selectedId={selected?.id ?? null} onSelect={(i) => setSelectedId(i.id)} today={data.today} />
             )}
+            {excluded.length > 0 ? (
+              <section aria-label="Hors patrimoine" className="mt-4">
+                <ExcludedTitle items={excluded} />
+                <AssetTable
+                  label="Hors patrimoine"
+                  items={excluded}
+                  selectedId={selected?.id ?? null}
+                  onSelect={(i) => setSelectedId(i.id)}
+                  today={data.today}
+                />
+              </section>
+            ) : null}
           </div>
           <aside className="bg-panel max-[1100px]:border-t max-[1100px]:border-line">
             {selected ? <Detail key={selected.id} item={selected} months={data.months} today={data.today} onEdit={() => setDialog({ item: selected })} /> : null}
@@ -263,6 +277,14 @@ function Summary({ data }: { data: WealthOverview }) {
 
 // --- Table -----------------------------------------------------------------------
 
+function ExcludedTitle({ items }: { items: ReadonlyArray<WealthItem> }) {
+  return (
+    <SectionTitle action={<span className="num text-muted">{euros(items.reduce((sum, i) => sum + i.value, 0))}</span>}>
+      Hors patrimoine
+    </SectionTitle>
+  )
+}
+
 const COLUMNS = "grid grid-cols-[minmax(0,1fr)_110px_110px_160px] items-center gap-3 px-5"
 
 /** DVF publishes sales months late: the estimate says which month its data stops at. */
@@ -277,18 +299,20 @@ function estimateCaption(item: WealthItem, today: string): { text: string; tone:
 }
 
 function AssetTable({
+  label = "Biens",
   items,
   selectedId,
   onSelect,
   today,
 }: {
+  label?: string
   items: WealthItem[]
   selectedId: string | null
   onSelect: (item: WealthItem) => void
   today: string
 }) {
   return (
-    <div role="group" aria-label="Biens">
+    <div role="group" aria-label={label}>
       <div aria-hidden className={cx(COLUMNS, "h-[34px] border-b border-line text-[12px] text-faint")}>
         <span>Bien</span>
         <span className="text-right">Achat</span>
@@ -615,9 +639,11 @@ function MobileWealth({
   onEdit: (item: WealthItem) => void
 }) {
   const [filter, setFilter] = React.useState<WealthBucket | "all">("all")
-  const present = new Set(items.map((i) => i.bucket))
-  const shown = items.filter((i) => filter === "all" || i.bucket === filter)
-  const open = items.find((i) => i.id === openId) ?? null
+  const present = new Set([...items, ...data.excluded].map((i) => i.bucket))
+  const inFilter = (i: WealthItem) => filter === "all" || i.bucket === filter
+  const shown = items.filter(inFilter)
+  const excluded = data.excluded.filter(inFilter)
+  const open = [...items, ...data.excluded].find((i) => i.id === openId) ?? null
   return (
     <div className="flex flex-col pb-8">
       <span className="px-5 pt-2 text-[13px] text-muted">Patrimoine net</span>
@@ -636,22 +662,13 @@ function MobileWealth({
           </button>
         ))}
       </div>
-      <div className="mt-2.5">
-        {shown.map((item) => (
-          <button
-            key={item.id}
-            type="button"
-            onClick={() => onOpen(item)}
-            className="flex w-full items-center gap-3 border-b border-line-subtle px-5 py-[11px] text-left"
-          >
-            <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-              <span className="truncate font-medium" title={item.name}>{item.name}</span>
-              <span className="truncate text-[12px] text-faint">{estimateCaption(item, data.today).text}</span>
-            </span>
-            <Money value={item.value} decimals={0} className="text-[14px]" />
-          </button>
-        ))}
-      </div>
+      <MobileRows items={shown} today={data.today} onOpen={onOpen} className="mt-2.5" />
+      {excluded.length > 0 ? (
+        <section aria-label="Hors patrimoine" className="mt-4">
+          <ExcludedTitle items={excluded} />
+          <MobileRows items={excluded} today={data.today} onOpen={onOpen} />
+        </section>
+      ) : null}
       <Sheet open={open !== null} onOpenChange={(o) => !o && onClose()} title={open?.name ?? ""}>
         <div className="flex h-12 shrink-0 items-center px-3">
           <Button variant="ghost" onClick={onClose}>
@@ -667,6 +684,37 @@ function MobileWealth({
           {open ? <Detail key={open.id} item={open} months={data.months} today={data.today} onEdit={() => onEdit(open)} /> : null}
         </div>
       </Sheet>
+    </div>
+  )
+}
+
+function MobileRows({
+  items,
+  today,
+  onOpen,
+  className,
+}: {
+  items: ReadonlyArray<WealthItem>
+  today: Day
+  onOpen: (item: WealthItem) => void
+  className?: string
+}) {
+  return (
+    <div className={className}>
+      {items.map((item) => (
+        <button
+          key={item.id}
+          type="button"
+          onClick={() => onOpen(item)}
+          className="flex w-full items-center gap-3 border-b border-line-subtle px-5 py-[11px] text-left"
+        >
+          <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+            <span className="truncate font-medium" title={item.name}>{item.name}</span>
+            <span className="truncate text-[12px] text-faint">{estimateCaption(item, today).text}</span>
+          </span>
+          <Money value={item.value} decimals={0} className="text-[14px]" />
+        </button>
+      ))}
     </div>
   )
 }

@@ -43,6 +43,7 @@ export const backupToBundle = (backup: RunwayBackup): ImportBundle => ({
       closed: a.closed,
       kind: a.kind,
       inForecast: a.inForecast,
+      inNetWorth: a.inNetWorth,
       lastReconciledAt: a.lastReconciledAt,
     })),
   groups: backup.groups.map((g) => ({ id: g.id, name: g.name, isIncome: g.isIncome, hidden: g.hidden, sortOrder: g.sortOrder })),

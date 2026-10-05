@@ -50,6 +50,29 @@ describe("Wealth with only a budget account", () => {
     expect(overview.history.every((v) => v === 2_000_00)).toBe(true)
     expect(overview.needsRefresh).toBe(false)
   })
+
+  it("follows an account left out of the net worth apart, even once closed", async () => {
+    const savings = await h.run(
+      Accounts.use((a) =>
+        a.create({ name: "AV Zoé", kind: "investment", offBudget: true, startingBalance: 5_000_00, startingDate: `${addMonths(month, -14)}-01` }),
+      ),
+    )
+    await h.run(Accounts.use((a) => a.update(savings, { inNetWorth: false })))
+    expect((await h.run(Accounts.use((a) => a.list))).find((a) => a.id === savings)?.inNetWorth).toBe(false)
+
+    const overview = await h.run(Wealth.use((w) => w.overview))
+    expect(overview.netWorth).toBe(2_000_00)
+    expect(overview.history.every((v) => v === 2_000_00)).toBe(true)
+    expect(overview.allocation.reduce((sum, s) => sum + s.value, 0)).toBe(2_000_00)
+    expect(overview.items.map((i) => i.name)).toEqual(["Courant"])
+    expect(overview.excluded).toMatchObject([{ id: savings, name: "AV Zoé", value: 5_000_00, bucket: "investments" }])
+
+    await h.run(Accounts.use((a) => a.setClosed(savings, true)))
+    const closed = await h.run(Wealth.use((w) => w.overview))
+    expect(closed.closed).toEqual([])
+    expect(closed.excluded).toEqual([])
+    expect(closed.history.every((v) => v === 2_000_00)).toBe(true)
+  })
 })
 
 describe("Wealth", () => {

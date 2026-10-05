@@ -61,6 +61,7 @@ export const updateAccount = createServerFn({ method: "POST" })
         kind: Schema.optional(AccountKind),
         offBudget: Schema.optional(Schema.Boolean),
         inForecast: Schema.optional(Schema.Boolean),
+        inNetWorth: Schema.optional(Schema.Boolean),
       }),
     ),
   )

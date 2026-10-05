@@ -138,12 +138,12 @@ const planAccounts = (d1: D1Database, structure: BundleStructure, existing: Exis
     accountMap[a.id] = id
     accountByName.set(normalizeText(a.name), id)
     const kind = isAccountKind(a.kind) ? a.kind : a.offBudget ? "savings" : "checking"
-    newAccounts.push([id, a.name, kind, bool(a.offBudget), bool(a.closed), bool(a.inForecast ?? !a.offBudget), ++order, a.lastReconciledAt ?? null])
+    newAccounts.push([id, a.name, kind, bool(a.offBudget), bool(a.closed), bool(a.inForecast ?? !a.offBudget), bool(a.inNetWorth ?? true), ++order, a.lastReconciledAt ?? null])
   }
   const writes = bulkInsertStatements(
     d1,
     "accounts",
-    ["id", "name", "kind", "off_budget", "closed", "in_forecast", "sort_order", "last_reconciled_at"],
+    ["id", "name", "kind", "off_budget", "closed", "in_forecast", "in_net_worth", "sort_order", "last_reconciled_at"],
     newAccounts,
   )
   return { accountMap, writes }

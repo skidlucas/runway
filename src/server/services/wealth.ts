@@ -93,6 +93,8 @@ export type WealthOverview = {
   items: WealthItem[]
   /** Closed accounts, left out of `items` but still counted in the months they held money. */
   closed: Array<{ type: AssetType; history: number[] }>
+  /** Accounts followed but left out of the net worth, its history and its allocation. */
+  excluded: WealthItem[]
   /** Some automatic estimates are out of date: the page refreshes them in the background. */
   needsRefresh: boolean
 }
@@ -113,7 +115,7 @@ export type RefreshResult = { updated: number; failures: Array<{ assetId: string
 
 
 type AssetRow = typeof assets.$inferSelect
-type AccountRow = { id: string; name: string; kind: string; offBudget: number; closed: number; balance: number; opening: number }
+type AccountRow = { id: string; name: string; kind: string; offBudget: number; closed: number; inNetWorth: number; balance: number; opening: number }
 type MonthlyTotal = { accountId: string; month: Month; total: number }
 type ValuationRow = {
   assetId: string
@@ -228,6 +230,7 @@ const accountItems = (accounts: ReadonlyArray<AccountRow>, monthly: ReadonlyArra
   const totalsByAccount = groupBy(monthly, (r) => r.accountId)
   const open: WealthItem[] = []
   const closed: WealthOverview["closed"] = []
+  const excluded: WealthItem[] = []
   for (const account of accounts) {
     let running = account.opening
     let i = 0
@@ -239,10 +242,10 @@ const accountItems = (accounts: ReadonlyArray<AccountRow>, monthly: ReadonlyArra
     })
     const type: AssetType = account.kind === "investment" ? "investment" : "cash"
     if (account.closed) {
-      closed.push({ type, history })
+      if (account.inNetWorth) closed.push({ type, history })
       continue
     }
-    open.push({
+    ;(account.inNetWorth ? open : excluded).push({
       id: account.id,
       kind: "account",
       name: account.name,
@@ -263,7 +266,7 @@ const accountItems = (accounts: ReadonlyArray<AccountRow>, monthly: ReadonlyArra
       notes: null,
     })
   }
-  return { open, closed }
+  return { open, closed, excluded }
 }
 
 /** Why an asset's valuation source cannot be used, or null. Also guards restored backups. */
@@ -353,7 +356,7 @@ export class Wealth extends Context.Service<
           const [accounts, monthly] = await d1.batch([
             d1
               .prepare(
-                `SELECT a.id, a.name, a.kind, a.off_budget AS offBudget, a.closed,
+                `SELECT a.id, a.name, a.kind, a.off_budget AS offBudget, a.closed, a.in_net_worth AS inNetWorth,
                    COALESCE(SUM(CASE WHEN t.date <= ?2 THEN t.amount END), 0) AS balance,
                    COALESCE(SUM(CASE WHEN t.date < ?1 THEN t.amount END), 0) AS opening
                  FROM accounts a LEFT JOIN transactions t ON t.account_id = a.id AND t.parent_id IS NULL
@@ -409,6 +412,7 @@ export class Wealth extends Context.Service<
           history,
           items,
           closed,
+          excluded: accounts.excluded,
           needsRefresh: rows.some((a) => refreshDue(a.source, lastAuto.get(a.id) ?? null, today)),
         } satisfies WealthOverview
       })

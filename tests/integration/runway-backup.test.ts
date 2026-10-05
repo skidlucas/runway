@@ -148,7 +148,7 @@ describe("Runway backup settings", () => {
       const account = await source.run(
         Accounts.use((a) => a.create({ name: "Courant", kind: "checking", offBudget: false, startingBalance: 0, startingDate: "2026-01-01" })),
       )
-      await source.d1.prepare("UPDATE accounts SET in_forecast = 0, last_reconciled_at = '2026-09-30' WHERE id = ?").bind(account).run()
+      await source.d1.prepare("UPDATE accounts SET in_forecast = 0, in_net_worth = 0, last_reconciled_at = '2026-09-30' WHERE id = ?").bind(account).run()
       const [store] = await source.run(Payees.use((p) => p.resolveNames(["Amazon"]))).then((m) => [...m.values()])
       const rule = (value: string) =>
         source.run(
@@ -188,9 +188,9 @@ describe("Runway backup settings", () => {
       const booked = await target.d1.prepare("SELECT schedule_id AS s FROM transactions WHERE amount = -80000").first<{ s: string | null }>()
       expect(booked?.s).toBe(schedule)
       const restored = await target.d1
-        .prepare("SELECT in_forecast AS f, last_reconciled_at AS r FROM accounts WHERE name = 'Courant'")
-        .first<{ f: number; r: string | null }>()
-      expect(restored).toEqual({ f: 0, r: "2026-09-30" })
+        .prepare("SELECT in_forecast AS f, in_net_worth AS w, last_reconciled_at AS r FROM accounts WHERE name = 'Courant'")
+        .first<{ f: number; w: number; r: string | null }>()
+      expect(restored).toEqual({ f: 0, w: 0, r: "2026-09-30" })
     } finally {
       await source.dispose()
       await target.dispose()
