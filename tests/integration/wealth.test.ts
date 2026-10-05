@@ -235,7 +235,7 @@ describe("Wealth", () => {
     expect(overview.items.find((i) => i.id === id)?.stale).toBe(true)
   })
 
-  it("rejects invalid input", async () => {
+  it("rejects a blank name, a loan without its terms, a share outside 0-100 %, a zero quantity and a future valuation", async () => {
     await expect(h.run(Wealth.use((w) => w.create(manual({ name: " " }))))).rejects.toThrow(/nom/)
     await expect(h.run(Wealth.use((w) => w.create(manual({ type: "loan" }))))).rejects.toThrow(/capital/)
     await expect(h.run(Wealth.use((w) => w.create(manual({ share: 0 }))))).rejects.toThrow(/part détenue/)

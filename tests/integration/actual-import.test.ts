@@ -151,7 +151,7 @@ describe("Actual import", () => {
     }
   })
 
-  it("imports rules and schedules", async () => {
+  it("imports Actual's rules, marked as imported, and its schedules", async () => {
     const rules = await h.run(Rules.use((r) => r.list))
     expect(rules).toHaveLength(2)
     expect(rules.every((r) => r.origin === "imported")).toBe(true)
@@ -169,7 +169,7 @@ describe("Actual import", () => {
     expect((await h.run(Rules.use((r) => r.list))).length).toBe(2)
   })
 
-  it("counts duplicates for the preview", async () => {
+  it("counts operations already imported as duplicates in the preview", async () => {
     const probes = bundle.transactions
       .filter((t) => !t.parentId)
       .slice(0, 10)

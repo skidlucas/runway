@@ -99,7 +99,7 @@ describe("loans", () => {
     expect(loanBalance(terms, "2019-01-01")).toBe(0)
   })
 
-  it("handles zero-rate loans and the end month", () => {
+  it("repays a zero-rate loan in equal parts and ends a loan in the month of its last payment", () => {
     const free = { principal: 12_000_00, annualRatePct: 0, months: 12, startDate: "2026-01-31" }
     expect(loanBalance(free, "2026-02-28")).toBe(11_000_00)
     expect(loanBalance(free, "2026-07-31")).toBe(6_000_00)
@@ -139,7 +139,7 @@ describe("allocation", () => {
 })
 
 describe("relativeChange", () => {
-  it("is null from zero", () => {
+  it("has no ratio from zero and measures a change against the size of the starting value", () => {
     expect(relativeChange(0, 10)).toBeNull()
     expect(relativeChange(100, 104.2)).toBeCloseTo(0.042)
     expect(relativeChange(-100, -50)).toBeCloseTo(0.5)

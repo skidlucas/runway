@@ -101,7 +101,7 @@ describe("Runway backup", () => {
     expect(views.get("Tout")).toEqual({ kind: "all" })
   })
 
-  it("is idempotent", async () => {
+  it("keeps a single copy of each asset, valuation and saved view when the same backup is restored again", async () => {
     const { extras } = await restore(target, backup)
     expect(extras.views).toBe(0)
     const wealth = await target.run(Wealth.use((w) => w.overview))

@@ -87,7 +87,7 @@ const keywordDecisionModel = () => {
   return { layer, counter }
 }
 
-describe("Ai with a decision model (Jev path)", () => {
+describe("Ai with a decision model for classification", () => {
   let h: Harness
   let seeded: Awaited<ReturnType<typeof seedUncategorized>>
   const model = keywordDecisionModel()
@@ -286,7 +286,7 @@ describe.runIf(live)("live providers", () => {
     expect(result.query?.target.kind).toBe("category")
   }, 60_000)
 
-  it("categorizes with Jev", async () => {
+  it("categorizes through the decision model", async () => {
     const { ids, byName } = await seedUncategorized(h)
     const result = await h.run(Categorizer.use((c) => c.suggest(ids)))
     const byTx = new Map(result.suggestions.map((s) => [s.transactionId, s]))
