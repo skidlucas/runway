@@ -65,7 +65,10 @@ export class Payees extends Context.Service<
       const names = db.use(async (_, d1) => {
         const { results } = await d1
           .prepare(
-            `SELECT p.id, COALESCE(a.name, p.name) AS name, p.transfer_account_id AS transferAccountId, ${LAST_CATEGORY} AS lastCategoryId
+            // Transfers clear the category when picked, and between budget accounts they never carry one:
+            // looking for it would walk every transfer of the account.
+            `SELECT p.id, COALESCE(a.name, p.name) AS name, p.transfer_account_id AS transferAccountId,
+                    CASE WHEN p.transfer_account_id IS NULL THEN ${LAST_CATEGORY} END AS lastCategoryId
              FROM payees p
              LEFT JOIN accounts a ON a.id = p.transfer_account_id
              ORDER BY p.transfer_account_id IS NOT NULL, name COLLATE NOCASE`,
