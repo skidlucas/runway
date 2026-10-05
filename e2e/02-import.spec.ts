@@ -12,6 +12,26 @@ const expected = JSON.parse(readFileSync(join(process.cwd(), "tests/fixtures/act
 const euros = (c: number) =>
   new Intl.NumberFormat("fr-FR", { style: "currency", currency: "EUR" }).format(c / 100).replace(/[  ]/g, " ").replace("-", "−")
 
+test("loads the demo only into an empty budget, after wiping everything", async ({ page }) => {
+  await open(page, "/settings/data")
+  const demo = page.getByRole("button", { name: "Charger des données de démonstration" })
+  await demo.click()
+  await waitForToast(page, "Les données de démo ne s'ajoutent qu'à un budget vide")
+
+  await page.getByRole("button", { name: "Effacer toutes les données" }).click()
+  const dialog = page.getByRole("dialog", { name: "Effacer toutes les données" })
+  await expect(dialog.getByRole("button", { name: "Effacer", exact: true })).toBeDisabled()
+  await dialog.getByLabel("Tape SUPPRIMER pour confirmer").fill("SUPPRIMER")
+  await dialog.getByRole("button", { name: "Effacer", exact: true }).click()
+  await waitForToast(page, "Toutes les données ont été effacées")
+
+  await demo.click()
+  await waitForToast(page, /Démo chargée : \d+ opérations/)
+  await open(page, "/accounts")
+  await expect(page.getByRole("main").getByText("Compte joint")).toHaveCount(0)
+  await expect(page.getByRole("main").getByRole("link", { name: /^Compte courant/ })).toBeVisible()
+})
+
 test("replaces everything with an Actual export and reproduces its balances", async ({ page }) => {
   await open(page, "/settings/data")
   await page.getByTestId("import-file").setInputFiles(fixture)
