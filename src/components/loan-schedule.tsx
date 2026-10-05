@@ -13,8 +13,8 @@ export function LoanScheduleDialog({ assetId, terms, today, onClose }: { assetId
   const next = nextInstallment(terms, schedule, today)
   const insured = (terms.insurance ?? 0) > 0
   const columns = insured
-    ? "grid-cols-[110px_minmax(0,1fr)_90px_90px_80px_90px_110px_28px] max-md:grid-cols-[90px_minmax(0,1fr)_100px_28px]"
-    : "grid-cols-[110px_minmax(0,1fr)_100px_100px_120px_28px] max-md:grid-cols-[90px_minmax(0,1fr)_100px_28px]"
+    ? "grid-cols-[140px_minmax(250px,1fr)_110px_110px_100px_120px_130px_28px] max-md:grid-cols-[96px_minmax(0,1fr)_110px_28px]"
+    : "grid-cols-[140px_minmax(250px,1fr)_120px_120px_140px_28px] max-md:grid-cols-[96px_minmax(0,1fr)_110px_28px]"
   const nextRow = React.useRef<HTMLDivElement>(null)
   React.useEffect(() => nextRow.current?.scrollIntoView({ block: "center" }), [])
   const change = useAction(setLoanPayments, { writes: ["assets"] })
@@ -27,9 +27,9 @@ export function LoanScheduleDialog({ assetId, terms, today, onClose }: { assetId
       onOpenChange={(o) => !o && onClose()}
       title="Tableau d'amortissement"
       description="Montants du contrat entier. Une mensualité modifiée ne vaut que pour son échéance, une nouvelle mensualité vaut aussi pour les suivantes. Un report repousse la fin du prêt, un remboursement anticipé la rapproche."
-      width={820}
+      width={1120}
     >
-      <div role="table" aria-label="Échéances du prêt" className="text-[12px]">
+      <div role="table" aria-label="Échéances du prêt" className="text-[13px]">
         <div role="row" className={cx("sticky top-0 z-10 grid items-center gap-3 border-b border-line bg-elevated px-5 py-2 text-faint", columns)}>
           <span role="columnheader">Échéance</span>
           <span role="columnheader" className="text-right">Mensualité</span>
@@ -122,13 +122,13 @@ function ScheduleRow({
       ref={ref}
       role="row"
       data-testid="loan-row"
-      className={cx("grid h-9 items-center gap-3 border-b border-line-subtle px-5", columns, paid && "text-muted", current && "bg-accent-soft")}
+      className={cx("grid h-10 items-center gap-3 border-b border-line-subtle px-5", columns, paid && "text-muted", current && "bg-accent-soft")}
     >
       <span role="cell" className="truncate">{month}</span>
-      <span role="cell" className="flex min-w-0 items-center justify-end gap-1.5">
-        {row.override === "interest_only" ? <Chip>Intérêts seuls</Chip> : null}
-        {row.override === "amount" ? <Chip>Modifiée</Chip> : null}
-        {row.override === "step" ? <Chip>Nouvelle mensualité</Chip> : null}
+      <span role="cell" className="flex min-w-0 items-center justify-end gap-1.5 overflow-hidden">
+        {row.override === "interest_only" ? <Chip className="min-w-0 truncate">Intérêts seuls</Chip> : null}
+        {row.override === "amount" ? <Chip className="min-w-0 truncate">Modifiée</Chip> : null}
+        {row.override === "step" ? <Chip className="min-w-0 truncate">Nouvelle mensualité</Chip> : null}
         <InlineEdit
           value={amountInput(row.payment)}
           label={`Mensualité de ${month}`}
@@ -137,8 +137,8 @@ function ScheduleRow({
             const payment = parseAmount(text)
             if (payment !== null && payment >= 0 && payment !== row.payment) onChange(payment)
           }}
-          className="num text-right hover:text-fg"
-          inputClassName="num w-24 text-right text-[12px]"
+          className="num shrink-0 text-right hover:text-fg"
+          inputClassName="num w-28 text-right text-[13px]"
         >
           <Money value={row.payment} />
         </InlineEdit>
