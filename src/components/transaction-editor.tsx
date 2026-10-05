@@ -1,8 +1,8 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { Plus, Trash2 } from "lucide-react"
 import * as React from "react"
 import { amountInput, formatMoney, parseAmount } from "~/domain/money"
-import { q, refreshAfter, useAction } from "~/lib/queries"
+import { refreshAfter, useAction, useCategoryName } from "~/lib/queries"
 import { createRule, deleteTransactions, restoreTransactions, updateTransaction } from "~/server/fns/core"
 import type { TxRow } from "~/server/services/transactions"
 import { AccountSelect, CategoryPicker, PayeePicker, type PayeeValue } from "./pickers"
@@ -231,7 +231,6 @@ export function RuleFromTransactionDialog({
   tx: Pick<TxRow, "payeeName" | "importedPayee" | "categoryId">
   onClose: () => void
 }) {
-  const categories = useQuery(q.categories())
   const [field, setField] = React.useState<"payee" | "imported_payee">(tx.importedPayee ? "imported_payee" : "payee")
   const [op, setOp] = React.useState<"is" | "contains">(tx.importedPayee ? "contains" : "is")
   const [value, setValue] = React.useState((field === "imported_payee" ? tx.importedPayee : tx.payeeName) ?? "")
@@ -242,7 +241,7 @@ export function RuleFromTransactionDialog({
     success: (r) => (r.applied ? `Règle créée · ${count(r.applied, "opération")} ${plural(r.applied, "catégorisée")}` : "Règle créée"),
     onSuccess: onClose,
   })
-  const categoryName = categories.data?.flatMap((g) => g.categories).find((c) => c.id === categoryId)?.name
+  const categoryName = useCategoryName(categoryId)
   return (
     <Dialog
       open

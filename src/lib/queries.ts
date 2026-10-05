@@ -1,4 +1,4 @@
-import { infiniteQueryOptions, type QueryClient, queryOptions, useMutation, useQueryClient } from "@tanstack/react-query"
+import { infiniteQueryOptions, type QueryClient, queryOptions, useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import {
   getAccounts,
   getAgeOfMoney,
@@ -27,6 +27,11 @@ export const defaultForecastAccount = (accounts: ReadonlyArray<AccountDto>) =>
   accounts.find((a) => !a.closed && !a.offBudget)?.id ?? "all"
 
 export const forecastScope = (account: string) => (account === "all" ? {} : { accountId: account })
+
+export const useCategoryName = (id: string | null | undefined): string | undefined => {
+  const categories = useQuery(q.categories())
+  return id ? categories.data?.flatMap((g) => g.categories).find((c) => c.id === id)?.name : undefined
+}
 
 /** Reports only change with a write, and every write refreshes them: refocusing the tab need not refetch. */
 const REPORT_STALE = 5 * 60_000
