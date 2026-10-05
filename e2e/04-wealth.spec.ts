@@ -48,7 +48,7 @@ test("the sidebar sums assets by type and opens the page on that type", async ({
   await expect(page.getByRole("dialog", { name: "Ajouter un bien" })).toBeVisible()
 })
 
-test("adds a loan and nets it against real estate", async ({ page }) => {
+test("adds a loan, takes it off the net worth and edits its schedule", async ({ page }) => {
   await open(page, "/wealth")
   const netWorth = visible(page.getByTestId("net-worth"))
   await expect(netWorth).toHaveText(/€/)

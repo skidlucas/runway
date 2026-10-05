@@ -54,6 +54,7 @@ export const Route = createFileRoute("/_app/wealth")({
 
 const BUCKET_COLOR: Record<WealthBucket, string> = {
   real_estate: "var(--chart-1)",
+  loans: "var(--negative)",
   investments: "var(--chart-2)",
   crypto: "var(--chart-6)",
   objects: "var(--chart-3)",
@@ -61,7 +62,7 @@ const BUCKET_COLOR: Record<WealthBucket, string> = {
   cash: "var(--chart-5)",
 }
 
-const BUCKET_ORDER: WealthBucket[] = ["real_estate", "investments", "crypto", "vehicles", "objects", "cash"]
+const BUCKET_ORDER: WealthBucket[] = ["real_estate", "loans", "investments", "crypto", "vehicles", "objects", "cash"]
 
 const euros = (cents: number) => formatMoney(cents, { decimals: 0 })
 
@@ -590,6 +591,7 @@ function AddEstimate({ assetId, today, shared }: { assetId: string; today: strin
 const MOBILE_FILTERS: Array<{ value: WealthBucket | "all"; label: string }> = [
   { value: "all", label: "Tout" },
   { value: "real_estate", label: "Immo" },
+  { value: "loans", label: "Emprunts" },
   { value: "investments", label: "Placements" },
   { value: "crypto", label: "Crypto" },
   { value: "objects", label: "Objets" },

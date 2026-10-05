@@ -18,12 +18,11 @@ export type PropertyType = (typeof PROPERTY_TYPES)[number]
 export const PROPERTY_TYPE_LABELS: Record<PropertyType, string> = { apartment: "Appartement", house: "Maison" }
 export type DatedAmount = { amount: number; date: Day | null }
 
-export type WealthBucket = "real_estate" | "investments" | "crypto" | "objects" | "vehicles" | "cash"
+export type WealthBucket = "real_estate" | "loans" | "investments" | "crypto" | "objects" | "vehicles" | "cash"
 
 export const BUCKET_OF_TYPE: Record<AssetType, WealthBucket> = {
   real_estate: "real_estate",
-  // Mortgages are netted against the property, so the allocation shows "Immobilier net".
-  loan: "real_estate",
+  loan: "loans",
   investment: "investments",
   crypto: "crypto",
   vehicle: "vehicles",
@@ -34,7 +33,8 @@ export const BUCKET_OF_TYPE: Record<AssetType, WealthBucket> = {
 }
 
 const BUCKET_LABELS: Record<WealthBucket, string> = {
-  real_estate: "Immobilier net",
+  real_estate: "Immobilier",
+  loans: "Emprunts",
   investments: "Placements",
   crypto: "Crypto",
   objects: "Objets",
@@ -332,8 +332,8 @@ export const loanChangesProblem = (terms: LoanTerms): string | null => {
 export type AllocationSlice = { bucket: WealthBucket; label: string; value: number; fraction: number }
 
 /**
- * Net value per bucket, largest first. Shares are computed over the positive buckets only, so a
- * bucket that is net negative (a loan bigger than the property) does not distort the bar.
+ * Value per bucket, largest first. Shares are computed over the positive buckets only, so a
+ * negative bucket (the loans) does not distort the bar.
  */
 export const allocation = (items: ReadonlyArray<{ bucket: WealthBucket; value: number }>): AllocationSlice[] => {
   const totals = new Map<WealthBucket, number>()

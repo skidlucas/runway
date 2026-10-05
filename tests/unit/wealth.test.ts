@@ -216,16 +216,21 @@ describe("loans", () => {
 })
 
 describe("allocation", () => {
-  it("nets buckets and shares only the positive ones", () => {
+  it("sums buckets and shares only the positive ones, loans apart from real estate", () => {
     const slices = allocation([
       { bucket: "real_estate", value: 298_400_00 },
-      { bucket: "real_estate", value: -148_200_00 },
+      { bucket: BUCKET_OF_TYPE.loan, value: -148_200_00 },
       { bucket: "investments", value: 42_300_00 },
       { bucket: "cash", value: 11_615_00 },
       { bucket: "vehicles", value: 0 },
     ])
-    expect(slices.map((s) => s.bucket)).toEqual(["real_estate", "investments", "cash"])
-    expect(slices[0]!.value).toBe(150_200_00)
+    expect(slices.map((s) => [s.label, s.value])).toEqual([
+      ["Immobilier", 298_400_00],
+      ["Placements", 42_300_00],
+      ["Liquidités", 11_615_00],
+      ["Emprunts", -148_200_00],
+    ])
+    expect(slices.at(-1)!.fraction).toBe(0)
     expect(slices.reduce((a, s) => a + s.fraction, 0)).toBeCloseTo(1)
   })
 

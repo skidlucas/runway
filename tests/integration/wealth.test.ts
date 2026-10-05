@@ -106,7 +106,7 @@ describe("Wealth", () => {
     const byName = new Map(overview.items.map((i) => [i.name, i]))
     expect(byName.get("Rolex Submariner")).toMatchObject({ value: 9_500_00, retainedUsed: "declared", bucket: "objects" })
     // 10 installments of 1 000 € paid on a zero-rate loan.
-    expect(byName.get("Crédit immo")).toMatchObject({ value: -90_000_00, isLiability: true, bucket: "real_estate" })
+    expect(byName.get("Crédit immo")).toMatchObject({ value: -90_000_00, isLiability: true, bucket: "loans" })
     expect(byName.get("Crédit immo")!.estimate).toMatchObject({ kind: "loan", label: "Tableau d'amortissement", automatic: true })
     expect(overview.netWorth).toBe(before + 9_500_00 - 90_000_00)
     const assets = await h.run(Wealth.use((w) => w.assetsOverview))
