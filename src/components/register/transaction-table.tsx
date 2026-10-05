@@ -213,6 +213,7 @@ function ScheduledLine({
       <Money value={row.amount} sign="always" className="text-right italic" />
       {showBalance ? <span /> : null}
       <span />
+      {s.confirmDialog}
       <span />
     </div>
   )

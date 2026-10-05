@@ -127,6 +127,7 @@ function MobileScheduledRow({ row }: { row: ScheduledRow }) {
           ]}
         />
       ) : null}
+      {s.confirmDialog}
     </div>
   )
 }

@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query"
+import { useConfirm } from "~/components/ui"
 import { formatDayShort } from "~/domain/dates"
 import { q, useAction, useCategoryName } from "~/lib/queries"
 import { postSchedule, skipSchedule } from "~/server/fns/planning"
@@ -24,11 +25,16 @@ export function useScheduledRow(row: ScheduledRow) {
   const skip = useAction(skipSchedule, { success: "Échéance passée", writes: ["schedules"] })
   const accounts = useQuery(q.accounts())
   const category = useCategoryName(row.categoryId)
+  const { confirm, dialog } = useConfirm()
   return {
     busy: post.isPending || skip.isPending,
     // A future occurrence is booked on its own day, an overdue one on its due day.
     post: () => post.mutate({ data: { id: row.scheduleId, ...(row.overdue ? {} : { date: row.date }) } }),
-    skip: () => skip.mutate({ data: { id: row.scheduleId } }),
+    skip: async () => {
+      if (await confirm({ title: `Passer l'échéance « ${row.name} » ?`, confirmLabel: "Passer", tone: "primary" }))
+        skip.mutate({ data: { id: row.scheduleId } })
+    },
+    confirmDialog: dialog,
     category: category ?? (row.transferAccountId ? "Virement" : "Hors budget"),
     account: accounts.data?.find((a) => a.id === row.accountId)?.name ?? "",
     date: row.overdue ? "en retard" : formatDayShort(row.date),
