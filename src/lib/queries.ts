@@ -32,9 +32,6 @@ export const useCategoryName = (id: string | null | undefined): string | undefin
   return id ? categories.data?.flatMap((g) => g.categories).find((c) => c.id === id)?.name : undefined
 }
 
-/** Reports only change with a write, and every write refreshes them: refocusing the tab need not refetch. */
-const REPORT_STALE = 5 * 60_000
-
 export const q = {
   accounts: () => queryOptions({ queryKey: ["accounts"], queryFn: () => getAccounts() }),
   categories: () => queryOptions({ queryKey: ["categories"], queryFn: () => getCategories() }),
@@ -80,16 +77,15 @@ export const q = {
   wealthAssets: () => queryOptions({ queryKey: ["wealthAssets"], queryFn: () => getWealthAssets() }),
   dashboards: () => queryOptions({ queryKey: ["dashboards"], queryFn: () => getDashboards() }),
   accountsTotal: (months: number) =>
-    queryOptions({ queryKey: ["accountsTotal", months], queryFn: () => getAccountsTotal({ data: { months } }), staleTime: REPORT_STALE }),
+    queryOptions({ queryKey: ["accountsTotal", months], queryFn: () => getAccountsTotal({ data: { months } }) }),
   cashFlow: (months: number) =>
-    queryOptions({ queryKey: ["cashFlow", months], queryFn: () => getCashFlow({ data: { months } }), staleTime: REPORT_STALE }),
+    queryOptions({ queryKey: ["cashFlow", months], queryFn: () => getCashFlow({ data: { months } }) }),
   spendingComparison: () =>
-    queryOptions({ queryKey: ["spendingComparison"], queryFn: () => getSpendingComparison(), staleTime: REPORT_STALE }),
+    queryOptions({ queryKey: ["spendingComparison"], queryFn: () => getSpendingComparison() }),
   categorySpending: (months: number) =>
     queryOptions({
       queryKey: ["categorySpending", months],
       queryFn: () => getCategorySpending({ data: { months } }),
-      staleTime: REPORT_STALE,
     }),
   aiStatus: () => queryOptions({ queryKey: ["aiStatus"], queryFn: () => getAiStatus(), staleTime: Infinity }),
 }

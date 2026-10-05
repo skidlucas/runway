@@ -10,7 +10,10 @@ export function getRouter() {
   const queryClient = new QueryClient({
     queryCache: new QueryCache({ onError: reportQueryError }),
     defaultOptions: {
-      queries: { staleTime: 15_000, refetchOnWindowFocus: true, retry: 1 },
+      // Every write refreshes the queries that read what it changed (see refreshAfter), so data
+      // only goes stale through another device: refocusing the tab or reopening a screen within
+      // a few minutes need not read the whole history again.
+      queries: { staleTime: 5 * 60_000, refetchOnWindowFocus: true, retry: 1 },
     },
   })
   const router = createRouter({
