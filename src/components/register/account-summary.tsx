@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query"
 import { Link } from "@tanstack/react-router"
-import { cx, heroAmountClass, Kpi, Money } from "~/components/ui"
+import { cx, Kpi, Money } from "~/components/ui"
 import { formatDayShort } from "~/domain/dates"
 import { formatMoney } from "~/domain/money"
 import { q } from "~/lib/queries"
@@ -41,13 +41,19 @@ export function AccountSummary({ account }: { account: AccountDto }) {
   )
 }
 
+/** The balances of the mobile header, which stays on screen while the operations scroll. */
 export function MobileAccountSummary({ account }: { account: AccountDto }) {
   const forecast = useQuery(q.forecast({ accountId: account.id }))
   const f = forecast.data?.accountId === account.id ? forecast.data : undefined
   return (
-    <div className="flex flex-col gap-1 border-b border-line px-5 pb-4">
-      <Money value={account.balanceToday} className={heroAmountClass} />
-      <span className="text-[12px] text-muted">
+    <div className="flex min-w-0 flex-1 flex-col">
+      <span className="flex items-baseline gap-2">
+        <Money value={account.balanceToday} className={cx("text-[20px] font-medium tracking-[-0.02em]", account.balanceToday < 0 && "text-negative")} />
+        <span className="truncate text-[12px] text-muted">
+          Pointé <Money value={account.clearedBalance} />
+        </span>
+      </span>
+      <span className="truncate text-[12px] text-faint">
         {account.balance !== account.balanceToday ? `${formatMoney(account.balance)} avec les opérations à venir` : "Aujourd'hui"}
         {f ? ` · ${formatMoney(f.projectedEndBalance)} prévus en fin de mois` : ""}
       </span>

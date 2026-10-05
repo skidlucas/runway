@@ -1,15 +1,16 @@
 import { Check, MoreHorizontal, SkipForward } from "lucide-react"
 import * as React from "react"
 import { SuggestionChip } from "~/components/category-suggestions"
-import { CategoryPicker } from "~/components/pickers"
 import { TransactionEditor, useDeleteTransactions } from "~/components/transaction-editor"
-import { cx, Dialog, IconButton, Menu, Money } from "~/components/ui"
+import { cx, IconButton, Menu, Money } from "~/components/ui"
 import { formatDayShort } from "~/domain/dates"
+import { useToday } from "~/lib/hooks"
 import { useAction } from "~/lib/queries"
 import { useWindowList } from "~/lib/use-window-list"
-import { updateTransaction } from "~/server/fns/core"
+import { setTransactionsCleared } from "~/server/fns/core"
 import type { ScheduledRow } from "~/server/services/schedules"
 import type { TxRow } from "~/server/services/transactions"
+import { ClearedMark } from "./cleared-mark"
 import { interleave, scheduledKey, useScheduledRow } from "./scheduled"
 
 type MobileLine = { kind: "tx"; tx: TxRow } | { kind: "scheduled"; row: ScheduledRow }
@@ -25,10 +26,10 @@ export function MobileList({
   childrenByParent: Record<string, TxRow[]>
   onReachEnd: () => void
 }) {
+  const today = useToday()
   const [editing, setEditing] = React.useState<TxRow | null>(null)
-  const [categorizing, setCategorizing] = React.useState<TxRow | null>(null)
   const remove = useDeleteTransactions()
-  const update = useAction(updateTransaction, { writes: ["transactionCategories"] })
+  const cleared = useAction(setTransactionsCleared, { writes: ["cleared"] })
   const lines = React.useMemo(
     () => interleave<MobileLine>(rows, scheduled, (tx) => [{ kind: "tx", tx }], (row) => ({ kind: "scheduled", row })),
     [rows, scheduled],
@@ -62,18 +63,28 @@ export function MobileList({
                 <SwipeRow
                   onOpen={() => setEditing(line.tx)}
                   actions={[
-                    { label: "Catégoriser", tone: "accent", run: () => setCategorizing(line.tx) },
+                    ...(line.tx.reconciled
+                      ? []
+                      : [
+                          {
+                            label: line.tx.cleared ? "Dépointer" : "Pointer",
+                            tone: "accent" as const,
+                            run: () => cleared.mutate({ data: { ids: [line.tx.id], cleared: !line.tx.cleared } }),
+                          },
+                        ]),
                     { label: "Supprimer", tone: "danger", run: () => remove.mutate([line.tx.id]) },
                   ]}
                 >
                   <button type="button" onClick={() => setEditing(line.tx)} className="flex min-w-0 flex-1 flex-col gap-0.5 text-left">
-                    <span className="truncate font-medium">{line.tx.payeeName ?? line.tx.notes ?? "—"}</span>
+                    <span className={cx("truncate font-medium", line.tx.date > today && "text-muted")}>{line.tx.payeeName ?? line.tx.notes ?? "—"}</span>
                     <span className={cx("truncate text-[12px] text-faint", !line.tx.categoryId && !line.tx.transferAccountId && !line.tx.isParent && "text-warning")}>
-                      {formatDayShort(line.tx.date)} · {line.tx.isParent ? "Ventilée" : line.tx.transferAccountId && !line.tx.categoryId ? "Virement" : (line.tx.categoryName ?? "À catégoriser")}
+                      {formatDayShort(line.tx.date)}
+                      {line.tx.date > today ? " · À venir" : ""} · {line.tx.isParent ? "Ventilée" : line.tx.transferAccountId && !line.tx.categoryId ? "Virement" : (line.tx.categoryName ?? "À catégoriser")}
                     </span>
                   </button>
                   <SuggestionChip tx={line.tx} compact />
-                  <Money value={line.tx.amount} sign="always" colored className="text-[14px]" />
+                  <Money value={line.tx.amount} sign="always" colored={line.tx.date <= today} className={cx("text-[14px]", line.tx.date > today && "text-muted")} />
+                  <ClearedMark tx={line.tx} />
                 </SwipeRow>
               )}
             </div>
@@ -81,24 +92,6 @@ export function MobileList({
         })}
       </div>
       {editing ? <TransactionEditor tx={editing} splits={childrenByParent[editing.id]} onClose={() => setEditing(null)} /> : null}
-      {categorizing ? (
-        <Dialog
-          open
-          onOpenChange={(o) => !o && setCategorizing(null)}
-          title={categorizing.payeeName ? `Catégoriser « ${categorizing.payeeName} »` : "Catégoriser l'opération"}
-        >
-          <div className="px-5 py-4">
-            <CategoryPicker
-              value={categorizing.categoryId}
-              autoOpen
-              onChange={(categoryId) => {
-                update.mutate({ data: { id: categorizing.id, categoryId } })
-                setCategorizing(null)
-              }}
-            />
-          </div>
-        </Dialog>
-      ) : null}
     </div>
   )
 }

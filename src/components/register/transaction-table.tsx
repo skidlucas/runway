@@ -1,4 +1,4 @@
-import { CalendarClock, ChevronDown, ChevronRight, Copy, Lock, MoreHorizontal, Pencil, Split, Trash2, Wand2 } from "lucide-react"
+import { CalendarClock, ChevronDown, ChevronRight, Copy, MoreHorizontal, Pencil, Split, Trash2, Wand2 } from "lucide-react"
 import * as React from "react"
 import { SuggestionChip } from "~/components/category-suggestions"
 import { CategoryPicker, PayeePicker } from "~/components/pickers"
@@ -19,6 +19,7 @@ import { useWindowList } from "~/lib/use-window-list"
 import { createTransaction, setTransactionsCleared, updateTransaction } from "~/server/fns/core"
 import type { ScheduledRow } from "~/server/services/schedules"
 import type { TxRow } from "~/server/services/transactions"
+import { ClearedMark } from "./cleared-mark"
 import { interleave, scheduledKey, useScheduledRow } from "./scheduled"
 
 type Line = { kind: "tx"; tx: TxRow } | { kind: "split"; tx: TxRow } | { kind: "scheduled"; row: ScheduledRow }
@@ -339,11 +340,7 @@ const TransactionRow = React.memo(function TransactionRow({
         onClick={() => cleared.mutate({ data: { ids: [tx.id], cleared: !tx.cleared } })}
         className="flex h-6 w-6 items-center justify-center"
       >
-        {tx.reconciled ? (
-          <Lock size={11} className="text-faint" />
-        ) : (
-          <span className={cx("h-2 w-2 rounded-full border", tx.cleared ? "border-positive bg-positive" : "border-control-off")} />
-        )}
+        <ClearedMark tx={tx} />
       </button>
       <Menu
         trigger={

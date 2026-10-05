@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test"
 import { formatMoney } from "../src/domain/money"
-import { amountIn, open, pickInCommand, visible, waitForToast } from "./helpers"
+import { amountIn, cents, open, pickInCommand, visible, waitForToast } from "./helpers"
 
 const tabs = [
   { name: "Accueil", url: /\/forecast/ },
@@ -70,4 +70,34 @@ test("enters an expense from the keypad", async ({ page }) => {
   await page.getByLabel("Rechercher une opération").fill("Fleuriste")
   await expect(page.getByRole("main").getByRole("button", { name: /^Fleuriste/ })).toBeVisible()
   await expect(page.getByRole("main").getByText("−12,40 €", { exact: true })).toBeVisible()
+})
+
+test("the account header keeps the balance and the cleared balance in view while the operations scroll", async ({ page }) => {
+  await open(page, "/accounts")
+  await page.getByRole("main").getByRole("link", { name: /^Compte courant/ }).click()
+  const header = page.locator("header").filter({ hasText: "Compte courant" })
+  await expect(header).toContainText(/Pointé\s+[−-]?[\d\s]+,\d\d\s€/)
+  await page.mouse.wheel(0, 2000)
+  await expect(header).toBeInViewport()
+  await expect(header).toContainText("Pointé")
+})
+
+test("swiping an operation clears it, which moves the cleared balance", async ({ page }) => {
+  await open(page, "/accounts")
+  await page.getByRole("main").getByRole("link", { name: /^Compte courant/ }).click()
+  const header = page.locator("header").filter({ hasText: "Compte courant" })
+  const clearedBalance = async () => cents((await header.getByText(/^Pointé/).innerText()).replace("Pointé", ""))
+  const before = await clearedBalance()
+  await page.getByLabel("Rechercher une opération").fill("Fleuriste")
+  const row = page.getByRole("main").getByRole("button", { name: /^Fleuriste/ })
+  const clear = page.getByRole("button", { name: "Pointer", exact: true })
+  await expect(clear).toHaveCount(1)
+  const box = await row.boundingBox()
+  if (!box) throw new Error("Fleuriste row not laid out")
+  const at = (x: number) => ({ touches: [{ identifier: 0, clientX: x, clientY: box.y + box.height / 2 }] })
+  await row.dispatchEvent("touchstart", at(box.x + box.width - 10))
+  await row.dispatchEvent("touchmove", at(box.x - 200))
+  await row.dispatchEvent("touchend", { touches: [] })
+  await clear.click()
+  await expect.poll(clearedBalance).toBe(before - 1240)
 })

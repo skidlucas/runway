@@ -116,6 +116,7 @@ function AccountPage({ accountId }: { accountId: string }) {
         crumb={title}
         right={
           <>
+            {mobile && account ? <MobileAccountSummary account={account} /> : null}
             <Button
               variant="primary"
               icon={<Plus size={14} />}
@@ -161,7 +162,7 @@ function AccountPage({ accountId }: { accountId: string }) {
           </>
         }
       />
-      {account ? mobile ? <MobileAccountSummary account={account} /> : <AccountSummary account={account} /> : null}
+      {account && !mobile ? <AccountSummary account={account} /> : null}
       <div className="flex flex-wrap items-center gap-2 border-b border-line px-5 py-2 max-md:border-none max-md:pt-3">
         <SearchInput
           ref={searchRef}
