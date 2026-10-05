@@ -18,7 +18,6 @@ import type { InsightViewConfig } from "~/server/db/schema"
 import type { AccountDto } from "~/server/services/accounts"
 import type { TxCursor, TxFilter } from "~/server/services/transactions"
 import { toast, toastError } from "~/components/toast"
-import { leaveIfSignedOut } from "~/lib/auth"
 
 export const TX_PAGE = 200
 
@@ -232,8 +231,6 @@ export function useAction<TInput, TOutput>(
       await refreshAfter(client, options.writes)
       options.onSuccess?.(output)
     },
-    onError: (error) => {
-      if (!leaveIfSignedOut(error)) toastError(error)
-    },
+    onError: toastError,
   })
 }

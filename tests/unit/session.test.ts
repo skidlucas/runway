@@ -66,6 +66,16 @@ describe("session cookie", () => {
     expect(await s.isAuthed({ authed: true, key, epoch: 0 })).toBe(false)
     expect(runApp).toHaveBeenCalledTimes(2)
   })
+
+  it("accepts at once a cookie sealed after a sign-out made by another isolate", async () => {
+    const s = await load()
+    const key = await s.passwordKey()
+    expect(await s.isAuthed({ authed: true, key, epoch: 0 })).toBe(true)
+    runApp.mockResolvedValue(1)
+    expect(await s.isAuthed({ authed: true, key, epoch: 1 })).toBe(true)
+    expect(await s.isAuthed({ authed: true, key, epoch: 0 })).toBe(false)
+    expect(runApp).toHaveBeenCalledTimes(2)
+  })
 })
 
 describe("password check", () => {

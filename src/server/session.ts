@@ -28,9 +28,9 @@ export const passwordKey = async () =>
 const EPOCH_TTL_MS = 30_000
 let epochCache: { value: number; readAt: number } | undefined
 
-export const currentEpoch = async () => {
+export const currentEpoch = async ({ fresh = false } = {}) => {
   const now = Date.now()
-  if (epochCache && now - epochCache.readAt < EPOCH_TTL_MS) return epochCache.value
+  if (!fresh && epochCache && now - epochCache.readAt < EPOCH_TTL_MS) return epochCache.value
   const value = await runApp(SessionEpoch.use((s) => s.current))
   epochCache = { value, readAt: now }
   return value
@@ -42,8 +42,14 @@ export const revokeAllSessions = async () => {
   epochCache = { value, readAt: Date.now() }
 }
 
-export const isAuthed = async (data: SessionData) =>
-  data.authed === true && data.key === (await passwordKey()) && (data.epoch ?? 0) === (await currentEpoch())
+// The epoch only goes up. A cookie newer than the cached epoch comes from a login served by
+// another isolate since this one last read it: the epoch is read again before refusing it.
+export const isAuthed = async (data: SessionData) => {
+  if (data.authed !== true || data.key !== (await passwordKey())) return false
+  const epoch = data.epoch ?? 0
+  const cached = await currentEpoch()
+  return epoch === cached || (epoch > cached && epoch === (await currentEpoch({ fresh: true })))
+}
 
 /** Constant-time comparison so the password cannot be guessed character by character. */
 export const passwordMatches = async (candidate: string) => {

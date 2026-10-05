@@ -1,5 +1,6 @@
 import { X } from "lucide-react"
 import * as React from "react"
+import { leaveIfSignedOut } from "~/lib/auth"
 import { cx, IconButton } from "./ui"
 
 type Toast = { id: number; message: string; tone: "default" | "error"; action?: { label: string; run: () => void } }
@@ -21,8 +22,10 @@ export const toast = (message: string, options: { tone?: Toast["tone"]; action?:
   holdToast(id, false)
 }
 
-export const toastError = (error: unknown) =>
+export const toastError = (error: unknown) => {
+  if (leaveIfSignedOut(error)) return
   toast(error instanceof Error ? error.message : "Une erreur est survenue", { tone: "error" })
+}
 
 export const getToasts = () => toasts
 

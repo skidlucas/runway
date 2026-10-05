@@ -27,7 +27,7 @@ export const login = createServerFn({ method: "POST" })
     }
     await runApp(LoginGuard.use((g) => g.succeeded(client)))
     const session = await appSession()
-    await session.update({ authed: true, key: await passwordKey(), epoch: await currentEpoch() })
+    await session.update({ authed: true, key: await passwordKey(), epoch: await currentEpoch({ fresh: true }) })
     return { ok: true as const }
   })
 
