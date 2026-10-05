@@ -56,6 +56,7 @@ export type ScheduleInput = {
 }
 
 const MAX_OVERDUE = 12
+const RETRIED_ONE_BY_ONE = 10
 
 // A booking of a sync is written only while its schedule still waits on the occurrence it read.
 const stillDue = (id: string, from: string) =>
@@ -421,7 +422,11 @@ export class Schedules extends Context.Service<
           )
         })
 
-      /** Writes bookings; when the batch fails, retries them one at a time so that one broken schedule does not hold back the others. */
+      /**
+       * Writes bookings; when the batch fails, retries them one at a time so that one broken schedule
+       * does not hold back the others. Only the first few are retried, to stay under the per-request
+       * query limit: the next sync books the rest.
+       */
       const commit = (bookings: ReadonlyArray<ReadyBooking>) =>
         bookings.length === 0
           ? Effect.succeed(new Set<string>())
@@ -429,7 +434,7 @@ export class Schedules extends Context.Service<
               Effect.catch((error) =>
                 bookings.length === 1
                   ? Effect.fail(error)
-                  : Effect.forEach(bookings, (b) =>
+                  : Effect.forEach(bookings.slice(0, RETRIED_ONE_BY_ONE), (b) =>
                       writeBookings([b]).pipe(
                         Effect.catch((e) => Effect.logWarning("Échéance ignorée", { id: b.row.id, error: e }).pipe(Effect.as(new Set<string>()))),
                       ),
