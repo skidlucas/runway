@@ -57,7 +57,11 @@ export const setLoanPayments = createServerFn({ method: "POST" })
       Schema.Struct({
         id: Id,
         changes: Schema.Array(
-          Schema.Struct({ installment: Schema.Int, payment: Schema.NullOr(Schema.Union([Schema.Int, Schema.Literal("interest_only")])) }),
+          Schema.Struct({
+            installment: Schema.Int,
+            payment: Schema.NullOr(Schema.Union([Schema.Int, Schema.Literal("interest_only")])),
+            onward: Schema.optional(Schema.Boolean),
+          }),
         ),
       }),
     ),

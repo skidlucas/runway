@@ -9,6 +9,7 @@ import {
   loanBalance,
   loanEndMonth,
   type LoanOverride,
+  type LoanStep,
   loanMaxInstallments,
   loanMonthlyPayment,
   PROPERTY_TYPE_LABELS,
@@ -73,6 +74,7 @@ type Draft = {
   insurance: string
   /** Changed installments, kept as they are: the schedule in the asset's detail edits them. */
   overrides: ReadonlyArray<LoanOverride>
+  steps: ReadonlyArray<LoanStep>
   // Manual estimate, recorded as a valuation dated today
   estimate: string
   notes: string
@@ -103,6 +105,7 @@ const draftOf = (item: WealthItem | null): Draft => {
     firstPaymentDate: s.kind === "loan" ? s.firstPaymentDate : "",
     insurance: s.kind === "loan" ? centsText(s.insurance) : "",
     overrides: s.kind === "loan" ? (s.overrides ?? []) : [],
+    steps: s.kind === "loan" ? (s.steps ?? []) : [],
     estimate: "",
     notes: item?.notes ?? "",
   }
@@ -136,7 +139,9 @@ const toInput = (d: Draft): { error: string } | { input: Parameters<typeof creat
       if (insurance === null && d.insurance.trim() !== "") return { error: "L'assurance doit être un montant." }
       const months = Math.round(years * 12)
       // A shorter loan drops the changed installments that its schedule can no longer reach.
-      const overrides = d.overrides.filter((o) => o.installment <= loanMaxInstallments({ months }))
+      const reachable = (o: { installment: number }) => o.installment <= loanMaxInstallments({ months })
+      const overrides = d.overrides.filter(reachable)
+      const steps = d.steps.filter(reachable)
       source = {
         kind: "loan",
         principal,
@@ -144,6 +149,7 @@ const toInput = (d: Draft): { error: string } | { input: Parameters<typeof creat
         months,
         firstPaymentDate: d.firstPaymentDate,
         ...(overrides.length > 0 ? { overrides } : {}),
+        ...(steps.length > 0 ? { steps } : {}),
         ...(insurance !== null ? { insurance } : {}),
       }
       break

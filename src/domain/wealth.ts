@@ -159,6 +159,8 @@ export const formatShare = (share: number): string => formatPercent(share / FULL
 /** What an installment pays, capital and interest: an amount in cents, or the month's interest only. */
 export type LoanPayment = number | "interest_only"
 export type LoanOverride = { readonly installment: number; readonly payment: LoanPayment }
+/** A new constant payment set by the bank, in cents, from `installment` until the next step. */
+export type LoanStep = { readonly installment: number; readonly payment: number }
 export type LoanTerms = {
   readonly principal: number
   readonly annualRatePct: number
@@ -167,6 +169,8 @@ export type LoanTerms = {
   readonly firstPaymentDate: Day
   /** Installments that differ from the computed ones: a deferral, a modulation, an early repayment. */
   readonly overrides?: ReadonlyArray<LoanOverride>
+  /** New constant payments, typically set by the bank after a deferral. */
+  readonly steps?: ReadonlyArray<LoanStep>
   /** Monthly insurance, shown beside the installments: it repays no capital. */
   readonly insurance?: number
 }
@@ -210,14 +214,15 @@ export type LoanRow = {
   readonly capital: number
   /** Capital still owed once the installment is paid. */
   readonly remaining: number
-  readonly override: "amount" | "interest_only" | null
+  /** "step": the installment starts a new constant payment. */
+  readonly override: "amount" | "interest_only" | "step" | null
 }
 
 /**
  * The amortization schedule, one row per installment until the capital is repaid. Every month pays
  * the interest on what is still owed; an installment left unchanged pays the contract's constant
- * payment, so a deferral pushes the end of the loan back and an extra payment brings it forward,
- * as banks do by default. Without changes, the loan ends after its duration.
+ * payment, or the latest step's, so a deferral pushes the end of the loan back and an extra payment
+ * brings it forward, as banks do by default. Without changes, the loan ends after its duration.
  *
  * Like banks, the payment and each month's interest are rounded to the cent and the last
  * installment absorbs the difference: unrounded, the balance drifts by cents a year from the
@@ -227,17 +232,20 @@ export const loanSchedule = (terms: LoanTerms): LoanRow[] => {
   const r = terms.annualRatePct / 1200
   const constant = Math.round(loanMonthlyPayment(terms))
   const overrides = new Map((terms.overrides ?? []).map((o) => [o.installment, o.payment]))
+  const steps = new Map((terms.steps ?? []).map((s) => [s.installment, s.payment]))
   const last = loanMaxInstallments(terms)
   const rows: LoanRow[] = []
   let owed = terms.principal
+  let base = constant
   for (let k = 1; k <= last && owed > 0; k++) {
     const interest = Math.round(owed * r)
+    base = steps.get(k) ?? base
     const override = overrides.get(k)
-    let payment = override === undefined ? constant : override === "interest_only" ? interest : override
+    let payment = override === undefined ? base : override === "interest_only" ? interest : override
     // No installment repays more than is owed. The last one possible settles the rest, and so does
     // an unchanged one that would leave less than half a payment of rounding cents behind.
     const leftover = owed + interest - payment
-    if (k === last || leftover < 0 || (override === undefined && leftover < constant / 2)) payment = owed + interest
+    if (k === last || leftover < 0 || (override === undefined && leftover < base / 2)) payment = owed + interest
     owed -= payment - interest
     rows.push({
       installment: k,
@@ -246,7 +254,7 @@ export const loanSchedule = (terms: LoanTerms): LoanRow[] => {
       interest,
       capital: payment - interest,
       remaining: owed,
-      override: override === undefined ? null : override === "interest_only" ? "interest_only" : "amount",
+      override: override === "interest_only" ? "interest_only" : override !== undefined ? "amount" : steps.has(k) ? "step" : null,
     })
   }
   return rows
@@ -271,16 +279,29 @@ export const loanEndMonth = (terms: LoanTerms): Month => {
   return monthOf(last?.date ?? terms.firstPaymentDate)
 }
 
-/** A change to one installment: a payment, or null to go back to the computed one. */
-export type LoanPaymentChange = { readonly installment: number; readonly payment: LoanPayment | null }
+/**
+ * A change to one installment: a payment for it alone, a new constant payment from it onward
+ * (`onward`, an amount only), or null to go back to the computed one.
+ */
+export type LoanPaymentChange = { readonly installment: number; readonly payment: LoanPayment | null; readonly onward?: boolean }
 
-export const mergeOverrides = (current: ReadonlyArray<LoanOverride> | undefined, changes: ReadonlyArray<LoanPaymentChange>): LoanOverride[] => {
-  const byInstallment = new Map((current ?? []).map((o) => [o.installment, o.payment]))
-  for (const change of changes) {
-    if (change.payment === null) byInstallment.delete(change.installment)
-    else byInstallment.set(change.installment, change.payment)
+const byInstallment = <P>(entries: Map<number, P>) =>
+  [...entries].sort(([a], [b]) => a - b).map(([installment, payment]) => ({ installment, payment }))
+
+export const applyLoanChanges = (
+  terms: Pick<LoanTerms, "overrides" | "steps">,
+  changes: ReadonlyArray<LoanPaymentChange>,
+): { overrides: LoanOverride[]; steps: LoanStep[] } => {
+  const overrides = new Map((terms.overrides ?? []).map((o) => [o.installment, o.payment]))
+  const steps = new Map((terms.steps ?? []).map((s) => [s.installment, s.payment]))
+  for (const { installment, payment, onward } of changes) {
+    overrides.delete(installment)
+    if (payment === null || onward) steps.delete(installment)
+    if (payment === null) continue
+    if (!onward) overrides.set(installment, payment)
+    else if (payment !== "interest_only") steps.set(installment, payment)
   }
-  return [...byInstallment].sort(([a], [b]) => a - b).map(([installment, payment]) => ({ installment, payment }))
+  return { overrides: byInstallment(overrides), steps: byInstallment(steps) }
 }
 
 /** Why a loan's changed installments or insurance cannot be used, or null. */
@@ -292,6 +313,14 @@ export const loanChangesProblem = (terms: LoanTerms): string | null => {
     }
     seen.add(o.installment)
     if (o.payment !== "interest_only" && (!Number.isInteger(o.payment) || o.payment < 0)) return "Une mensualité doit être un montant positif."
+  }
+  const stepsSeen = new Set<number>()
+  for (const step of terms.steps ?? []) {
+    if (!Number.isInteger(step.installment) || step.installment < 1 || step.installment > loanMaxInstallments(terms) || stepsSeen.has(step.installment)) {
+      return "Échéance hors du tableau d'amortissement."
+    }
+    stepsSeen.add(step.installment)
+    if (!Number.isInteger(step.payment) || step.payment <= 0) return "Une nouvelle mensualité doit être un montant positif."
   }
   if (terms.insurance !== undefined && (!Number.isInteger(terms.insurance) || terms.insurance < 0)) return "L'assurance doit être un montant positif."
   return null

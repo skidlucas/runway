@@ -71,7 +71,8 @@ test("adds a loan and nets it against real estate", async ({ page }) => {
   const owed = await amountIn(row)
   expect(owed).toBeLessThan(0)
   expect(owed).toBeGreaterThan(-100_000_00)
-  await expect.poll(async () => cents(await netWorth.innerText())).toBe(before + owed)
+  // Both amounts show whole euros: their rounding can differ by one.
+  await expect.poll(async () => Math.abs(cents(await netWorth.innerText()) - (before + owed))).toBeLessThanOrEqual(1_00)
 
   // Deferring the first installment leaves one installment more owed today (the row shows whole euros).
   await row.click()
@@ -83,6 +84,16 @@ test("adds a loan and nets it against real estate", async ({ page }) => {
   await expect(schedule.getByTestId("loan-row").first()).toContainText("Intérêts seuls")
   await expect.poll(async () => Math.abs((await amountIn(row)) - (owed - 833_33))).toBeLessThan(100)
   await expect(schedule.getByTestId("loan-row")).toHaveCount(121)
+
+  // Doubling the payment from March 2020 on repays the loan in about half the time.
+  await schedule.getByRole("button", { name: /^Actions de l'échéance de mars 2020$/i }).click()
+  await page.getByRole("menuitem", { name: "Nouvelle mensualité à partir d'ici…" }).click()
+  const step = page.getByRole("dialog", { name: "Nouvelle mensualité à partir de mars 2020" })
+  await step.getByLabel("Mensualité").fill("1666,67")
+  await step.getByRole("button", { name: "Appliquer" }).click()
+  await expect(step).toBeHidden()
+  await expect(schedule.getByTestId("loan-row").nth(1)).toContainText("Nouvelle mensualité")
+  await expect(schedule.getByTestId("loan-row")).toHaveCount(61)
   await page.keyboard.press("Escape")
 
   await visible(page.getByTestId("asset-detail")).getByRole("button", { name: "Actions du bien" }).click()

@@ -5,7 +5,7 @@ import { amountInput, parseAmount } from "~/domain/money"
 import { type LoanPayment, type LoanRow, type LoanTerms, loanSchedule, nextInstallment } from "~/domain/wealth"
 import { useAction } from "~/lib/queries"
 import { setLoanPayments } from "~/server/fns/wealth"
-import { Chip, cx, Dialog, IconButton, InlineEdit, Menu, Money } from "./ui"
+import { Button, Chip, cx, Dialog, Field, IconButton, InlineEdit, Input, Menu, Money } from "./ui"
 
 /** The amortization schedule of a loan, for the whole contract, with every installment editable. */
 export function LoanScheduleDialog({ assetId, terms, today, onClose }: { assetId: string; terms: LoanTerms; today: Day; onClose: () => void }) {
@@ -19,13 +19,14 @@ export function LoanScheduleDialog({ assetId, terms, today, onClose }: { assetId
   React.useEffect(() => nextRow.current?.scrollIntoView({ block: "center" }), [])
   const change = useAction(setLoanPayments, { writes: ["assets"] })
   const set = (installment: number, payment: LoanPayment | null) => change.mutate({ data: { id: assetId, changes: [{ installment, payment }] } })
+  const [stepFrom, setStepFrom] = React.useState<LoanRow | null>(null)
 
   return (
     <Dialog
       open
       onOpenChange={(o) => !o && onClose()}
       title="Tableau d'amortissement"
-      description="Montants du contrat entier. Les autres mensualités restent celles du contrat : un report repousse la fin du prêt, un remboursement anticipé la rapproche."
+      description="Montants du contrat entier. Une mensualité modifiée ne vaut que pour son échéance, une nouvelle mensualité vaut aussi pour les suivantes. Un report repousse la fin du prêt, un remboursement anticipé la rapproche."
       width={820}
     >
       <div role="table" aria-label="Échéances du prêt" className="text-[12px]">
@@ -49,9 +50,49 @@ export function LoanScheduleDialog({ assetId, terms, today, onClose }: { assetId
             paid={row.date <= today}
             current={row.installment === next?.installment}
             onChange={(payment) => set(row.installment, payment)}
+            onNewPayment={() => setStepFrom(row)}
           />
         ))}
       </div>
+      {stepFrom ? <NewPaymentDialog assetId={assetId} row={stepFrom} onClose={() => setStepFrom(null)} /> : null}
+    </Dialog>
+  )
+}
+
+/** A new constant payment from one installment onward, as the bank sets it after a deferral. */
+function NewPaymentDialog({ assetId, row, onClose }: { assetId: string; row: LoanRow; onClose: () => void }) {
+  const [text, setText] = React.useState(amountInput(row.payment))
+  const payment = parseAmount(text)
+  const valid = payment !== null && payment > 0
+  const change = useAction(setLoanPayments, { writes: ["assets"], onSuccess: onClose })
+  const submit = () => valid && change.mutate({ data: { id: assetId, changes: [{ installment: row.installment, payment, onward: true }] } })
+  return (
+    <Dialog
+      open
+      onOpenChange={(o) => !o && onClose()}
+      title={`Nouvelle mensualité à partir de ${formatMonthLong(monthOf(row.date)).toLowerCase()}`}
+      description="Capital et intérêts, hors assurance. Elle s'applique à cette échéance et aux suivantes, jusqu'à la prochaine nouvelle mensualité."
+      width={420}
+      footer={
+        <>
+          <span />
+          <Button variant="primary" disabled={!valid} loading={change.isPending} onClick={submit}>
+            Appliquer
+          </Button>
+        </>
+      }
+    >
+      <form
+        className="px-5 py-4"
+        onSubmit={(e) => {
+          e.preventDefault()
+          submit()
+        }}
+      >
+        <Field label="Mensualité">
+          <Input value={text} onChange={(e) => setText(e.target.value)} className="num" inputMode="decimal" autoFocus />
+        </Field>
+      </form>
     </Dialog>
   )
 }
@@ -64,6 +105,7 @@ function ScheduleRow({
   paid,
   current,
   onChange,
+  onNewPayment,
 }: {
   ref?: React.Ref<HTMLDivElement>
   row: LoanRow
@@ -72,6 +114,7 @@ function ScheduleRow({
   paid: boolean
   current: boolean
   onChange: (payment: LoanPayment | null) => void
+  onNewPayment: () => void
 }) {
   const month = formatMonthLong(monthOf(row.date))
   return (
@@ -85,6 +128,7 @@ function ScheduleRow({
       <span role="cell" className="flex min-w-0 items-center justify-end gap-1.5">
         {row.override === "interest_only" ? <Chip>Intérêts seuls</Chip> : null}
         {row.override === "amount" ? <Chip>Modifiée</Chip> : null}
+        {row.override === "step" ? <Chip>Nouvelle mensualité</Chip> : null}
         <InlineEdit
           value={amountInput(row.payment)}
           label={`Mensualité de ${month}`}
@@ -112,6 +156,7 @@ function ScheduleRow({
         }
         items={[
           { label: "Intérêts seuls", disabled: row.override === "interest_only", onSelect: () => onChange("interest_only") },
+          { label: "Nouvelle mensualité à partir d'ici…", onSelect: onNewPayment },
           { label: "Rétablir le calcul", icon: <RotateCcw size={13} />, disabled: row.override === null, onSelect: () => onChange(null) },
         ]}
       />

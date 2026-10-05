@@ -76,6 +76,7 @@ export const ValuationSource = Schema.Union([
     overrides: Schema.optional(
       Schema.Array(Schema.Struct({ installment: Schema.Int, payment: Schema.Union([Schema.Int, Schema.Literal("interest_only")]) })),
     ),
+    steps: Schema.optional(Schema.Array(Schema.Struct({ installment: Schema.Int, payment: Schema.Int }))),
     insurance: Schema.optional(Schema.Int),
   }),
 ])

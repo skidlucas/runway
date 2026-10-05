@@ -255,6 +255,15 @@ describe("Wealth", () => {
     await h.run(Wealth.use((w) => w.setLoanPayments(loan, [{ installment: 5, payment: null }])))
     expect(await estimate()).toBe(90_000_00)
 
+    // 2 000 € from the 5th installment on: 4 × 1 000 € then 6 × 2 000 € paid by now.
+    await h.run(Wealth.use((w) => w.setLoanPayments(loan, [{ installment: 5, payment: 2_000_00, onward: true }])))
+    expect(await estimate()).toBe(84_000_00)
+    expect(await h.fail(Wealth.use((w) => w.setLoanPayments(loan, [{ installment: 6, payment: "interest_only", onward: true }])))).toMatchObject({
+      _tag: "Invalid",
+    })
+    await h.run(Wealth.use((w) => w.setLoanPayments(loan, [{ installment: 5, payment: null }])))
+    expect(await estimate()).toBe(90_000_00)
+
     expect(await h.fail(Wealth.use((w) => w.setLoanPayments(loan, [{ installment: 201, payment: 0 }])))).toMatchObject({ _tag: "Invalid" })
     const watch = await h.run(Wealth.use((w) => w.create(manual())))
     expect(await h.fail(Wealth.use((w) => w.setLoanPayments(watch, [{ installment: 1, payment: 0 }])))).toMatchObject({ _tag: "Invalid" })

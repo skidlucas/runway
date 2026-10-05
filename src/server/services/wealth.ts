@@ -13,11 +13,11 @@ import {
   isShare,
   latestOn,
   type PropertyType,
+  applyLoanChanges,
   loanBalanceAt,
   loanChangesProblem,
   type LoanPaymentChange,
   type LoanRow,
-  mergeOverrides,
   loanSchedule,
   loanStartDate,
   type RetainedKind,
@@ -295,7 +295,7 @@ export class Wealth extends Context.Service<
     update(id: string, input: AssetInput): Effect.Effect<void, DbError | Invalid | NotFound>
     remove(id: string): Effect.Effect<void, DbError>
     addValuation(input: { assetId: string; date: Day; amount: number }): Effect.Effect<void, DbError | Invalid | NotFound>
-    /** Changes installments of a loan's amortization schedule; a null payment goes back to the computed one. */
+    /** Changes installments of a loan's amortization schedule, alone or onward; a null payment goes back to the computed one. */
     setLoanPayments(id: string, changes: ReadonlyArray<LoanPaymentChange>): Effect.Effect<void, DbError | Invalid | NotFound>
     /**
      * Fetches automatic estimates (crypto, quotes, DVF) for the assets that are due, or for `ids`
@@ -637,7 +637,10 @@ export class Wealth extends Context.Service<
         const [asset] = yield* db.use((orm) => orm.select({ type: assets.type, source: assets.source }).from(assets).where(eq(assets.id, id)))
         if (!asset) return yield* new NotFound({ entity: "Bien", id })
         if (asset.source.kind !== "loan") return yield* new Invalid({ message: "Le tableau d'amortissement est réservé aux emprunts." })
-        const source = { ...asset.source, overrides: mergeOverrides(asset.source.overrides, changes) }
+        if (changes.some((c) => c.onward && c.payment === "interest_only")) {
+          return yield* new Invalid({ message: "Une nouvelle mensualité doit être un montant." })
+        }
+        const source = { ...asset.source, ...applyLoanChanges(asset.source, changes) }
         const problem = sourceProblem(asset.type, source)
         if (problem) return yield* new Invalid({ message: problem })
         yield* db.use((orm) => orm.update(assets).set({ source }).where(eq(assets.id, id)))
