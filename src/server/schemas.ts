@@ -34,6 +34,7 @@ export const PayeeInput = Schema.Union([
 export const Recurrence = Schema.Struct({
   unit: Schema.Literals(RECURRENCE_UNITS),
   interval: Schema.Int.check(Schema.isGreaterThanOrEqualTo(1, { message: "Le rythme doit être d'au moins 1" })),
+  skipWeekend: Schema.optional(Schema.Boolean),
 })
 
 export const RuleCondition = Schema.Struct({
@@ -173,7 +174,7 @@ export const BundleStructure = Schema.Struct({
       accountId: Schema.String,
       categoryId: NullableString,
       amount: Schema.Int,
-      recurrence: Schema.Struct({ unit: Schema.String, interval: Schema.Number }),
+      recurrence: Schema.Struct({ unit: Schema.String, interval: Schema.Number, skipWeekend: Schema.optional(Schema.Boolean) }),
       startDate: Schema.String,
       nextDate: Schema.String,
       endDate: NullableString,

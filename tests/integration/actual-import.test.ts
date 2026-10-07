@@ -305,12 +305,17 @@ describe("Actual parsing of edge cases", () => {
     }
     schedule("plain", {})
     schedule("lastDay", { patterns: [{ type: "day", value: -1 }] })
-    schedule("weekdays", { skipWeekend: true, weekendSolveMode: "before" })
+    schedule("fridayBefore", { skipWeekend: true, weekendSolveMode: "before" })
+    // 31 October 2026 is a Saturday.
+    schedule("mondayAfter", { start: "2026-10-31", skipWeekend: true, weekendSolveMode: "after" })
     schedule("emptyPatterns", { patterns: [], skipWeekend: false })
 
     const parsed = parse()
-    expect(parsed.schedules.map((s) => s.name).sort()).toEqual(["emptyPatterns", "lastDay", "plain", "weekdays"])
+    expect(parsed.schedules.map((s) => s.name).sort()).toEqual(["emptyPatterns", "fridayBefore", "lastDay", "mondayAfter", "plain"])
     expect(parsed.schedules.every((s) => s.recurrence.unit === "month")).toBe(true)
+    expect(parsed.schedules.filter((s) => s.recurrence.skipWeekend).map((s) => s.name).sort()).toEqual(["fridayBefore", "mondayAfter"])
+    expect(parsed.schedules.find((s) => s.name === "mondayAfter")?.nextDate).toBe("2026-11-02")
+    // Runway only moves to the Monday after: the Friday before is the approximation.
     expect(parsed.approximated.schedules).toBe(2)
   })
 

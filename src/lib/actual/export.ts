@@ -181,7 +181,7 @@ export const buildActualExport = (
                 frequency: FREQUENCY[s.recurrence.unit],
                 interval: s.recurrence.interval,
                 patterns: [],
-                skipWeekend: false,
+                skipWeekend: s.recurrence.skipWeekend === true,
                 weekendSolveMode: "after",
                 endMode: s.endDate ? "on_date" : "never",
                 ...(s.endDate ? { endDate: s.endDate } : {}),

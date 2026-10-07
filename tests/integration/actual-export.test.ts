@@ -12,6 +12,7 @@ import { Budget } from "~/server/services/budget"
 import { Categories } from "~/server/services/categories"
 import { type ExportMeta, type ExportTransaction, ImportExport } from "~/server/services/import-export"
 import { Rules } from "~/server/services/rules"
+import { Accounts } from "~/server/services/accounts"
 import { Schedules } from "~/server/services/schedules"
 import { createHarness, type Harness, importApi } from "./harness"
 
@@ -38,6 +39,22 @@ beforeAll(async () => {
   await h.run(
     Rules.use((r) =>
       r.create({ conditionsOp: "and", conditions: [{ field: "amount", op: "gt", value: 50_000 }], actions: [{ type: "set_category", categoryId: groceries.id }] }),
+    ),
+  )
+
+  const [account] = await h.run(Accounts.use((a) => a.list))
+  await h.run(
+    Schedules.use((s) =>
+      s.create({
+        name: "Salaire ouvré",
+        payee: { kind: "name", name: "Employeur" },
+        accountId: account!.id,
+        categoryId: null,
+        amount: 250_000,
+        recurrence: { unit: "month", interval: 1, skipWeekend: true },
+        startDate: "2026-10-31",
+        autoPost: false,
+      }),
     ),
   )
 
@@ -134,5 +151,11 @@ describe("Actual export, read back by the official Actual API", () => {
     const theirs = (await actual.getSchedules()) as Array<{ name: string }>
     const mine = (await h.run(Schedules.use((s) => s.list))).find((s) => s.name === "Netflix")!
     expect(theirs.find((s) => s.name === "Netflix")).toMatchObject({ account: mine.accountId, amount: mine.amount, date: { frequency: "monthly" } })
+  })
+
+  it("moves a schedule's weekend occurrences to the Monday after in Actual too", async () => {
+    const theirs = (await actual.getSchedules()) as Array<{ name: string }>
+    expect(theirs.find((s) => s.name === "Netflix")).toMatchObject({ date: { skipWeekend: false } })
+    expect(theirs.find((s) => s.name === "Salaire ouvré")).toMatchObject({ date: { skipWeekend: true, weekendSolveMode: "after" } })
   })
 })

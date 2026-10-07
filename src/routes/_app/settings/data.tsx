@@ -47,7 +47,7 @@ const importNotes = ({ skipped, approximated }: ImportBundle) =>
       ? `Non repris : ${count(skipped.budgets, "montant")} du budget de suivi, Runway ne gère que le budget par enveloppes.`
       : null,
     approximated.schedules
-      ? `${count(approximated.schedules, "échéance")} sur des jours précis ou hors week-end ${plural(approximated.schedules, "reprise")} au même jour chaque période : à vérifier après l'import.`
+      ? `${count(approximated.schedules, "échéance")} sur des jours précis ou avancées avant le week-end ${plural(approximated.schedules, "reprise")} au même jour chaque période : à vérifier après l'import.`
       : null,
   ].filter((note) => note !== null)
 

@@ -1,7 +1,7 @@
 import { and, asc, eq, lte } from "drizzle-orm"
 import { Context, Effect, Layer, Option, Result, Schema } from "effect"
 import { addDays, addMonths, compareIso, type Day, diffDays, firstDay, isDay, monthOf } from "~/domain/dates"
-import { describeRecurrence, nextOnOrAfter, occurrencesBetween, type Recurrence } from "~/domain/recurrence"
+import { describeRecurrence, nextOnOrAfter, occurrencesBetween, type Recurrence, sameRecurrence } from "~/domain/recurrence"
 import { type Remaining, remainingOccurrences } from "~/domain/planned"
 import { detectRecurring, type HistoryTransaction, MIN_OCCURRENCES, type RecurringCandidate } from "~/domain/recurring-detection"
 import { chunkRows, Db, type DbError, newId } from "../db/client"
@@ -302,7 +302,7 @@ export class Schedules extends Context.Service<
         const payeeId = yield* resolvePayeeId(input.payee, input.accountId)
         const today = yield* settings.today
         const rhythmChanged =
-          current.startDate !== input.startDate || JSON.stringify(current.recurrence) !== JSON.stringify(input.recurrence)
+          current.startDate !== input.startDate || !isRecurrence(current.recurrence) || !sameRecurrence(current.recurrence, input.recurrence)
         const next = { startDate: input.startDate, endDate: input.endDate ?? null, recurrence: input.recurrence }
         // A new rhythm restarts from the first occurrence that is not in the past. Otherwise the
         // schedule keeps its place, so an overdue occurrence is neither skipped nor booked twice;

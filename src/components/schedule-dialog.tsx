@@ -71,11 +71,12 @@ export function ScheduleDialog({
   const frequencies = React.useMemo(() => {
     const own = base.recurrence
     if (!own || FREQUENCIES.some((f) => f.value === keyOf(own))) return FREQUENCIES
-    return [...FREQUENCIES, { value: keyOf(own), label: capitalize(describeRecurrence(own)), recurrence: own }]
+    return [...FREQUENCIES, { value: keyOf(own), label: capitalize(describeRecurrence({ unit: own.unit, interval: own.interval })), recurrence: own }]
   }, [base.recurrence])
   const [endDate, setEndDate] = React.useState(schedule?.endDate ?? "")
   const [autoPost, setAutoPost] = React.useState(schedule?.autoPost ?? false)
   const [notes, setNotes] = React.useState(base.notes ?? "")
+  const [skipWeekend, setSkipWeekend] = React.useState(base.recurrence?.skipWeekend ?? false)
 
 
   const create = useAction(createSchedule, { success: "Échéance créée", onSuccess: onClose, writes: ["schedules", "payees"] })
@@ -84,9 +85,10 @@ export function ScheduleDialog({
   const { confirm, dialog: confirmDialog } = useConfirm()
 
   const cents = parseAmount(amount)
-  const recurrence = frequencies.find((f) => f.value === frequency)?.recurrence ?? { unit: "month", interval: 1 }
+  const rhythm = frequencies.find((f) => f.value === frequency)?.recurrence ?? { unit: "month", interval: 1 }
+  const once = rhythm.unit === "once"
+  const recurrence: Recurrence = { unit: rhythm.unit, interval: rhythm.interval, ...(skipWeekend && !once ? { skipWeekend: true } : {}) }
   const valid = cents !== null && cents !== 0 && accountId !== "" && startDate !== ""
-  const once = recurrence.unit === "once"
 
   const submit = () => {
     if (!valid || cents === null) return
@@ -185,6 +187,15 @@ export function ScheduleDialog({
           </span>
           <Switch checked={autoPost} onCheckedChange={setAutoPost} label="Saisie automatique" />
         </label>
+        {once ? null : (
+          <label className="flex items-center justify-between gap-3 self-end pb-1.5">
+            <span>
+              Reporter au lundi si week-end
+              <span className="block text-[12px] text-faint">Un samedi ou un dimanche passe au lundi</span>
+            </span>
+            <Switch checked={skipWeekend} onCheckedChange={setSkipWeekend} label="Reporter au lundi si week-end" />
+          </label>
+        )}
         <Field label="Note" className="col-span-2 max-md:col-span-1">
           <Input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Optionnel" />
         </Field>

@@ -1,7 +1,7 @@
 import { unzipSync } from "fflate"
 import type { Database, SqlJsStatic } from "sql.js"
 import { addDays } from "~/domain/dates"
-import { nextOnOrAfter, occurrence, periodDays, type Recurrence } from "~/domain/recurrence"
+import { nextOnOrAfter, occurrence, periodDays, type Recurrence, toMonday } from "~/domain/recurrence"
 import { patternProblem, type RuleAction, type RuleCondition, type RuleConditionsOp } from "~/domain/rules"
 import { type BundleRule, type BundleSchedule, type BundleTransaction, type ImportBundle, orderStamps } from "../import-bundle"
 
@@ -435,6 +435,7 @@ const readSchedules = (
           endOccurrences?: number
           patterns?: unknown[]
           skipWeekend?: boolean
+          weekendSolveMode?: string
         }
       | undefined
     if (typeof account !== "string" || !accountIds.has(account) || amount === null || !date) {
@@ -447,11 +448,17 @@ const readSchedules = (
       skipped++
       continue
     }
-    // Runway repeats on the start date's day: "last day of the month", "every 2nd Tuesday" or
-    // "move off weekends" are imported on that plain rhythm, for the user to check.
-    if (recurring && ((date.patterns?.length ?? 0) > 0 || date.skipWeekend === true)) approximated++
+    // Runway repeats on the start date's day and only moves a weekend to the Monday after: "last
+    // day of the month", "every 2nd Tuesday" or "move to the Friday before" are imported on that
+    // plain rhythm, for the user to check.
+    const skipWeekend = recurring && date.skipWeekend === true
+    if (recurring && ((date.patterns?.length ?? 0) > 0 || (skipWeekend && date.weekendSolveMode === "before"))) approximated++
     const startDate = recurring ? date.start : date
-    const recurrence: Recurrence = { unit, interval: recurring ? Math.max(1, Number(date.interval ?? 1)) : 1 }
+    const recurrence: Recurrence = {
+      unit,
+      interval: recurring ? Math.max(1, Number(date.interval ?? 1)) : 1,
+      ...(skipWeekend ? { skipWeekend: true } : {}),
+    }
     const endDate = !recurring
       ? null
       : date.endMode === "on_date" && date.endDate
@@ -459,7 +466,9 @@ const readSchedules = (
         : date.endMode === "after_n_occurrences" && Number(date.endOccurrences) >= 1
           ? occurrence({ startDate, endDate: null, recurrence }, Number(date.endOccurrences) - 1)
           : null
-    const stored = toDay(row.next_date) ?? startDate
+    // Actual stores the planned day and moves it off the weekend only when it shows or books it.
+    const planned = toDay(row.next_date) ?? startDate
+    const stored = skipWeekend ? toMonday(planned) : planned
     const posted = lastLinked.get(String(row.id))
     // A transaction entered a few days early still covers the occurrence. The margin stays short:
     // further back, the transaction is more likely the late payment of the previous occurrence.

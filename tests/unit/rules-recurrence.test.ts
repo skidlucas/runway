@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
-import { addMonths, daysInMonth, formatDayShort, formatMonthLong, monthRange, todayIn } from "~/domain/dates"
-import { describeRecurrence, nextOnOrAfter, occurrence, occurrencesBetween } from "~/domain/recurrence"
+import { addMonths, daysInMonth, formatDayShort, formatMonthLong, monthRange, todayIn, weekday } from "~/domain/dates"
+import { describeRecurrence, nextOnOrAfter, occurrence, occurrencesBetween, sameRecurrence, toMonday } from "~/domain/recurrence"
 import { detectRecurring, type HistoryTransaction } from "~/domain/recurring-detection"
 import { applyRules, compileRules, describeRule, patternProblem, type Rule } from "~/domain/rules"
 
@@ -222,6 +222,49 @@ describe("rule matching edge cases", () => {
     expect(under(-1_000)({ ...subject, amount: -1_349 }).categoryId).toBeUndefined()
     const exactly = compileRules([rule("r", [{ field: "amount", op: "is", value: -1_349 }])])
     expect([exactly({ ...subject, amount: 1_349 }).categoryId, exactly({ ...subject, amount: -1_349 }).categoryId]).toEqual(["r", "r"])
+  })
+})
+
+describe("recurrence moved off weekends", () => {
+  const monthly = (startDate: string, endDate: string | null = null) => ({
+    startDate,
+    endDate,
+    recurrence: { unit: "month" as const, interval: 1, skipWeekend: true },
+  })
+
+  it("moves a Saturday or a Sunday to the Monday after, other days unchanged", () => {
+    // 10 October 2026 is a Saturday, 11 a Sunday, 12 a Monday.
+    expect(toMonday("2026-10-10")).toBe("2026-10-12")
+    expect(toMonday("2026-10-11")).toBe("2026-10-12")
+    expect(toMonday("2026-10-09")).toBe("2026-10-09")
+    expect(occurrencesBetween(monthly("2026-10-10"), "2026-10-01", "2026-12-31")).toEqual(["2026-10-12", "2026-11-10", "2026-12-10"])
+  })
+
+  it("moves a month end on a Sunday into the next month", () => {
+    // 31 January and 28 February 2027 are Sundays.
+    expect(occurrencesBetween(monthly("2026-12-31"), "2027-01-01", "2027-03-31")).toEqual(["2027-02-01", "2027-03-01", "2027-03-31"])
+  })
+
+  it("never drifts: each occurrence starts again from the planned day", () => {
+    const all = occurrencesBetween(monthly("2026-10-10"), "2026-10-01", "2028-09-30")
+    expect(all).toHaveLength(24)
+    expect(all.every((d) => weekday(d) < 5)).toBe(true)
+    expect(all.filter((d) => d.endsWith("-10")).length).toBeGreaterThan(12)
+  })
+
+  it("makes one Monday of a daily weekend", () => {
+    const daily = { startDate: "2026-10-08", endDate: null, recurrence: { unit: "day" as const, interval: 1, skipWeekend: true } }
+    expect(occurrencesBetween(daily, "2026-10-08", "2026-10-13")).toEqual(["2026-10-08", "2026-10-09", "2026-10-12", "2026-10-13"])
+  })
+
+  it("keeps the last planned day before the end date, on the Monday after", () => {
+    expect(occurrencesBetween(monthly("2026-09-10", "2026-10-10"), "2026-09-01", "2026-12-31")).toEqual(["2026-09-10", "2026-10-12"])
+  })
+
+  it("says so in the rhythm, never for a one-off", () => {
+    expect(describeRecurrence({ unit: "month", interval: 1, skipWeekend: true })).toBe("Tous les mois · reportée au lundi si week-end")
+    expect(describeRecurrence({ unit: "once", interval: 1, skipWeekend: true })).toBe("Une seule fois")
+    expect(sameRecurrence({ unit: "month", interval: 1 }, { unit: "month", interval: 1, skipWeekend: false })).toBe(true)
   })
 })
 
