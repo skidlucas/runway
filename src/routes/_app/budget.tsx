@@ -88,15 +88,10 @@ function BudgetPage() {
         <StarterEmptyState />
       ) : (
         <>
-          <div className="grid grid-cols-4 border-b border-line max-md:hidden">
+          <div className="grid grid-cols-3 border-b border-line max-md:hidden">
             <Kpi className={KPI_CELL} label="Revenus" value={<Money value={data.income} />} />
             <Kpi className={KPI_CELL} label="Budgété" value={<Money value={data.budgeted} />} />
-            <Kpi className={KPI_CELL} label="Dépensé" value={<Money value={data.spent} />} />
-            <Kpi
-              className="px-5 py-4"
-              label="Âge de l'argent"
-              value={<AgeOfMoney month={month} testId="age-of-money" />}
-            />
+            <Kpi className="px-5 py-4" label="Dépensé" value={<Money value={data.spent} />} />
           </div>
           {data.uncategorized.count > 0 ? (
             <Link
@@ -111,15 +106,7 @@ function BudgetPage() {
             </Link>
           ) : null}
           {mobile ? (
-            <>
-              <Kpi
-                className="border-b border-line px-5 py-3"
-                label="Âge de l'argent"
-                value={<AgeOfMoney month={month} />}
-                hint="Depuis combien de temps l'argent dépensé est arrivé, en moyenne"
-              />
-              <MobileBudget budget={data} month={month} showHidden={showHidden} />
-            </>
+            <MobileBudget budget={data} month={month} showHidden={showHidden} />
           ) : (
             <BudgetTable budget={data} month={month} showHidden={showHidden} />
           )}
@@ -143,11 +130,6 @@ function BudgetPage() {
 }
 
 const KPI_CELL = "border-r border-line px-5 py-4"
-
-function AgeOfMoney({ month, testId }: { month: string; testId?: string }) {
-  const { data } = useQuery(q.ageOfMoney(month))
-  return <span data-testid={testId}>{data === undefined ? "…" : data === null ? "—" : count(data, "jour")}</span>
-}
 
 function ToBudgetChip({ budget }: { budget: BudgetMonthDto }) {
   const negative = budget.toBudget < 0

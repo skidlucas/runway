@@ -45,7 +45,6 @@ test("budgets a category from the month view", async ({ page }) => {
   await open(page, "/budget")
   const toBudget = visible(page.getByTestId("to-budget"))
   await expect(toBudget).toContainText("1 500,00 €")
-  await expect(page.getByTestId("age-of-money")).toHaveText(/^\d+ jours?$/)
 
   await page.getByRole("button", { name: /^Budget Courses/ }).click()
   await page.getByRole("textbox", { name: "Budget Courses" }).fill("200")

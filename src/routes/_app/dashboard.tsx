@@ -13,10 +13,11 @@ import { PageHeader } from "~/components/shell"
 import { toastError } from "~/components/toast"
 import { Button, cx, Dialog, EmptyState, ErrorState, Field, IconButton, Input, Menu, type MenuItem, Money, useConfirm } from "~/components/ui"
 import { UpcomingList } from "~/components/upcoming-list"
-import { formatDayShort, formatMonthLong, formatMonthShort, type Month } from "~/domain/dates"
+import { formatDayShort, formatMonthLong, formatMonthShort, type Month, monthOf } from "~/domain/dates"
 import { formatMoney } from "~/domain/money"
 import { REPORT_MONTHS, UPCOMING_DAYS } from "~/domain/reports"
-import { capitalize } from "~/domain/text"
+import { capitalize, count } from "~/domain/text"
+import { localToday, useToday } from "~/lib/hooks"
 import { queryToSearch } from "~/lib/insight-search"
 import { q, useAction } from "~/lib/queries"
 import type { DashboardWidget, DashboardWidgetKind, InsightViewConfig } from "~/server/db/schema"
@@ -51,6 +52,8 @@ const prefetchWidget = (client: QueryClient, widget: DashboardWidget) => {
       return client.prefetchQuery(q.accounts())
     case "upcoming":
       return client.prefetchQuery(q.upcoming({ days: widget.days ?? 7 }))
+    case "age_of_money":
+      return client.prefetchQuery(q.ageOfMoney(monthOf(localToday())))
     case "insight_view":
       return undefined
   }
@@ -64,6 +67,7 @@ const TITLES: Record<DashboardWidgetKind, string> = {
   category_spending: "Dépenses par catégorie",
   account_balances: "Soldes des comptes",
   upcoming: "À venir",
+  age_of_money: "Âge de l'argent",
   insight_view: "Vue enregistrée",
 }
 
@@ -76,6 +80,7 @@ const DEFAULTS: Record<Exclude<DashboardWidgetKind, "insight_view">, Omit<Dashbo
   category_spending: { size: 1, months: 1 },
   account_balances: { size: 1 },
   upcoming: { size: 1, days: 7 },
+  age_of_money: { size: 1 },
 }
 
 const SPAN = { 1: "", 2: "md:col-span-2", 3: "md:col-span-3" } as const
@@ -437,6 +442,8 @@ function WidgetBody({ widget }: { widget: DashboardWidget }) {
       return <AccountBalancesWidget />
     case "upcoming":
       return <UpcomingWidget days={widget.days ?? 7} />
+    case "age_of_money":
+      return <AgeOfMoneyWidget />
     case "insight_view":
       return <InsightViewWidget viewId={widget.viewId ?? ""} />
   }
@@ -715,6 +722,23 @@ function InsightViewChart({ config }: { config: InsightViewConfig }) {
       <Link to="/insights" search={queryToSearch(config)} className="-mx-4 mt-auto block">
         <MonthlyChart v={v} compact />
       </Link>
+    </>
+  )
+}
+
+function AgeOfMoneyWidget() {
+  const age = useQuery(q.ageOfMoney(monthOf(useToday())))
+  if (age.data === undefined) return <Pending query={age} />
+  return (
+    <>
+      <div className="pb-3 text-[22px] font-medium tracking-[-0.02em]" data-testid="age-of-money">
+        {age.data === null ? "—" : count(age.data, "jour")}
+      </div>
+      <p className="mt-auto text-[12px] text-muted">
+        {age.data === null
+          ? "Pas encore assez d'opérations pour le calculer."
+          : "Depuis combien de temps l'argent dépensé est arrivé, en moyenne."}
+      </p>
     </>
   )
 }

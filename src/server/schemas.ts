@@ -101,6 +101,7 @@ export const DashboardWidget = Schema.Struct({
     "category_spending",
     "account_balances",
     "upcoming",
+    "age_of_money",
     "insight_view",
   ]),
   /** Columns taken on the 3-column desktop grid. */

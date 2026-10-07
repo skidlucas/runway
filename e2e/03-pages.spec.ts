@@ -69,6 +69,11 @@ test("the dashboard starts with default widgets and keeps the ones added", async
   await page.getByRole("menuitem", { name: "Patrimoine net" }).click()
   await expect(widgets).toHaveCount(7)
   await expect(page.getByRole("region", { name: "Patrimoine net" })).toContainText("€")
+  await page.getByRole("button", { name: "Ajouter un widget" }).click()
+  await page.getByRole("menuitem", { name: "Âge de l'argent" }).click()
+  await expect(page.getByTestId("age-of-money")).toHaveText(/^\d+ jours?$/)
+  await page.getByRole("button", { name: "Réglages de Âge de l'argent" }).click()
+  await page.getByRole("menuitem", { name: "Retirer" }).click()
   await page.getByRole("button", { name: "Terminer" }).click()
 
   await open(page, "/dashboard")
