@@ -1,7 +1,6 @@
 import { expect, type Page, test } from "@playwright/test"
 import { firstDay, formatDayInput, formatDayLong, monthOf } from "../src/domain/dates"
-import { formatMoney } from "../src/domain/money"
-import { amountIn, inDays, open, pickInCommand, visible, waitForToast } from "./helpers"
+import { inDays, open, pickInCommand, visible, waitForToast } from "./helpers"
 
 test.describe.configure({ mode: "serial" })
 
@@ -107,38 +106,47 @@ test("deletes a selection without asking and brings it back from the toast", asy
   await expect(row).toContainText("−42,50 €")
 })
 
-test("keeps today's balance apart from operations dated later", async ({ page }) => {
+test("plans an operation dated after today as a schedule, outside today's balance", async ({ page }) => {
   await openJointAccount(page)
   await page.getByRole("button", { name: "Opération", exact: true }).click()
   const dialog = page.getByRole("dialog", { name: "Nouvelle opération" })
   await dialog.getByLabel("Montant").fill("10")
   await pickInCommand(page, dialog.getByRole("button", { name: "Bénéficiaire" }), "Pressing", "Créer « Pressing »")
   await dialog.getByLabel("Date").fill(inDays(3))
-  await dialog.getByRole("button", { name: "Ajouter" }).click()
+  await expect(dialog.getByText("Sera créée comme échéance")).toBeVisible()
+  await dialog.getByRole("button", { name: "Créer l'échéance" }).click()
+  await waitForToast(page, "Échéance créée pour le")
 
-  const main = page.getByRole("main")
-  await expect(main.getByRole("group", { name: "Aujourd'hui" })).toContainText("1 457,50 €")
-  const cleared = main.getByRole("group", { name: "Pointé" })
-  const uncleared = 145_750 - (await amountIn(cleared))
-  await expect(cleared).toContainText(uncleared === 0 ? "Tout est pointé" : `${formatMoney(uncleared, { sign: "always" })} non pointés`)
-  await expect(page.getByTestId("tx-row").filter({ hasText: "Pressing" })).toContainText("−10,00 €")
+  await expect(page.getByRole("main").getByRole("group", { name: "Aujourd'hui" })).toContainText("1 457,50 €")
+  await expect(page.getByTestId("tx-row").filter({ hasText: "Pressing" })).toHaveCount(0)
+  const line = page.getByTestId("scheduled-row").filter({ hasText: "Pressing" })
+  await expect(line).toContainText("Échéance")
+  await expect(line).toContainText("−10,00 €")
 })
 
-test("moves an operation to another day from the register", async ({ page }) => {
+test("moves an operation to another day from the register, and into a schedule after today", async ({ page }) => {
   await openJointAccount(page)
-  const row = page.getByTestId("tx-row").filter({ hasText: "Pressing" })
-  const tomorrow = inDays(1)
-  await row.getByTitle(formatDayLong(inDays(3))).click()
-  await page.getByRole("dialog").getByLabel("Date").fill(formatDayInput(tomorrow))
+  await page.getByRole("button", { name: "Opération", exact: true }).click()
+  const dialog = page.getByRole("dialog", { name: "Nouvelle opération" })
+  await dialog.getByLabel("Montant").fill("5")
+  await pickInCommand(page, dialog.getByRole("button", { name: "Bénéficiaire" }), "Cordonnier", "Créer « Cordonnier »")
+  await dialog.getByRole("button", { name: "Ajouter" }).click()
+  await waitForToast(page, "Opération ajoutée")
+
+  const row = page.getByTestId("tx-row").filter({ hasText: "Cordonnier" })
+  const yesterday = inDays(-1)
+  await row.getByTitle(formatDayLong(inDays(0))).click()
+  await page.getByRole("dialog").getByLabel("Date").fill(formatDayInput(yesterday))
   await page.keyboard.press("Enter")
   await expect(page.getByRole("dialog")).toHaveCount(0)
 
-  await row.getByTitle(formatDayLong(tomorrow)).click()
-  await expect(page.getByRole("dialog").getByLabel("Date")).toHaveValue(formatDayInput(tomorrow))
-  const later = inDays(40)
-  await page.getByRole("dialog").getByLabel("Date").fill(formatDayInput(later))
-  await expect(page.getByRole("dialog").getByRole("button", { name: formatDayLong(later), exact: true })).toBeVisible()
-  await page.keyboard.press("Escape")
+  await row.getByTitle(formatDayLong(yesterday)).click()
+  await expect(page.getByRole("dialog").getByLabel("Date")).toHaveValue(formatDayInput(yesterday))
+  await page.getByRole("dialog").getByLabel("Date").fill(formatDayInput(inDays(3)))
+  await page.keyboard.press("Enter")
+  await waitForToast(page, "Opération transformée en échéance du")
+  await expect(row).toHaveCount(0)
+  await expect(page.getByTestId("scheduled-row").filter({ hasText: "Cordonnier" })).toContainText("−5,00 €")
 })
 
 test("plans a one-off schedule and shows it in the register and the account forecast", async ({ page }) => {

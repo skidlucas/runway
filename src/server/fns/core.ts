@@ -5,6 +5,7 @@ import { runApp } from "../runtime"
 import { Accounts } from "../services/accounts"
 import { Budget } from "../services/budget"
 import { Categories } from "../services/categories"
+import { Entries } from "../services/entries"
 import { Payees } from "../services/payees"
 import { Rules } from "../services/rules"
 import { Transactions } from "../services/transactions"
@@ -220,7 +221,7 @@ export const createTransaction = createServerFn({ method: "POST" })
       }),
     ),
   )
-  .handler(({ data }) => runApp(Transactions.use((s) => s.create(data))))
+  .handler(({ data }) => runApp(Entries.use((s) => s.record(data))))
 
 export const updateTransaction = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
@@ -239,7 +240,7 @@ export const updateTransaction = createServerFn({ method: "POST" })
       }),
     ),
   )
-  .handler(({ data: { id, ...patch } }) => runApp(Transactions.use((s) => s.update(id, patch))))
+  .handler(({ data: { id, ...patch } }) => runApp(Entries.use((s) => s.amend(id, patch))))
 
 export const deleteTransactions = createServerFn({ method: "POST" })
   .middleware([authMiddleware])

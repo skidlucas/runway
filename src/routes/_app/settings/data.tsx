@@ -11,12 +11,13 @@ import { count, plural } from "~/domain/text"
 import { operationsCsv } from "~/lib/csv-export"
 import { downloadFile } from "~/lib/download"
 import { actualExportZip, backupJson, type ExportApi, fetchExport } from "~/lib/export"
-import { localToday } from "~/lib/hooks"
+import { clientTimeZone, localToday } from "~/lib/hooks"
 import type { ImportBundle } from "~/lib/import-bundle"
 import { countBundleDuplicates, type ImportProgress, runBankImport, runBundleImport } from "~/lib/import-client"
 import { type PendingImport, readImportFile } from "~/lib/import-file"
 import { applyCsvMapping, type CsvMapping, guessCsvMapping } from "~/lib/importers/bank"
 import { q, useAction } from "~/lib/queries"
+import { syncSchedules } from "~/server/fns/planning"
 import {
   countDuplicates,
   exportMeta,
@@ -33,8 +34,8 @@ export const Route = createFileRoute("/_app/settings/data")({ component: DataSet
 const LAST_EXPORT_KEY = "runway-last-export"
 const fmt = new Intl.NumberFormat("fr-FR")
 
-const importedMessage = (inserted: number, duplicates: number, skipped: number) =>
-  `${count(inserted, "opération")} ${plural(inserted, "importée")}${duplicates ? ` · ${count(duplicates, "doublon")} ${plural(duplicates, "ignoré")}` : ""}${skipped ? ` · ${count(skipped, "opération")} sans compte ${plural(skipped, "ignorée")}` : ""}`
+const importedMessage = (inserted: number, duplicates: number, skipped: number, upcoming = 0) =>
+  `${count(inserted, "opération")} ${plural(inserted, "importée")}${duplicates ? ` · ${count(duplicates, "doublon")} ${plural(duplicates, "ignoré")}` : ""}${skipped ? ` · ${count(skipped, "opération")} sans compte ${plural(skipped, "ignorée")}` : ""}${upcoming ? ` · ${count(upcoming, "opération")} à venir ${plural(upcoming, "ignorée")}` : ""}`
 
 const importNotes = ({ skipped, approximated }: ImportBundle) =>
   [
@@ -205,6 +206,8 @@ function BundleImportDialog({ fileName, bundle, onClose }: { fileName: string; b
         setProgress,
       )
       if (include.extras && bundle.extras) await importExtras({ data: { extras: bundle.extras, maps: result.maps } })
+      // Turns the backup's operations dated after today into schedules.
+      await syncSchedules({ data: { timeZone: clientTimeZone() } })
       await client.invalidateQueries()
       toast(importedMessage(result.inserted, result.duplicates, result.skipped))
       onClose()
@@ -336,9 +339,14 @@ function BankImportDialog({ pending, onClose }: { pending: Extract<PendingImport
     if (!accountId) return
     setRunning(true)
     try {
-      const result = await runBankImport(parsed, { accountId, applyRules }, (data) => importTransactions({ data }), setProgress)
+      const result = await runBankImport(
+        parsed,
+        { accountId, applyRules, today: localToday() },
+        (data) => importTransactions({ data }),
+        setProgress,
+      )
       await client.invalidateQueries()
-      toast(importedMessage(result.inserted, result.duplicates, result.skipped))
+      toast(importedMessage(result.inserted, result.duplicates, result.skipped, result.upcoming))
       onClose()
     } catch (error) {
       toastError(error)

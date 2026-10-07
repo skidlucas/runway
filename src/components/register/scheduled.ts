@@ -28,8 +28,8 @@ export function useScheduledRow(row: ScheduledRow) {
   const { confirm, dialog } = useConfirm()
   return {
     busy: post.isPending || skip.isPending,
-    // A future occurrence is booked on its own day, an overdue one on its due day.
-    post: () => post.mutate({ data: { id: row.scheduleId, ...(row.overdue ? {} : { date: row.date }) } }),
+    // An overdue occurrence is booked on its due day, one not due yet on today.
+    post: () => post.mutate({ data: { id: row.scheduleId } }),
     skip: async () => {
       if (await confirm({ title: `Passer l'échéance « ${row.name} » ?`, confirmLabel: "Passer", tone: "primary" }))
         skip.mutate({ data: { id: row.scheduleId } })

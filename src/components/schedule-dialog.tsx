@@ -19,6 +19,7 @@ export type ScheduleInitial = {
   amount?: number
   startDate?: string
   recurrence?: Recurrence
+  notes?: string | null
 }
 
 const FREQUENCIES: ReadonlyArray<{ value: string; label: string; recurrence: Recurrence }> = [
@@ -53,6 +54,7 @@ export function ScheduleDialog({
         amount: schedule.amount,
         startDate: schedule.nextDate,
         recurrence: schedule.recurrence,
+        notes: schedule.notes,
       }
     : (initial ?? {})
   const [name, setName] = React.useState(base.name ?? "")
@@ -73,6 +75,7 @@ export function ScheduleDialog({
   }, [base.recurrence])
   const [endDate, setEndDate] = React.useState(schedule?.endDate ?? "")
   const [autoPost, setAutoPost] = React.useState(schedule?.autoPost ?? false)
+  const [notes, setNotes] = React.useState(base.notes ?? "")
 
 
   const create = useAction(createSchedule, { success: "Échéance créée", onSuccess: onClose, writes: ["schedules", "payees"] })
@@ -99,6 +102,7 @@ export function ScheduleDialog({
       startDate: schedule && startDate === schedule.nextDate ? schedule.startDate : startDate,
       endDate: once ? null : endDate || null,
       autoPost,
+      notes: notes.trim() || null,
     }
     if (schedule) update.mutate({ data: { id: schedule.id, input } })
     else create.mutate({ data: input })
@@ -181,6 +185,9 @@ export function ScheduleDialog({
           </span>
           <Switch checked={autoPost} onCheckedChange={setAutoPost} label="Saisie automatique" />
         </label>
+        <Field label="Note" className="col-span-2 max-md:col-span-1">
+          <Input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Optionnel" />
+        </Field>
       </div>
       {confirmDialog}
     </Dialog>

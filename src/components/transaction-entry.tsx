@@ -7,6 +7,7 @@ import { useIsMobile, useToday } from "~/lib/hooks"
 import { q, useAction } from "~/lib/queries"
 import { createTransaction } from "~/server/fns/core"
 import { AccountSelect, CategoryPicker, PayeePicker, type PayeeValue } from "./pickers"
+import { recordedMessage } from "./transaction-editor"
 import { Button, cx, DateInput, Dialog, Field, Input, Segmented, Sheet, touchHitArea } from "./ui"
 
 type Kind = "expense" | "income"
@@ -81,7 +82,10 @@ function useEntryState(open: boolean, defaults: EntryDefaults) {
       ? (available.get(draft.categoryId) ?? 0) + (signed ?? 0)
       : null
 
-  return { draft, setDraft, setPayee, available, signed, remaining, accounts, today }
+  // Dated after today, the entry is saved as a one-off schedule (see Entries.record).
+  const future = draft.date > today
+
+  return { draft, setDraft, setPayee, available, signed, remaining, accounts, today, future }
 }
 
 export function TransactionEntry({
@@ -97,8 +101,8 @@ export function TransactionEntry({
   const state = useEntryState(open, defaults)
   const { draft, signed } = state
   const create = useAction(createTransaction, {
-    success: "Opération ajoutée",
-    writes: ["transactions"],
+    success: (recorded) => recordedMessage(recorded, "Opération ajoutée"),
+    writes: ["transactions", "schedules"],
     onSuccess: () => onOpenChange(false),
   })
 
@@ -153,7 +157,7 @@ export function TransactionEntry({
           <div className="flex gap-2">
             <Button onClick={() => onOpenChange(false)}>Annuler</Button>
             <Button variant="primary" onClick={submit} disabled={!canSubmit} loading={create.isPending}>
-              Ajouter
+              {state.future ? "Créer l'échéance" : "Ajouter"}
             </Button>
           </div>
         </>
@@ -219,7 +223,7 @@ export function TransactionEntry({
           <Field label="Compte">
             <AccountSelect value={draft.accountId} onChange={(accountId) => state.setDraft((d) => ({ ...d, accountId }))} />
           </Field>
-          <Field label="Date">
+          <Field label="Date" hint={state.future ? "Sera créée comme échéance" : undefined}>
             <DateInput value={draft.date} onChange={(date) => state.setDraft((d) => ({ ...d, date }))} />
           </Field>
         </div>
@@ -265,7 +269,7 @@ function MobileEntry({
         <button type="button" className={cx("text-muted", touchHitArea)} onClick={onCancel}>
           Annuler
         </button>
-        <span className="font-semibold">Nouvelle opération</span>
+        <span className="font-semibold">{state.future ? "Nouvelle échéance" : "Nouvelle opération"}</span>
         <button
           type="button"
           className={cx("font-semibold", touchHitArea, canSubmit ? "text-accent" : "text-ghost")}
@@ -354,6 +358,7 @@ function MobileEntry({
           </span>
         </label>
       </div>
+      {state.future ? <p className="mx-5 mt-2 text-[12px] text-muted">Datée dans le futur : sera créée comme échéance.</p> : null}
       <div className="mt-auto grid grid-cols-3 gap-1.5 bg-subtle px-3 pb-[calc(34px+env(safe-area-inset-bottom))] pt-3">
         {KEYS.map((k) => (
           <button

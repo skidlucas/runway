@@ -7,6 +7,7 @@ import { Categorizer } from "./services/categorize"
 import { Categories } from "./services/categories"
 import { Dashboards } from "./services/dashboards"
 import { Demo } from "./services/demo"
+import { Entries } from "./services/entries"
 import { ForecastService } from "./services/forecast"
 import { ImportExport } from "./services/import-export"
 import { Insights } from "./services/insights"
@@ -33,7 +34,7 @@ export const makeCoreLayer = (
   const leaves = Layer.mergeAll(Categories.layer, Payees.layer, Rules.layer, Reports.layer).pipe(Layer.provideMerge(base))
   const writes = Transactions.layer.pipe(Layer.provideMerge(leaves))
   const domain = Budget.layer.pipe(Layer.provideMerge(Layer.mergeAll(Accounts.layer, Schedules.layer).pipe(Layer.provideMerge(writes))))
-  return Layer.mergeAll(ForecastService.layer, Demo.layer, ImportExport.layer, Insights.layer, Categorizer.layer, Wealth.layer).pipe(
+  return Layer.mergeAll(ForecastService.layer, Demo.layer, ImportExport.layer, Insights.layer, Categorizer.layer, Wealth.layer, Entries.layer).pipe(
     Layer.provideMerge(domain),
   )
 }

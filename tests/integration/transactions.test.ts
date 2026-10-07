@@ -260,7 +260,7 @@ describe("Transactions", () => {
 
     const before = await spent()
     const internal = await h.run(
-      Transactions.use((t) => t.create({ accountId: account, date: "2026-10-05", amount: -10_000, payee: { kind: "transfer", accountId: savings } })),
+      Transactions.use((t) => t.create({ accountId: account, date: "2026-10-03", amount: -10_000, payee: { kind: "transfer", accountId: savings } })),
     )
     const internalMirror = await mirrorOf(internal)
     await h.run(Transactions.use((t) => t.setCategory([internal, internalMirror], categories[0]!)))
@@ -274,7 +274,7 @@ describe("Transactions", () => {
       Accounts.use((a) => a.create({ name: "Courtier", kind: "investment", offBudget: true, startingBalance: 0, startingDate: "2026-01-01" })),
     )
     const outgoing = await h.run(
-      Transactions.use((t) => t.create({ accountId: account, date: "2026-10-06", amount: -2_000, payee: { kind: "transfer", accountId: broker } })),
+      Transactions.use((t) => t.create({ accountId: account, date: "2026-10-04", amount: -2_000, payee: { kind: "transfer", accountId: broker } })),
     )
     await h.run(Transactions.use((t) => t.setCategory([outgoing], categories[0]!)))
     expect(await categoryOf(outgoing)).toBe(categories[0])

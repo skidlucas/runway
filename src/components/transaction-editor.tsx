@@ -1,9 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Plus, Trash2 } from "lucide-react"
 import * as React from "react"
+import { formatDayShort } from "~/domain/dates"
 import { amountInput, formatMoney, parseAmount } from "~/domain/money"
 import { q, refreshAfter, useAction, useCategoryName } from "~/lib/queries"
 import { createRule, deleteTransactions, restoreTransactions, updateTransaction } from "~/server/fns/core"
+import type { Recorded } from "~/server/services/entries"
 import type { TxRow } from "~/server/services/transactions"
 import { AccountSelect, CategoryPicker, PayeePicker, type PayeeValue } from "./pickers"
 import { toast, toastError } from "./toast"
@@ -16,6 +18,10 @@ export const payeeValueOf = (tx: Pick<TxRow, "payeeId" | "payeeName" | "transfer
     : tx.payeeId
       ? { kind: "id", id: tx.payeeId, name: tx.payeeName ?? "" }
       : { kind: "none" }
+
+/** The toast of a save: `otherwise` for a transaction, a word on the schedule it became when dated in the future. */
+export const recordedMessage = (recorded: Recorded, otherwise: string | undefined, scheduled = "Échéance créée pour le") =>
+  recorded.kind === "schedule" ? `${scheduled} ${formatDayShort(recorded.date)}` : otherwise
 
 export const payeeInputOf = (value: PayeeValue) =>
   value.kind === "none"
@@ -77,7 +83,11 @@ export function TransactionEditor({
   const [lines, setLines] = React.useState<SplitLine[]>(
     tx.isParent && splits ? splits.map((s) => splitLine({ amount: amountInput(s.amount), categoryId: s.categoryId, notes: s.notes ?? "" })) : [],
   )
-  const update = useAction(updateTransaction, { success: "Opération modifiée", onSuccess: onClose, writes: ["transactions"] })
+  const update = useAction(updateTransaction, {
+    success: (recorded) => recordedMessage(recorded, "Opération modifiée", "Opération transformée en échéance du"),
+    onSuccess: onClose,
+    writes: ["transactions", "schedules"],
+  })
   const remove = useDeleteTransactions(onClose)
 
   const total = parseAmount(amount)

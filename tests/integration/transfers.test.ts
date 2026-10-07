@@ -124,11 +124,11 @@ describe("Transfers", () => {
   })
 
   it("counts a transfer leaving the budget as spending, and one between budget accounts as nothing", async () => {
-    const spent = async () => (await h.run(Budget.use((b) => b.month("2026-11")))).spent + 0
+    const spent = async () => (await h.run(Budget.use((b) => b.month("2026-10")))).spent + 0
     const before = await spent()
-    await h.run(Transactions.use((t) => t.create({ accountId: checking, date: "2026-11-02", amount: -7_000, payee: { kind: "transfer", accountId: savings }, categoryId: groceries })))
+    await h.run(Transactions.use((t) => t.create({ accountId: checking, date: "2026-10-02", amount: -7_000, payee: { kind: "transfer", accountId: savings }, categoryId: groceries })))
     expect(await spent()).toBe(before)
-    await h.run(Transactions.use((t) => t.create({ accountId: checking, date: "2026-11-03", amount: -3_000, payee: { kind: "transfer", accountId: broker }, categoryId: groceries })))
+    await h.run(Transactions.use((t) => t.create({ accountId: checking, date: "2026-10-03", amount: -3_000, payee: { kind: "transfer", accountId: broker }, categoryId: groceries })))
     expect(await spent()).toBe(before + 3_000)
   })
 
@@ -145,9 +145,9 @@ describe("Transfers", () => {
     expect(await categories()).toEqual([null, null])
 
     const funded = await h.run(
-      Accounts.use((a) => a.create({ name: "Héritage", kind: "savings", offBudget: true, startingBalance: 90_000, startingDate: "2026-12-01" })),
+      Accounts.use((a) => a.create({ name: "Héritage", kind: "savings", offBudget: true, startingBalance: 90_000, startingDate: "2026-10-01" })),
     )
-    const income = async () => (await h.run(Budget.use((b) => b.month("2026-12")))).income
+    const income = async () => (await h.run(Budget.use((b) => b.month("2026-10")))).income
     const before = await income()
     await h.run(Accounts.use((a) => a.update(funded, { offBudget: false })))
     expect(await income()).toBe(before + 90_000)

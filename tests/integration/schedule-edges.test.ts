@@ -140,11 +140,11 @@ describe("Schedule catch-up", () => {
 
   it("books 40 occurrences per sync and catches up on the next ones", async () => {
     const id = await t.create("2026-08-01", { recurrence: { unit: "day", interval: 1 }, autoPost: true })
-    expect(await t.h.run(Schedules.use((s) => s.sync))).toEqual({ posted: 40, matched: 0 })
+    expect(await t.h.run(Schedules.use((s) => s.sync))).toEqual({ posted: 40, matched: 0, converted: 0 })
     expect((await t.schedule(id)).nextDate).toBe("2026-09-10")
-    expect(await t.h.run(Schedules.use((s) => s.sync))).toEqual({ posted: 25, matched: 0 })
+    expect(await t.h.run(Schedules.use((s) => s.sync))).toEqual({ posted: 25, matched: 0, converted: 0 })
     expect((await t.schedule(id)).nextDate).toBe("2026-10-05")
-    expect(await t.h.run(Schedules.use((s) => s.sync))).toEqual({ posted: 0, matched: 0 })
+    expect(await t.h.run(Schedules.use((s) => s.sync))).toEqual({ posted: 0, matched: 0, converted: 0 })
     const dates = (await t.booked(id)).map((b) => b.date)
     expect([dates.length, new Set(dates).size, dates[0], dates.at(-1)]).toEqual([65, 65, "2026-08-01", "2026-10-04"])
   })

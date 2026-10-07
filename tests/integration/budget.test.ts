@@ -234,7 +234,7 @@ describe("Budget planned from schedules", () => {
     const tree = await h.run(Categories.use((s) => s.tree))
     ;[a, b, c] = tree.filter((g) => !g.isIncome).flatMap((g) => g.categories.map((x) => x.id)) as [string, string, string]
     const accountId = await h.run(
-      Accounts.use((s) => s.create({ name: "Courant", kind: "checking", offBudget: false, startingBalance: 0, startingDate: "2029-12-01" })),
+      Accounts.use((s) => s.create({ name: "Courant", kind: "checking", offBudget: false, startingBalance: 0, startingDate: "2026-10-01" })),
     )
     const create = (name: string, categoryId: string, amount: number, unit: "month" | "year", startDate: string, endDate?: string) =>
       h.run(
@@ -278,7 +278,7 @@ describe("Budget planned from a yearly bill", () => {
     await h.run(Categories.use((s) => s.createStarterSet))
     c = (await h.run(Categories.use((s) => s.tree))).find((g) => !g.isIncome)!.categories[0]!.id
     accountId = await h.run(
-      Accounts.use((s) => s.create({ name: "Courant", kind: "checking", offBudget: false, startingBalance: 0, startingDate: "2029-12-01" })),
+      Accounts.use((s) => s.create({ name: "Courant", kind: "checking", offBudget: false, startingBalance: 0, startingDate: "2026-10-01" })),
     )
   }, 60_000)
   afterAll(() => h?.dispose())
@@ -292,8 +292,10 @@ describe("Budget planned from a yearly bill", () => {
       )
     const early = await bill("Taxe payée en avance")
     const onTime = await bill("Taxe payée à l'heure")
+    h.setNow("2030-11-03T10:00:00Z")
     await h.run(Schedules.use((s) => s.post(early, "2030-10-30")))
     await h.run(Schedules.use((s) => s.post(onTime, "2030-11-03")))
+    h.setNow(NOW)
     const lines = async (m: string) =>
       (await h.run(Budget.use((s) => s.month(m)))).groups.flatMap((g) => g.categories).find((x) => x.id === c)!.planned?.lines ?? []
     const november = await lines("2030-11")
@@ -309,7 +311,9 @@ describe("Budget planned from a yearly bill", () => {
         s.create({ name: "Garagiste", payee: { kind: "name", name: "Garagiste" }, accountId, categoryId: c, amount: -40_000, recurrence: { unit: "once", interval: 1 }, startDate: "2030-09-12", autoPost: false }),
       ),
     )
+    h.setNow("2030-09-12T10:00:00Z")
     await h.run(Schedules.use((s) => s.post(repair, "2030-09-12")))
+    h.setNow(NOW)
     const september = (await h.run(Budget.use((s) => s.month("2030-09")))).groups.flatMap((g) => g.categories).find((x) => x.id === c)!
     expect(september.planned?.lines.find((l) => l.scheduleId === repair)).toMatchObject({ date: "2030-09-12", amount: 40_000 })
   })

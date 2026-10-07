@@ -1,12 +1,13 @@
 import { eq, getTableColumns, isNotNull, or, sql } from "drizzle-orm"
 import { Clock, Context, Effect, Layer, type Result } from "effect"
-import { firstDay, isDay, lastDay } from "~/domain/dates"
+import { type Day, firstDay, isDay, lastDay } from "~/domain/dates"
 import { bulkInsertStatements, chunkIds, chunkRows, Db, type DbError, newId } from "../db/client"
 import { IS_INTERNAL_TRANSFER, UNCATEGORIZED } from "../db/predicates"
 import { accounts, payees, transactions } from "../db/schema"
 import { Invalid, NotFound } from "../errors"
 import { Payees } from "./payees"
 import { Rules } from "./rules"
+import { Settings } from "./settings"
 
 export type TxPayeeInput =
   | { readonly kind: "name"; readonly name: string }
@@ -127,6 +128,11 @@ export type TxPatch = {
 
 export type ResolvedPayee = { payeeId: string | null; payeeName: string | null; transferAccountId: string | null }
 
+/** What a transaction would be written with once its payee is resolved and rules have run. */
+export type ResolvedEntry = { payeeId: string | null; categoryId: string | null; notes: string | null }
+
+const FUTURE = "Une opération ne peut pas être datée dans le futur : elle devient une échéance"
+
 export type TxRow = {
   id: string
   accountId: string
@@ -226,6 +232,10 @@ export class Transactions extends Context.Service<
     transferPayee(accountId: string): Effect.Effect<string, DbError>
     /** The payee a transaction of `accountId` would get, created on demand for a new name or transfer. */
     resolvePayee(input: TxPayeeInput, accountId: string): Effect.Effect<ResolvedPayee, DbError | Invalid | NotFound>
+    /** Payee, category and notes `create` would write for `input` (rules included), without writing it. */
+    resolveEntry(input: TxInput): Effect.Effect<ResolvedEntry, DbError | Invalid | NotFound>
+    /** Statements deleting transactions with their split lines and transfer mirrors, for a caller's own batch. */
+    deleteStatements(ids: ReadonlyArray<string>): ReadonlyArray<D1PreparedStatement>
     /**
      * New transactions computed without writing, for a caller that inserts them in its own batch
      * (`transactionInsertStatements`). Accounts and payees given by id are read once for all the inputs, each
@@ -242,6 +252,7 @@ export class Transactions extends Context.Service<
       const db = yield* Db
       const payeesService = yield* Payees
       const rulesService = yield* Rules
+      const settings = yield* Settings
 
       const list = Effect.fn("Transactions.list")(function* (filter: TxFilter) {
         const where: string[] = []
@@ -487,6 +498,43 @@ export class Transactions extends Context.Service<
         return Effect.void
       }
 
+      /** Category, payee and notes of a transaction: rules and payee history decide when `input.categoryId` is undefined. */
+      const categorize = Effect.fn("Transactions.categorize")(function* (
+        input: TxInput,
+        account: typeof accounts.$inferSelect,
+        payee: ResolvedPayee,
+        otherAccount: typeof accounts.$inferSelect | null,
+      ) {
+        let categoryId: string | null = input.categoryId ?? null
+        let payeeId = payee.payeeId
+        let notes = input.notes ?? null
+        if (otherAccount) {
+          // A transfer between two budgeted accounts moves money without spending it.
+          if (account.offBudget === otherAccount.offBudget) categoryId = null
+        } else if (input.categoryId === undefined && !input.splits?.length) {
+          const match = yield* rulesService.matcher
+          const out = match({
+            payeeName: payee.payeeName,
+            importedPayee: input.importedPayee ?? null,
+            notes,
+            amount: input.amount,
+            accountId: account.id,
+          })
+          categoryId = out.categoryId ?? null
+          payeeId = out.payeeId ?? payeeId
+          notes = notes ?? out.notes ?? null
+          if (!categoryId && payeeId) categoryId = yield* payeesService.suggestCategory(payeeId)
+        }
+        return { categoryId, payeeId, notes } satisfies ResolvedEntry
+      })
+
+      const resolveEntry = Effect.fn("Transactions.resolveEntry")(function* (input: TxInput) {
+        const account = yield* findAccount(input.accountId)
+        const payee = yield* resolvePayee(input.payee, account.id)
+        const otherAccount = payee.transferAccountId ? yield* findAccount(payee.transferAccountId) : null
+        return yield* categorize(input, account, payee, otherAccount)
+      })
+
       /**
        * Computes the rows of a transaction (parent, split lines, transfer mirror) without writing.
        * `keep` carries over what a rewritten transaction must not lose: its ids, creation time,
@@ -494,6 +542,7 @@ export class Transactions extends Context.Service<
        * stays on the same account, its status and its own bank id, bank label and notes.
        */
       const buildRows = Effect.fn("Transactions.buildRows")(function* (
+        today: Day,
         input: TxInput,
         keep?: {
           id: string
@@ -514,6 +563,7 @@ export class Transactions extends Context.Service<
         lookup: Lookup = live,
       ) {
         if (!isDay(input.date)) return yield* new Invalid({ message: "Date invalide" })
+        if (input.date > today) return yield* new Invalid({ message: FUTURE })
         if (!Number.isInteger(input.amount)) return yield* new Invalid({ message: "Montant invalide" })
         const account = yield* lookup.account(input.accountId)
         const payee = yield* resolvePayee(input.payee, account.id, lookup)
@@ -522,28 +572,8 @@ export class Transactions extends Context.Service<
           return yield* new Invalid({ message: "Un virement ne peut pas être ventilé" })
         }
 
-        let categoryId: string | null = input.categoryId ?? null
-        let payeeId = payee.payeeId
-        let notes = input.notes ?? null
-        let otherAccount: typeof account | null = null
-        if (payee.transferAccountId) {
-          otherAccount = yield* lookup.account(payee.transferAccountId)
-          // A transfer between two budgeted accounts moves money without spending it.
-          if (account.offBudget === otherAccount.offBudget) categoryId = null
-        } else if (input.categoryId === undefined && !input.splits?.length) {
-          const match = yield* rulesService.matcher
-          const out = match({
-            payeeName: payee.payeeName,
-            importedPayee: input.importedPayee ?? null,
-            notes,
-            amount: input.amount,
-            accountId: account.id,
-          })
-          categoryId = out.categoryId ?? null
-          payeeId = out.payeeId ?? payeeId
-          notes = notes ?? out.notes ?? null
-          if (!categoryId && payeeId) categoryId = yield* payeesService.suggestCategory(payeeId)
-        }
+        const otherAccount = payee.transferAccountId ? yield* lookup.account(payee.transferAccountId) : null
+        const { categoryId, payeeId, notes } = yield* categorize(input, account, payee, otherAccount)
 
         const id = keep?.id ?? newId()
         const isParent = (input.splits?.length ?? 0) > 0
@@ -601,15 +631,15 @@ export class Transactions extends Context.Service<
       const insertStatements = (rows: ReadonlyArray<NewTxRow>) => transactionInsertStatements(db.d1, rows)
 
       const create = Effect.fn("Transactions.create")(function* (input: TxInput) {
-        const { id, rows } = yield* buildRows(input)
+        const { id, rows } = yield* buildRows(yield* settings.today, input)
         yield* db.batch(insertStatements(rows))
         return id
       })
 
       const prepareMany = Effect.fn("Transactions.prepareMany")(function* (inputs: ReadonlyArray<TxInput>) {
         if (inputs.length === 0) return []
-        const lookup = yield* preloaded(inputs)
-        return yield* Effect.forEach(inputs, (input) => Effect.result(buildRows(input, undefined, lookup)))
+        const [lookup, today] = yield* Effect.all([preloaded(inputs), settings.today], { concurrency: "unbounded" })
+        return yield* Effect.forEach(inputs, (input) => Effect.result(buildRows(today, input, undefined, lookup)))
       })
 
       /** Deletes transactions with their split lines and transfer mirrors (and the mirrors' lines). */
@@ -714,7 +744,10 @@ export class Transactions extends Context.Service<
         }
         // Same ids and creation time, deleted and rewritten in one batch: links and open views stay
         // valid, and a failure leaves the original untouched.
-        const { rows } = yield* buildRows(input, {
+        // An operation already dated in the future (kept from before such dates became schedules)
+        // can still be edited without moving it.
+        const today = yield* settings.today
+        const { rows } = yield* buildRows(current.date > today ? current.date : today, input, {
           id,
           mirrorId: current.transferId,
           createdAt: current.createdAt,
@@ -740,6 +773,7 @@ export class Transactions extends Context.Service<
         if (!current) return yield* new NotFound({ entity: "Opération", id })
         if (current.parentId) return yield* updateSplitLine(id, patch)
         if (patch.date !== undefined && !isDay(patch.date)) return yield* new Invalid({ message: "Date invalide" })
+        if (patch.date !== undefined && patch.date > (yield* settings.today)) return yield* new Invalid({ message: FUTURE })
 
         const currentPayee = current.payeeId
           ? yield* db.use((orm) => orm.select().from(payees).where(eq(payees.id, current.payeeId!)).get())
@@ -841,7 +875,21 @@ export class Transactions extends Context.Service<
           ),
         )
 
-      return Transactions.of({ list, get, create, update, remove, restore, setCleared, setCategory, transferPayee, resolvePayee, prepareMany })
+      return Transactions.of({
+        list,
+        get,
+        create,
+        update,
+        remove,
+        restore,
+        setCleared,
+        setCategory,
+        transferPayee,
+        resolvePayee,
+        resolveEntry,
+        deleteStatements,
+        prepareMany,
+      })
     }),
   )
 }

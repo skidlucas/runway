@@ -167,12 +167,12 @@ describe("Schedules", () => {
     expect(await schedule(id)).toMatchObject({ active: true, nextDate: addDays(today, -3) })
   })
 
-  it("books an occurrence on the day asked for, and lists it as coming", async () => {
+  it("books an occurrence not due yet on today, never on a future day", async () => {
     const id = await h.run(Schedules.use((s) => s.create(monthly(addDays(today, 5), { name: "Futur", autoPost: false }))))
-    await h.run(Schedules.use((s) => s.post(id, addDays(today, 5))))
-    expect(await booked(id)).toEqual([addDays(today, 5)])
-    const next = await h.run(ForecastService.use((f) => f.upcoming({ days: 7 })))
-    expect(next.items.some((i) => i.date === addDays(today, 5) && i.source === "transaction")).toBe(true)
+    expect(await h.fail(Schedules.use((s) => s.post(id, addDays(today, 5))))).toMatchObject({ _tag: "Invalid" })
+    await h.run(Schedules.use((s) => s.post(id)))
+    expect(await booked(id)).toEqual([today])
+    expect((await schedule(id)).nextDate > addDays(today, 5)).toBe(true)
   })
 
   it("refuses to forecast a month that has not started", async () => {
@@ -306,7 +306,7 @@ describe("Schedules sync cost", () => {
     )
 
     const { value, statements } = await h.statementsOf(Schedules.use((s) => s.sync))
-    expect(value).toEqual({ posted: 40, matched: 5 })
+    expect(value).toEqual({ posted: 40, matched: 5, converted: 0 })
     expect(statements).toBeLessThan(20)
 
     const count = async (where: string, ...params: string[]) =>
@@ -315,7 +315,7 @@ describe("Schedules sync cost", () => {
     expect(await count("account_id = ? AND amount = 1000 AND transfer_id IS NOT NULL", savings)).toBe(10)
     for (const id of [...named, ...transfers, ...manual]) expect((await nextDate(id))! > today).toBe(true)
 
-    expect(await h.run(Schedules.use((s) => s.sync))).toEqual({ posted: 0, matched: 0 })
+    expect(await h.run(Schedules.use((s) => s.sync))).toEqual({ posted: 0, matched: 0, converted: 0 })
   })
 
   it("leaves an occurrence due when its transaction cannot be written, and still books the others", async () => {
@@ -325,7 +325,7 @@ describe("Schedules sync cost", () => {
       .prepare("CREATE TRIGGER fail_panne BEFORE INSERT ON transactions WHEN NEW.notes = 'Panne' BEGIN SELECT RAISE(ABORT, 'panne'); END")
       .run()
     try {
-      expect(await h.run(Schedules.use((s) => s.sync))).toEqual({ posted: 1, matched: 0 })
+      expect(await h.run(Schedules.use((s) => s.sync))).toEqual({ posted: 1, matched: 0, converted: 0 })
       expect(await nextDate(broken)).toBe(today)
       expect((await nextDate(healthy))! > today).toBe(true)
     } finally {

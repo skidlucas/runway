@@ -27,6 +27,7 @@ export type ScheduleDto = {
   categoryId: string | null
   categoryName: string | null
   amount: number
+  notes: string | null
   recurrence: Recurrence
   recurrenceLabel: string
   startDate: string
@@ -49,11 +50,14 @@ export type ScheduleInput = {
   accountId: string
   categoryId: string | null
   amount: number
+  notes?: string | null
   recurrence: Recurrence
   startDate: string
   endDate?: string | null
   autoPost: boolean
 }
+
+const ONCE: Recurrence = { unit: "once", interval: 1 }
 
 const MAX_OVERDUE = 12
 const RETRIED_ONE_BY_ONE = 10
@@ -140,20 +144,23 @@ export class Schedules extends Context.Service<
   {
     readonly list: Effect.Effect<ScheduleDto[], DbError>
     create(input: ScheduleInput): Effect.Effect<string, DbError | Invalid | NotFound>
+    /** `create` as a statement, for a caller that writes it in its own batch. */
+    prepareCreate(input: ScheduleInput): Effect.Effect<{ id: string; statement: D1PreparedStatement }, DbError | Invalid | NotFound>
     update(id: string, input: ScheduleInput & { active?: boolean }): Effect.Effect<void, DbError | Invalid | NotFound>
     remove(id: string): Effect.Effect<void, DbError>
     /** Skips the next occurrence without booking it. */
     skip(id: string): Effect.Effect<void, DbError | NotFound | Invalid>
-    /** Books the next occurrence as a transaction (dated today by default) and moves on. */
+    /** Books the next occurrence as a transaction (dated today by default, never later) and moves on. */
     post(id: string, date?: Day): Effect.Effect<string, DbError | NotFound | Invalid>
     /** Occurrences between two dates for active schedules, from their next date on. */
     occurrences(from: Day, to: Day): Effect.Effect<Occurrence[], DbError>
     /**
      * Books due auto-post schedules, and links manual schedules to a matching
      * transaction already entered or imported (same payee and account, close amount
-     * and date), so "upcoming" never lists something already paid.
+     * and date), so "upcoming" never lists something already paid. Transactions dated after today
+     * (an import from a backup, data from before this rule) first become one-off schedules.
      */
-    readonly sync: Effect.Effect<{ posted: number; matched: number }, DbError>
+    readonly sync: Effect.Effect<{ posted: number; matched: number; converted: number }, DbError>
     readonly suggestions: Effect.Effect<RecurringSuggestion[], DbError>
   }
 >()("runway/server/services/Schedules") {
@@ -188,6 +195,7 @@ export class Schedules extends Context.Service<
               category_id: string | null
               categoryName: string | null
               amount: number
+              notes: string | null
               recurrence: string
               start_date: string
               end_date: string | null
@@ -212,6 +220,7 @@ export class Schedules extends Context.Service<
             categoryId: r.category_id,
             categoryName: r.categoryName,
             amount: r.amount,
+            notes: r.notes,
             recurrence,
             recurrenceLabel: Option.isSome(decoded) ? describeRecurrence(recurrence) : "Rythme illisible, à redéfinir",
             startDate: r.start_date,
@@ -245,25 +254,35 @@ export class Schedules extends Context.Service<
       const resolvePayeeId = (payee: TxPayeeInput, accountId: string) =>
         transactionsService.resolvePayee(payee, accountId).pipe(Effect.map((p) => p.payeeId))
 
-      const create = Effect.fn("Schedules.create")(function* (input: ScheduleInput) {
+      const prepareCreate = Effect.fn("Schedules.prepareCreate")(function* (input: ScheduleInput) {
         yield* validate(input)
         const payeeId = yield* resolvePayeeId(input.payee, input.accountId)
         const id = newId()
-        yield* db.use((orm) =>
-          orm.insert(schedules).values({
+        const statement = db.d1
+          .prepare(
+            `INSERT INTO schedules (id, name, payee_id, account_id, category_id, amount, notes, recurrence, start_date, end_date, next_date, auto_post)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          )
+          .bind(
             id,
-            name: input.name?.trim() || null,
+            input.name?.trim() || null,
             payeeId,
-            accountId: input.accountId,
-            categoryId: input.categoryId,
-            amount: input.amount,
-            recurrence: input.recurrence,
-            startDate: input.startDate,
-            endDate: input.endDate ?? null,
-            nextDate: input.startDate,
-            autoPost: input.autoPost,
-          }),
-        )
+            input.accountId,
+            input.categoryId,
+            input.amount,
+            input.notes?.trim() || null,
+            JSON.stringify(input.recurrence),
+            input.startDate,
+            input.endDate ?? null,
+            input.startDate,
+            input.autoPost ? 1 : 0,
+          )
+        return { id, statement }
+      })
+
+      const create = Effect.fn("Schedules.create")(function* (input: ScheduleInput) {
+        const { id, statement } = yield* prepareCreate(input)
+        yield* db.batch([statement])
         return id
       })
 
@@ -309,6 +328,7 @@ export class Schedules extends Context.Service<
               accountId: input.accountId,
               categoryId: input.categoryId,
               amount: input.amount,
+              notes: input.notes?.trim() || null,
               recurrence: input.recurrence,
               startDate: input.startDate,
               endDate: input.endDate ?? null,
@@ -374,7 +394,7 @@ export class Schedules extends Context.Service<
               amount: row.amount,
               payee: row.payeeId ? ({ kind: "id", id: row.payeeId } as const) : ({ kind: "none" } as const),
               categoryId: row.categoryId,
-              notes: row.name,
+              notes: row.notes ?? row.name,
               scheduleId: row.id,
             })),
           ),
@@ -447,6 +467,7 @@ export class Schedules extends Context.Service<
         const row = yield* find(id).pipe(Effect.flatMap(requireReadableRecurrence))
         if (!row.active) return yield* new Invalid({ message: "Cette échéance est terminée" })
         const today = yield* settings.today
+        if (date !== undefined && date > today) return yield* new Invalid({ message: "Une échéance ne peut pas être enregistrée à une date future" })
         const posts = [date ?? (row.nextDate <= today ? row.nextDate : today)]
         const prepared = (yield* prepareBookings([{ row, posts, links: [], next: advance(row, row.nextDate) }]))[0]!
         if (Result.isFailure(prepared)) return yield* Effect.fail(prepared.failure)
@@ -589,8 +610,43 @@ export class Schedules extends Context.Service<
         })
       })
 
+      /**
+       * Turns the transactions dated after today into one-off manual schedules, keeping their id,
+       * in one batch. A transfer becomes one schedule from the side that carries the category (the
+       * budget side when only one is), else from its outgoing side. Split, reconciled and opening
+       * transactions are left as they are.
+       */
+      const convertFuture = (today: Day) =>
+        db.use(async (_, d1) => {
+          const [inserted] = await d1.batch([
+            d1
+              .prepare(
+                `INSERT INTO schedules (id, name, payee_id, account_id, category_id, amount, notes, recurrence, start_date, next_date, auto_post)
+                 SELECT t.id, NULL, t.payee_id, t.account_id, t.category_id, t.amount, t.notes, ?2, t.date, t.date, 0
+                 FROM transactions t
+                 JOIN accounts a ON a.id = t.account_id
+                 LEFT JOIN transactions m ON m.id = t.transfer_id
+                 LEFT JOIN accounts ma ON ma.id = m.account_id
+                 WHERE t.date > ?1 AND t.parent_id IS NULL AND t.is_parent = 0 AND t.reconciled = 0 AND t.starting_balance = 0
+                   AND (m.id IS NULL OR (m.reconciled = 0 AND CASE
+                     WHEN a.off_budget <> ma.off_budget THEN a.off_budget = 0
+                     ELSE t.amount < 0 OR (t.amount = 0 AND t.id < m.id) END))`,
+              )
+              .bind(today, JSON.stringify(ONCE)),
+            // The converted transactions are the ones whose id is now a schedule's: schedules made
+            // any other way get a fresh id.
+            d1.prepare(
+              `DELETE FROM transactions WHERE id IN (
+                 SELECT transfer_id FROM transactions WHERE transfer_id IS NOT NULL AND id IN (SELECT id FROM schedules))`,
+            ),
+            d1.prepare("DELETE FROM transactions WHERE id IN (SELECT id FROM schedules)"),
+          ])
+          return inserted?.meta.changes ?? 0
+        })
+
       const sync = Effect.gen(function* () {
         const today = yield* settings.today
+        const converted = yield* convertFuture(today)
         const due = yield* db.use((orm) =>
           orm
             .select()
@@ -634,6 +690,7 @@ export class Schedules extends Context.Service<
         return {
           posted: booked.reduce((n, b) => n + b.posts.length, 0),
           matched: booked.reduce((n, b) => n + b.links.length, 0),
+          converted,
         }
       }).pipe(Effect.withSpan("Schedules.sync"))
 
@@ -684,7 +741,7 @@ export class Schedules extends Context.Service<
           }))
       }).pipe(Effect.withSpan("Schedules.suggestions"))
 
-      return Schedules.of({ list, create, update, remove, skip, post, occurrences, sync, suggestions })
+      return Schedules.of({ list, create, prepareCreate, update, remove, skip, post, occurrences, sync, suggestions })
     }),
   )
 }

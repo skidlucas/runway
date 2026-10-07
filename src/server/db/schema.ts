@@ -159,6 +159,7 @@ export const schedules = sqliteTable(
       .references(() => accounts.id),
     categoryId: text("category_id").references(() => categories.id),
     amount: integer("amount").notNull(),
+    notes: text("notes"),
     recurrence: text("recurrence", { mode: "json" }).$type<Recurrence>().notNull(),
     startDate: text("start_date").notNull(),
     endDate: text("end_date"),

@@ -8,6 +8,7 @@ import {
   TransactionEditor,
   payeeInputOf,
   payeeValueOf,
+  recordedMessage,
   useDeleteTransactions,
 } from "~/components/transaction-editor"
 import { Button, Calendar, Checkbox, Chip, cx, DateInput, IconButton, InlineEdit, Menu, Money, Popover, revealOnHover } from "~/components/ui"
@@ -402,7 +403,10 @@ const TransactionRow = React.memo(function TransactionRow({
 function InlineDate({ tx }: { tx: TxRow }) {
   const [open, setOpen] = React.useState(false)
   const [draft, setDraft] = React.useState(tx.date)
-  const update = useAction(updateTransaction, { writes: ["transactions"] })
+  const update = useAction(updateTransaction, {
+    success: (recorded) => recordedMessage(recorded, undefined, "Opération transformée en échéance du"),
+    writes: ["transactions", "schedules"],
+  })
   const save = (date: Day) => {
     setOpen(false)
     if (date && date !== tx.date) update.mutate({ data: { id: tx.id, date } })

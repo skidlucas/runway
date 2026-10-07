@@ -1,4 +1,4 @@
-import { compareIso } from "~/domain/dates"
+import { compareIso, type Day } from "~/domain/dates"
 import type { DuplicateProbe, ImportOptions, ImportResult, ImportRow } from "~/server/services/import-export"
 import { type BundleStructure, type BundleTransaction, fileOrderStamps, type IdMaps, type ImportBundle } from "./import-bundle"
 import type { ParsedBankFile } from "./importers/bank"
@@ -120,15 +120,19 @@ export const runBundleImport = async (
   return { maps, ...progress }
 }
 
-/** Imports a bank file into one account, leaving out the operations it already holds. */
-export const runBankImport = (
+/**
+ * Imports a bank file into one account, leaving out the operations it already holds and the
+ * upcoming ones (dated after `today`): those are planned, not done, and a schedule stands for them.
+ */
+export const runBankImport = async (
   parsed: ParsedBankFile,
-  target: { accountId: string; applyRules: boolean },
+  target: { accountId: string; applyRules: boolean; today: Day },
   importTransactions: ImportApi["importTransactions"],
   onProgress: (p: ImportProgress) => void = () => {},
 ) => {
-  const stamps = fileOrderStamps(parsed.transactions.map((t) => t.date))
-  const rows = parsed.transactions.map((t, i) => ({
+  const done = parsed.transactions.filter((t) => t.date <= target.today)
+  const stamps = fileOrderStamps(done.map((t) => t.date))
+  const rows = done.map((t, i) => ({
     accountId: target.accountId,
     date: t.date,
     amount: t.amount,
@@ -139,7 +143,8 @@ export const runBankImport = (
     cleared: true,
     createdAt: stamps[i],
   }))
-  return importChunks(rows, { dedupe: true, applyRules: target.applyRules }, importTransactions, onProgress)
+  const progress = await importChunks(rows, { dedupe: true, applyRules: target.applyRules }, importTransactions, onProgress)
+  return { ...progress, upcoming: parsed.transactions.length - done.length }
 }
 
 const PROBES_PER_REQUEST = 10_000

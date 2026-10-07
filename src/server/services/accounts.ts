@@ -116,8 +116,10 @@ export class Accounts extends Context.Service<
             .from(accounts)
             .get(),
         )
-        const date = input.startingDate ?? (yield* settings.today)
+        const today = yield* settings.today
+        const date = input.startingDate ?? today
         if (!isDay(date)) return yield* new Invalid({ message: "Date du solde initial invalide" })
+        if (date > today) return yield* new Invalid({ message: "Le solde initial ne peut pas être daté dans le futur" })
         const opening =
           input.startingBalance === 0
             ? null

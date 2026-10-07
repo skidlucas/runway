@@ -18,6 +18,15 @@ let accounts = 0
 
 const openAccount = (startingBalance: number, startingDate = "2026-10-01") =>
   h.run(Accounts.use((a) => a.create({ name: `Compte ${++accounts}`, kind: "checking", offBudget: false, startingBalance, startingDate })))
+/** Runs `fn` with "today" moved to `instant`, to write operations a later month needs. */
+const on = async <A>(instant: string, fn: () => Promise<A>) => {
+  h.setNow(instant)
+  try {
+    return await fn()
+  } finally {
+    h.setNow(NOW)
+  }
+}
 const categoryRow = async (month: string, id: string) =>
   (await h.run(Budget.use((b) => b.month(month)))).groups.flatMap((g) => g.categories).find((c) => c.id === id)!
 
@@ -66,9 +75,11 @@ describe("core flows on D1", () => {
     const toBudget = async (month: string) => (await h.run(Budget.use((b) => b.month(month)))).toBudget
     const [novemberBefore, decemberBefore] = [await toBudget("2026-11"), await toBudget("2026-12")]
     await h.run(Budget.use((b) => b.setAmount("2026-11", ids.restaurants, 40000)))
-    await h.run(
-      Transactions.use((t) =>
-        t.create({ accountId: ids.checking, date: "2026-11-10", amount: -4218, payee: { kind: "name", name: "Bistrot" }, categoryId: ids.restaurants }),
+    await on("2026-11-10T10:00:00Z", () =>
+      h.run(
+        Transactions.use((t) =>
+          t.create({ accountId: ids.checking, date: "2026-11-10", amount: -4218, payee: { kind: "name", name: "Bistrot" }, categoryId: ids.restaurants }),
+        ),
       ),
     )
     expect(await categoryRow("2026-11", ids.restaurants)).toMatchObject({ budgeted: 40000, spent: 4218, available: 35782 })
@@ -139,7 +150,7 @@ describe("core flows on D1", () => {
       Transactions.use((t) =>
         t.create({
           accountId: account,
-          date: "2026-10-05",
+          date: "2026-10-03",
           amount: -10000,
           payee: { kind: "name", name: "Carrefour" },
           splits: [
@@ -160,8 +171,8 @@ describe("core flows on D1", () => {
   })
 
   it("counts the register only on its first page and carries the balance across pages", async () => {
-    const account = await openAccount(10000)
-    for (const [day, amount] of [["02", -100], ["03", -200], ["04", -300], ["05", -400]] as const) {
+    const account = await openAccount(10000, "2026-09-30")
+    for (const [day, amount] of [["01", -100], ["02", -200], ["03", -300], ["04", -400]] as const) {
       await h.run(Transactions.use((t) => t.create({ accountId: account, date: `2026-10-${day}`, amount, payee: { kind: "none" }, categoryId: null })))
     }
     const first = await h.run(Transactions.use((t) => t.list({ accountId: account, limit: 2 })))
@@ -212,7 +223,9 @@ describe("core flows on D1", () => {
     const doomed = await make("Pressing")
     const kept = await make("Entretien")
     const add = (categoryId: string, amount: number) =>
-      h.run(Transactions.use((t) => t.create({ accountId: ids.checking, date: "2027-03-10", amount, payee: { kind: "none" }, categoryId })))
+      on("2027-03-10T10:00:00Z", () =>
+        h.run(Transactions.use((t) => t.create({ accountId: ids.checking, date: "2027-03-10", amount, payee: { kind: "none" }, categoryId }))),
+      )
     await add(doomed, -700)
     await add(kept, -300)
     await h.run(

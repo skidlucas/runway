@@ -335,7 +335,10 @@ describe("Wealth", () => {
     const add = (date: string, amount: number) =>
       h.run(Transactions.use((t) => t.create({ accountId: joint, date, amount, payee: { kind: "name", name: "Test" }, categoryId: null })))
     await add(`${addMonths(month, -5)}-10`, 100_00)
+    // An operation dated after today, as written before such dates became schedules.
+    h.setNow(`${addDays(today, 3)}T10:00:00Z`)
     await add(addDays(today, 3), -500_00)
+    h.setNow(NOW)
     const item = (await h.run(Wealth.use((w) => w.overview))).items.find((i) => i.id === joint)!
     expect(item.value).toBe(2_100_00)
     expect(item.history[6]).toBe(2_000_00)

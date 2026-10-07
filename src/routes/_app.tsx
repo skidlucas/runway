@@ -29,7 +29,7 @@ function useScheduleSync() {
     if (schedulesSyncedOn === today) return
     schedulesSyncedOn = today
     syncSchedules({ data: { timeZone: clientTimeZone() } })
-      .then(({ posted, matched }) => (posted + matched > 0 ? refreshAfter(client, ["transactions", "schedules"]) : undefined))
+      .then(({ posted, matched, converted }) => (posted + matched + converted > 0 ? refreshAfter(client, ["transactions", "schedules"]) : undefined))
       .catch(() => {
         schedulesSyncedOn = null
       })

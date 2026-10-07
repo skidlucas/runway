@@ -4,7 +4,7 @@ import { addDays } from "~/domain/dates"
 import { authMiddleware } from "../auth"
 import { Invalid } from "../errors"
 import { runApp } from "../runtime"
-import { Cents, Day, Days, Id, Month, Name, PayeeInput, Recurrence } from "../schemas"
+import { Cents, Day, Days, Id, Month, Name, Notes, PayeeInput, Recurrence } from "../schemas"
 import { ForecastService } from "../services/forecast"
 import { registerRows, Schedules } from "../services/schedules"
 import { Settings } from "../services/settings"
@@ -17,6 +17,7 @@ const ScheduleInput = Schema.Struct({
   accountId: Id,
   categoryId: Schema.NullOr(Id),
   amount: Cents,
+  notes: Schema.optional(Schema.NullOr(Notes)),
   recurrence: Recurrence,
   startDate: Day,
   endDate: Schema.optional(Schema.NullOr(Day)),
