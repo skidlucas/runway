@@ -131,6 +131,8 @@ export type TxRow = {
   id: string
   accountId: string
   accountName: string
+  /** The account is off budget: its operations never count in the budget, so they carry no category. */
+  offBudget: boolean
   date: string
   amount: number
   payeeId: string | null
@@ -177,7 +179,7 @@ export type TxCursor = { readonly date: string; readonly createdAt: string; read
 export type TxPage = { rows: TxRow[]; total: number | null; children: Record<string, TxRow[]>; next: TxCursor | null }
 
 const SELECT_ROW = `
-  t.id, t.account_id AS accountId, a.name AS accountName, t.date, t.amount,
+  t.id, t.account_id AS accountId, a.name AS accountName, a.off_budget AS offBudget, t.date, t.amount,
   t.payee_id AS payeeId, COALESCE(pa.name, p.name) AS payeeName, p.transfer_account_id AS transferAccountId,
   t.category_id AS categoryId, c.name AS categoryName, t.notes, t.cleared, t.reconciled,
   t.transfer_id AS transferId, t.is_parent AS isParent, t.parent_id AS parentId,
@@ -190,8 +192,9 @@ const FROM_ROW = `
   LEFT JOIN accounts pa ON pa.id = p.transfer_account_id
   LEFT JOIN categories c ON c.id = t.category_id`
 
-type RawRow = Omit<TxRow, "cleared" | "reconciled" | "isParent"> & {
+type RawRow = Omit<TxRow, "offBudget" | "cleared" | "reconciled" | "isParent"> & {
   createdAt?: string
+  offBudget: number
   cleared: number
   reconciled: number
   isParent: number
@@ -199,6 +202,7 @@ type RawRow = Omit<TxRow, "cleared" | "reconciled" | "isParent"> & {
 
 const toRow = (r: RawRow): TxRow => ({
   ...r,
+  offBudget: r.offBudget === 1,
   cleared: r.cleared === 1,
   reconciled: r.reconciled === 1,
   isParent: r.isParent === 1,

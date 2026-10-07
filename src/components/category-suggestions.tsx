@@ -24,7 +24,7 @@ type SuggestionsState = {
 
 const SuggestionsContext = React.createContext<SuggestionsState | null>(null)
 
-const needsCategory = (tx: TxRow) => !tx.categoryId && !tx.transferAccountId && !tx.isParent
+const needsCategory = (tx: TxRow) => !tx.categoryId && !tx.transferAccountId && !tx.isParent && !tx.offBudget
 
 /**
  * Category suggestions for the uncategorized rows on screen. Nothing is written until the user

@@ -77,9 +77,16 @@ export function MobileList({
                 >
                   <button type="button" onClick={() => setEditing(line.tx)} className="flex min-w-0 flex-1 flex-col gap-0.5 text-left">
                     <span className={cx("truncate font-medium", line.tx.date > today && "text-muted")}>{line.tx.payeeName ?? line.tx.notes ?? "—"}</span>
-                    <span className={cx("truncate text-[12px] text-faint", !line.tx.categoryId && !line.tx.transferAccountId && !line.tx.isParent && "text-warning")}>
+                    <span className={cx("truncate text-[12px] text-faint", !line.tx.categoryId && !line.tx.transferAccountId && !line.tx.isParent && !line.tx.offBudget && "text-warning")}>
                       {formatDayShort(line.tx.date)}
-                      {line.tx.date > today ? " · À venir" : ""} · {line.tx.isParent ? "Ventilée" : line.tx.transferAccountId && !line.tx.categoryId ? "Virement" : (line.tx.categoryName ?? "À catégoriser")}
+                      {line.tx.date > today ? " · À venir" : ""} ·{" "}
+                      {line.tx.isParent
+                        ? "Ventilée"
+                        : line.tx.transferAccountId && !line.tx.categoryId
+                          ? "Virement"
+                          : line.tx.offBudget
+                            ? "Hors budget"
+                            : (line.tx.categoryName ?? "À catégoriser")}
                     </span>
                   </button>
                   <SuggestionChip tx={line.tx} compact />

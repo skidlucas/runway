@@ -326,6 +326,8 @@ const TransactionRow = React.memo(function TransactionRow({
         </button>
       ) : tx.transferAccountId && !tx.categoryId ? (
         <span className="text-faint">Virement</span>
+      ) : tx.offBudget ? (
+        <span className="text-faint">Hors budget</span>
       ) : (
         <InlineCategory tx={tx} />
       )}

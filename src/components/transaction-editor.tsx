@@ -1,8 +1,8 @@
-import { useMutation, useQueryClient } from "@tanstack/react-query"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Plus, Trash2 } from "lucide-react"
 import * as React from "react"
 import { amountInput, formatMoney, parseAmount } from "~/domain/money"
-import { refreshAfter, useAction, useCategoryName } from "~/lib/queries"
+import { q, refreshAfter, useAction, useCategoryName } from "~/lib/queries"
 import { createRule, deleteTransactions, restoreTransactions, updateTransaction } from "~/server/fns/core"
 import type { TxRow } from "~/server/services/transactions"
 import { AccountSelect, CategoryPicker, PayeePicker, type PayeeValue } from "./pickers"
@@ -70,6 +70,8 @@ export function TransactionEditor({
   const [payee, setPayee] = React.useState<PayeeValue>(payeeValueOf(tx))
   const [categoryId, setCategoryId] = React.useState<string | null>(tx.categoryId)
   const [accountId, setAccountId] = React.useState(tx.accountId)
+  const accounts = useQuery(q.accounts())
+  const offBudget = accounts.data?.find((a) => a.id === accountId)?.offBudget ?? tx.offBudget
   const [notes, setNotes] = React.useState(tx.notes ?? "")
   const [cleared, setCleared] = React.useState(tx.cleared)
   const [lines, setLines] = React.useState<SplitLine[]>(
@@ -151,7 +153,7 @@ export function TransactionEditor({
         <Field label="Compte">
           <AccountSelect value={accountId} onChange={setAccountId} />
         </Field>
-        {!splitting ? (
+        {!splitting && !offBudget ? (
           <Field label="Catégorie" group>
             <div className="flex gap-2">
               <CategoryPicker value={categoryId} onChange={setCategoryId} className="flex-1" />
@@ -163,7 +165,7 @@ export function TransactionEditor({
             </div>
           </Field>
         ) : null}
-        <Field label="Note" className={splitting ? "col-span-2 max-md:col-span-1" : ""}>
+        <Field label="Note" className={splitting || offBudget ? "col-span-2 max-md:col-span-1" : ""}>
           <Input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Optionnel" />
         </Field>
         <label className="col-span-2 flex items-center gap-2 text-fg-2 max-md:col-span-1">
