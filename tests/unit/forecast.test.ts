@@ -15,6 +15,7 @@ describe("forecast", () => {
 
   it("projects today's balance when nothing is planned", () => {
     const f = computeForecast(base)
+    expect(f.isFuture).toBe(false)
     expect(f.daysLeft).toBe(30)
     expect(f.balanceToday).toBe(321456)
     expect(f.projectedEndBalance).toBe(321456)
@@ -53,9 +54,25 @@ describe("forecast", () => {
     expect(f.days[30]?.balance).toBe(f.projectedEndBalance)
   })
 
-  it("keeps the last real balance for a past month", () => {
-    const f = computeForecast({ ...base, month: "2026-09", dailyBalances: new Map([["2026-09-30", 5000]]) })
-    expect(f.daysLeft).toBe(0)
-    expect(f.projectedEndBalance).toBe(5000)
+  it("projects every day of a month yet to come from the balance it opens with", () => {
+    const f = computeForecast({
+      ...base,
+      month: "2026-12",
+      dailyBalances: new Map(),
+      openingBalance: 200000,
+      upcoming: [
+        { date: "2026-12-01", name: "Loyer", amount: -80000, categoryId: null, source: "schedule", scheduleId: "s1", overdue: false },
+        { date: "2026-12-15", name: "Chèque", amount: -2000, categoryId: null, source: "transaction", scheduleId: null, overdue: false },
+      ],
+    })
+    expect(f.isFuture).toBe(true)
+    expect(f.today).toBe("2026-10-02")
+    expect(f.daysLeft).toBe(31)
+    expect(f.balanceToday).toBe(200000)
+    expect(f.days.every((d) => d.kind === "future")).toBe(true)
+    // What falls on the 1st weighs on the 1st, once.
+    expect(f.days[0]).toMatchObject({ balance: 200000 - 80000, hasSchedule: true })
+    expect(f.days[30]?.balance).toBe(200000 - 80000 - 2000)
+    expect(f.projectedEndBalance).toBe(200000 - 80000 - 2000)
   })
 })

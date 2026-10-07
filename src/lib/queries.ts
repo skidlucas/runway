@@ -18,6 +18,7 @@ import type { InsightViewConfig } from "~/server/db/schema"
 import type { AccountDto } from "~/server/services/accounts"
 import type { TxCursor, TxFilter } from "~/server/services/transactions"
 import { toast, toastError } from "~/components/toast"
+import type { Month } from "~/domain/dates"
 
 const TX_PAGE = 200
 
@@ -25,7 +26,11 @@ const TX_PAGE = 200
 export const defaultForecastAccount = (accounts: ReadonlyArray<AccountDto>) =>
   accounts.find((a) => !a.closed && !a.offBudget)?.id ?? "all"
 
-export const forecastScope = (account: string) => (account === "all" ? {} : { accountId: account })
+/** `month` is left out for the current month, so every screen showing it shares one cached forecast. */
+export const forecastScope = (account: string, month?: Month) => ({
+  ...(account === "all" ? {} : { accountId: account }),
+  ...(month ? { month } : {}),
+})
 
 export const useCategoryName = (id: string | null | undefined): string | undefined => {
   const categories = useQuery(q.categories())

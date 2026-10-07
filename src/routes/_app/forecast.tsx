@@ -7,23 +7,44 @@ import { useQuery } from "@tanstack/react-query"
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router"
 import * as React from "react"
 import { PageHeader } from "~/components/shell"
-import { buttonClass, Chip, cx, EmptyState, heroAmountClass, Kpi, Money, SectionTitle, SkeletonRows, StatChip, Tabs } from "~/components/ui"
-import { formatDayShort, formatMonthLong, formatMonthName, parseDay } from "~/domain/dates"
-import type { UpcomingTag } from "~/domain/forecast"
+import { buttonClass, Chip, cx, EmptyState, heroAmountClass, Kpi, Money, MonthStepper, SectionTitle, SkeletonRows, StatChip, Tabs } from "~/components/ui"
+import { addMonths, firstDay, formatDayShort, formatMonthName, isMonth, type Month, monthOf, parseDay } from "~/domain/dates"
+import { MAX_FORECAST_MONTHS, type UpcomingTag } from "~/domain/forecast"
 import { formatMoney } from "~/domain/money"
+import { localToday } from "~/lib/hooks"
 import { defaultForecastAccount, forecastScope, q } from "~/lib/queries"
 import type { ForecastDto } from "~/server/services/forecast"
 import { capitalize, count } from "~/domain/text"
 
-/** `account` is an account id or "all"; without it the page opens on the default account. */
-type Search = { account?: string }
+/**
+ * `account` is an account id or "all"; without it the page opens on the default account.
+ * `month` is one of the months after the current one; without it the page shows the current month.
+ */
+type Search = { account?: string; month?: Month }
+
+const monthRange = () => {
+  const current = monthOf(localToday())
+  return { current, last: addMonths(current, MAX_FORECAST_MONTHS) }
+}
+
+const validMonth = (value: unknown): Month | undefined => {
+  if (typeof value !== "string" || !isMonth(value)) return undefined
+  const { current, last } = monthRange()
+  return value > current && value <= last ? value : undefined
+}
 
 export const Route = createFileRoute("/_app/forecast")({
-  validateSearch: (s: Record<string, unknown>): Search => (typeof s.account === "string" && s.account ? { account: s.account } : {}),
+  validateSearch: (s: Record<string, unknown>): Search => {
+    const month = validMonth(s.month)
+    return {
+      ...(typeof s.account === "string" && s.account ? { account: s.account } : {}),
+      ...(month ? { month } : {}),
+    }
+  },
   loaderDeps: ({ search }) => search,
   loader: async ({ context, deps }) => {
     const account = deps.account ?? defaultForecastAccount(await context.queryClient.ensureQueryData(q.accounts()))
-    return context.queryClient.ensureQueryData(q.forecast(forecastScope(account)))
+    return context.queryClient.ensureQueryData(q.forecast(forecastScope(account, deps.month)))
   },
   component: ForecastPage,
 })
@@ -33,19 +54,23 @@ function ForecastPage() {
   const navigate = useNavigate({ from: "/forecast" })
   const accounts = useQuery(q.accounts())
   const account = search.account ?? defaultForecastAccount(accounts.data ?? [])
-  const forecast = useQuery(q.forecast(forecastScope(account)))
+  const forecast = useQuery(q.forecast(forecastScope(account, search.month)))
   const f = forecast.data
   const open = (accounts.data ?? []).filter((a) => !a.closed || a.id === account)
   // "Tous" is the money available now: savings and closed accounts stay out unless picked.
   const included = open.filter((a) => a.inForecast && !a.closed && !a.offBudget).map((a) => a.name)
   // Off-budget accounts (investments) have no month to plan; one stays reachable by URL.
   const tabs = open.filter((a) => !a.offBudget || a.id === account)
-  const pick = (picked: string) => void navigate({ search: { account: picked } })
+  const pick = (picked: string) => void navigate({ search: (prev) => ({ ...prev, account: picked }) })
+  const { current, last } = monthRange()
+  const month = search.month ?? current
+  const goMonth = (next: Month) =>
+    void navigate({ search: (prev) => ({ ...prev, month: next === current ? undefined : next }) })
   return (
     <>
       <PageHeader
         title="Prévision"
-        crumb={f ? formatMonthLong(f.month) : "…"}
+        crumb={<MonthStepper month={month} onChange={goMonth} min={current} max={last} />}
         right={
           f ? (
             <span className="flex items-center gap-2 max-md:hidden">
@@ -97,14 +122,14 @@ function DesktopForecast({ f }: { f: ForecastDto }) {
     <>
       <div className="grid grid-cols-3 border-b border-line">
         <div className="border-r border-line p-5">
-          <Kpi size="lg" label="Solde aujourd'hui" value={formatMoney(f.balanceToday)} />
+          <Kpi size="lg" label={f.isFuture ? `Solde projeté au ${formatDayShort(firstDay(f.month))}` : "Solde aujourd'hui"} value={formatMoney(f.balanceToday)} />
         </div>
         <div className="border-r border-line p-5">
           <Kpi
-            label="Échéances à venir"
+            label={f.isFuture ? "Échéances du mois" : "Échéances à venir"}
             value={formatMoney(f.scheduledUpcoming)}
             size="lg"
-            hint={f.daysLeft > 0 ? `d'ici ${count(f.daysLeft, "jour")}` : "Mois terminé"}
+            hint={f.isFuture ? `sur ${count(f.daysLeft, "jour")}` : `d'ici ${count(f.daysLeft, "jour")}`}
           />
         </div>
         <div className="p-5">
@@ -126,7 +151,7 @@ function DesktopForecast({ f }: { f: ForecastDto }) {
         </span>
       </div>
       <DailyChart f={f} />
-      <SectionTitle>Échéances à venir</SectionTitle>
+      <SectionTitle>{f.isFuture ? "Échéances du mois" : "Échéances à venir"}</SectionTitle>
       <UpcomingTable f={f} />
     </>
   )
@@ -218,7 +243,7 @@ function UpcomingTable({ f }: { f: ForecastDto }) {
   if (f.upcoming.length === 0) {
     return (
       <p className="px-5 pb-2 text-muted">
-        Aucune échéance d'ici la fin du mois.{" "}
+        {f.isFuture ? "Aucune échéance ce mois-ci." : "Aucune échéance d'ici la fin du mois."}{" "}
         <Link to="/schedules" className="text-accent-fg">
           Gérer les échéances
         </Link>
@@ -252,17 +277,17 @@ function MobileForecast({ f }: { f: ForecastDto }) {
       />
       <div className="mx-5 mt-6 grid grid-cols-2 gap-2.5">
         <div className="flex flex-col gap-1 rounded-[12px] border border-line p-3.5">
-          <span className="text-[12px] text-muted">Aujourd'hui</span>
+          <span className="text-[12px] text-muted">{f.isFuture ? `Au ${formatDayShort(firstDay(f.month))}` : "Aujourd'hui"}</span>
           <Money value={f.balanceToday} className="text-[20px]" />
         </div>
         <div className="flex flex-col gap-1 rounded-[12px] border border-line p-3.5">
-          <span className="text-[12px] text-muted">Échéances à venir</span>
+          <span className="text-[12px] text-muted">{f.isFuture ? "Échéances du mois" : "Échéances à venir"}</span>
           <Money value={f.scheduledUpcoming} className="text-[20px]" />
         </div>
       </div>
-      <div className="px-5 pb-2 pt-6 text-[13px] text-muted">Prochaines échéances</div>
+      <div className="px-5 pb-2 pt-6 text-[13px] text-muted">{f.isFuture ? "Échéances du mois" : "Prochaines échéances"}</div>
       <div className="mx-5">
-        {f.upcoming.length === 0 ? <p className="text-muted">Rien de prévu d'ici la fin du mois.</p> : null}
+        {f.upcoming.length === 0 ? <p className="text-muted">{f.isFuture ? "Rien de prévu ce mois-ci." : "Rien de prévu d'ici la fin du mois."}</p> : null}
         {f.upcoming.slice(0, 6).map((u, i) => (
           <div key={i} className="flex justify-between border-b border-line-subtle py-2.5">
             <span className="flex flex-col gap-0.5">

@@ -1,4 +1,7 @@
-import { compareIso, type Day, daysInMonth, diffDays, firstDay, lastDay, type Month, monthOf } from "./dates"
+import { addDays, compareIso, type Day, daysInMonth, diffDays, firstDay, lastDay, type Month } from "./dates"
+
+/** How many months after the current one the forecast can be opened on. */
+export const MAX_FORECAST_MONTHS = 12
 
 export type UpcomingItem = {
   readonly date: Day
@@ -14,10 +17,11 @@ export type UpcomingItem = {
 
 export type ForecastInput = {
   readonly today: Day
+  /** The current month or a later one. */
   readonly month: Month
   /** Balance of the forecast accounts at the end of each day of the month up to today. */
   readonly dailyBalances: ReadonlyMap<Day, number>
-  /** Balance before the first day of the month. */
+  /** Balance before the first day of the month: projected when the month has not started yet. */
   readonly openingBalance: number
   readonly upcoming: ReadonlyArray<UpcomingItem>
 }
@@ -29,6 +33,9 @@ type ForecastDay = { date: Day; balance: number; kind: "past" | "today" | "futur
 export type Forecast = {
   month: Month
   today: Day
+  /** The month starts after today: nothing in it is real yet, every day is projected. */
+  isFuture: boolean
+  /** In a month yet to come, the projected balance it opens with. */
   balanceToday: number
   daysLeft: number
   /** Scheduled expenses still to come this month. */
@@ -48,17 +55,18 @@ export type Forecast = {
  */
 export const computeForecast = (input: ForecastInput): Forecast => {
   const { today, month } = input
+  const start = firstDay(month)
   const end = lastDay(month)
-  const inMonth = monthOf(today) === month
-  const isPast = end < today
-  const effectiveToday: Day = inMonth ? today : isPast ? end : firstDay(month)
-  const daysLeft = isPast ? 0 : diffDays(effectiveToday, end) + 1
+  const isFuture = start > today
+  const from: Day = isFuture ? start : today
+  const lastRealDay: Day = isFuture ? addDays(start, -1) : today
+  const daysLeft = diffDays(from, end) + 1
 
   let balanceToday = input.openingBalance
-  for (const [day, balance] of input.dailyBalances) if (day <= effectiveToday) balanceToday = balance
+  for (const [day, balance] of input.dailyBalances) if (day <= lastRealDay) balanceToday = balance
 
   const upcoming = input.upcoming
-    .filter((u) => u.date >= effectiveToday && u.date <= end)
+    .filter((u) => u.date >= from && u.date <= end)
     .sort((a, b) => compareIso(a.date, b.date))
     .map((u) => {
       const tag: UpcomingTag =
@@ -78,12 +86,12 @@ export const computeForecast = (input: ForecastInput): Forecast => {
   const days: ForecastDay[] = []
   let running = input.openingBalance
   // What is due today (overdue occurrences included) is not in today's balance yet: it weighs from tomorrow.
-  let projected = balanceToday + (inMonth ? (datedByDay.get(effectiveToday) ?? 0) : 0)
+  let projected = balanceToday + (isFuture ? 0 : (datedByDay.get(today) ?? 0))
   for (let d = 1; d <= daysInMonth(month); d++) {
     const date = `${month}-${String(d).padStart(2, "0")}`
-    if (date <= effectiveToday) {
+    if (date <= lastRealDay) {
       running = input.dailyBalances.get(date) ?? running
-      const isToday = date === effectiveToday && inMonth
+      const isToday = date === today
       days.push({ date, balance: running, kind: isToday ? "today" : "past", hasSchedule: isToday && datedByDay.has(date) })
     } else {
       projected += datedByDay.get(date) ?? 0
@@ -93,7 +101,8 @@ export const computeForecast = (input: ForecastInput): Forecast => {
 
   return {
     month,
-    today: effectiveToday,
+    today,
+    isFuture,
     balanceToday,
     daysLeft,
     scheduledUpcoming,

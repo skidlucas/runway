@@ -175,11 +175,54 @@ describe("Schedules", () => {
     expect((await schedule(id)).nextDate > addDays(today, 5)).toBe(true)
   })
 
-  it("refuses to forecast a month that has not started", async () => {
-    expect(await h.fail(ForecastService.use((f) => f.month({ month: addMonths(today.slice(0, 7), 1) })))).toMatchObject({
+  it("forecasts from the current month to twelve months ahead", async () => {
+    const current = today.slice(0, 7)
+    expect(await h.fail(ForecastService.use((f) => f.month({ month: addMonths(current, -1) })))).toMatchObject({
       _tag: "Invalid",
       message: "La prévision commence au mois en cours",
     })
+    expect(await h.fail(ForecastService.use((f) => f.month({ month: addMonths(current, 13) })))).toMatchObject({
+      _tag: "Invalid",
+      message: "La prévision va jusqu'à 12 mois",
+    })
+    expect((await h.run(ForecastService.use((f) => f.month({ month: addMonths(current, 12) })))).isFuture).toBe(true)
+  })
+
+  it("opens a month yet to come on today's balance plus what is expected until its 1st", async () => {
+    const perso = await h.run(
+      Accounts.use((a) => a.create({ name: "Projeté", kind: "checking", offBudget: false, startingBalance: 300_000, startingDate: "2020-01-01" })),
+    )
+    const epargne = await h.run(
+      Accounts.use((a) => a.create({ name: "Épargne projetée", kind: "savings", offBudget: false, startingBalance: 0, startingDate: "2020-01-01" })),
+    )
+    const current = today.slice(0, 7)
+    const inTwoMonths = addMonths(current, 2)
+    // On the 20th from next month on: two occurrences before the forecast month, one in it.
+    await h.run(Schedules.use((s) => s.create(monthly(`${addMonths(current, 1)}-20`, { name: "Abonnement", accountId: perso, amount: -10_000, autoPost: false }))))
+    await h.run(
+      Schedules.use((s) =>
+        s.create(monthly(`${addMonths(current, 1)}-20`, { name: "Vers épargne", accountId: perso, autoPost: false, payee: { kind: "transfer", accountId: epargne } })),
+      ),
+    )
+    const once = { recurrence: { unit: "once" as const, interval: 1 }, accountId: perso, autoPost: false }
+    await h.run(Schedules.use((s) => s.create(monthly(`${addMonths(current, 1)}-05`, { name: "Garage", amount: -5_000, ...once }))))
+    await h.run(Schedules.use((s) => s.create(monthly(`${inTwoMonths}-05`, { name: "Garage", amount: -7_000, ...once }))))
+
+    const f = await h.run(ForecastService.use((s) => s.month({ accountId: perso, month: inTwoMonths })))
+    const opening = 300_000 - 5_000 - 10_000 - 80_000
+    expect(f.isFuture).toBe(true)
+    expect(f.balanceToday).toBe(opening)
+    expect(f.upcoming.map((u) => [u.date, u.amount]).sort()).toEqual([
+      [`${inTwoMonths}-05`, -7_000],
+      [`${inTwoMonths}-20`, -10_000],
+      [`${inTwoMonths}-20`, -80_000],
+    ])
+    expect(f.projectedEndBalance).toBe(opening - 7_000 - 10_000 - 80_000)
+
+    // The transfer carried into the opening balance lands on the savings account.
+    const saving = await h.run(ForecastService.use((s) => s.month({ accountId: epargne, month: inTwoMonths })))
+    expect(saving.balanceToday).toBe(80_000)
+    expect(saving.projectedEndBalance).toBe(160_000)
   })
 
   it("forecasts one account from its schedules and lists the next days", async () => {

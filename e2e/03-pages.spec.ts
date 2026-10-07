@@ -16,6 +16,24 @@ test("the forecast reconciles today's balance with the projection", async ({ pag
   expect(cents(await page.getByTestId("chip-end-of-month").innerText())).toBe(projected)
 })
 
+test("the forecast steps through the next twelve months, never before the current one", async ({ page }) => {
+  await open(page, "/forecast")
+  const header = page.locator("header")
+  const previous = header.getByRole("button", { name: "Mois précédent" })
+  const next = header.getByRole("button", { name: "Mois suivant" })
+  await expect(previous).toBeDisabled()
+  await expect(page.getByRole("main").getByText("Solde aujourd'hui")).toBeVisible()
+
+  await next.click()
+  await expect(page).toHaveURL(/month=\d{4}-\d{2}/)
+  await expect(previous).toBeEnabled()
+  await expect(page.getByRole("main").getByText(/Solde projeté au 1/).first()).toBeVisible()
+  await expect(page.getByRole("main").getByText("Échéances du mois").first()).toBeVisible()
+
+  for (let i = 1; i < 12; i++) await next.click()
+  await expect(next).toBeDisabled()
+})
+
 test("the forecast opens on the first budget account, in the order set on the accounts page", async ({ page }) => {
   // The forecast's account tabs list the budget accounts in the accounts page order, then "Tous".
   await open(page, "/forecast")

@@ -1,13 +1,13 @@
 import { useQuery } from "@tanstack/react-query"
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router"
-import { AlertTriangle, ChevronLeft, ChevronRight, Eye, EyeOff } from "lucide-react"
+import { AlertTriangle, Eye, EyeOff } from "lucide-react"
 import * as React from "react"
 import { BudgetTable } from "~/components/budget/budget-table"
 import { MobileBudget } from "~/components/budget/mobile-budget"
 import { ForecastChips } from "~/components/forecast-chips"
 import { PageHeader } from "~/components/shell"
-import { Button, buttonClass, EmptyState, IconButton, Kpi, Money, Popover, SkeletonRows, StatChip } from "~/components/ui"
-import { addMonths, formatMonthLong, isMonth, monthOf } from "~/domain/dates"
+import { Button, buttonClass, EmptyState, Kpi, Money, MonthStepper, Popover, SkeletonRows, StatChip } from "~/components/ui"
+import { addMonths, isMonth, monthOf } from "~/domain/dates"
 import { formatMoney } from "~/domain/money"
 import { count } from "~/domain/text"
 import { localToday, shortcutBlocked, useIsMobile } from "~/lib/hooks"
@@ -61,19 +61,7 @@ function BudgetPage() {
     <>
       <PageHeader
         title="Budget"
-        crumb={
-          <span className="flex items-center gap-2.5">
-            <IconButton label="Mois précédent" size="sm" onClick={() => goMonth(-1)}>
-              <ChevronLeft size={15} />
-            </IconButton>
-            <span className="min-w-[118px] text-center" data-testid="budget-month">
-              {formatMonthLong(month)}
-            </span>
-            <IconButton label="Mois suivant" size="sm" onClick={() => goMonth(1)}>
-              <ChevronRight size={15} />
-            </IconButton>
-          </span>
-        }
+        crumb={<MonthStepper month={month} onChange={(next) => void navigate({ search: { month: next } })} />}
         right={
           <>
             <ForecastChips />

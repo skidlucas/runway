@@ -7,7 +7,7 @@ import { Select as BSelect } from "@base-ui/react/select"
 import { Switch as BSwitch } from "@base-ui/react/switch"
 import { CalendarDays, Check, ChevronDown, ChevronLeft, ChevronRight, Search, X } from "lucide-react"
 import * as React from "react"
-import { addDays, addMonths, type Day, daysInMonth, firstDay, formatDayInput, formatDayLong, formatMonthLong, monthOf, parseDayInput, weekday } from "~/domain/dates"
+import { addDays, addMonths, type Day, daysInMonth, firstDay, formatDayInput, formatDayLong, formatMonthLong, type Month, monthOf, parseDayInput, weekday } from "~/domain/dates"
 import { formatMoney } from "~/domain/money"
 import { useToday } from "~/lib/hooks"
 
@@ -367,6 +367,20 @@ export function Calendar({ value, onSelect, min, max }: { value: Day | ""; onSel
  * A date typed as "jj/mm/aaaa" (or "15", "15/3"…) with a calendar beside it. A complete date is
  * applied as it is typed; a short one when the field is left or Enter is pressed.
  */
+export function MonthStepper({ month, onChange, min, max }: { month: Month; onChange: (month: Month) => void; min?: Month; max?: Month }) {
+  return (
+    <span className="flex items-center gap-2.5">
+      <IconButton label="Mois précédent" size="sm" disabled={min !== undefined && month <= min} onClick={() => onChange(addMonths(month, -1))}>
+        <ChevronLeft size={15} />
+      </IconButton>
+      <span className="min-w-[118px] text-center">{formatMonthLong(month)}</span>
+      <IconButton label="Mois suivant" size="sm" disabled={max !== undefined && month >= max} onClick={() => onChange(addMonths(month, 1))}>
+        <ChevronRight size={15} />
+      </IconButton>
+    </span>
+  )
+}
+
 export function DateInput({
   value,
   onChange,

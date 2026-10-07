@@ -1,6 +1,6 @@
 import { Context, Effect, Layer } from "effect"
-import { addDays, compareIso, type Day, firstDay, isMonth, lastDay, type Month, monthOf } from "~/domain/dates"
-import { computeForecast, type Forecast, type UpcomingItem } from "~/domain/forecast"
+import { addDays, addMonths, compareIso, type Day, firstDay, isMonth, lastDay, type Month, monthOf } from "~/domain/dates"
+import { computeForecast, type Forecast, MAX_FORECAST_MONTHS, type UpcomingItem } from "~/domain/forecast"
 import { Db, type DbError } from "../db/client"
 import { Invalid, NotFound } from "../errors"
 import { type Occurrence, Schedules } from "./schedules"
@@ -15,6 +15,7 @@ export type ForecastDto = Forecast & {
 }
 
 export type ForecastScope = {
+  /** The current month by default, or one of the next MAX_FORECAST_MONTHS. */
   readonly month?: Month
   /** Limits the forecast to one account instead of the accounts flagged "in forecast". */
   readonly accountId?: string
@@ -84,10 +85,13 @@ export class ForecastService extends Context.Service<
 
       const month = Effect.fn("Forecast.month")(function* (scope: ForecastScope = {}) {
         const today = yield* settings.today
-        const m = scope.month ?? monthOf(today)
+        const current = monthOf(today)
+        const m = scope.month ?? current
         if (!isMonth(m)) return yield* new Invalid({ message: "Mois invalide" })
-        // Today's balance and the operations still to come are only known from the current month on.
-        if (m > monthOf(today)) return yield* new Invalid({ message: "La prévision commence au mois en cours" })
+        if (m < current) return yield* new Invalid({ message: "La prévision commence au mois en cours" })
+        if (m > addMonths(current, MAX_FORECAST_MONTHS)) {
+          return yield* new Invalid({ message: `La prévision va jusqu'à ${MAX_FORECAST_MONTHS} mois` })
+        }
         const accountId = scope.accountId ?? null
         const start = firstDay(m)
         const end = lastDay(m)
@@ -101,8 +105,8 @@ export class ForecastService extends Context.Service<
                  WHERE ${scopeOf(accountId, "a.id")}
                  GROUP BY a.id ORDER BY a.sort_order`,
               ).bind(accountId, today),
-              // The month never starts after today: the opening balance is today's balance minus what
-              // moved since the 1st, which reads the month rather than the whole history.
+              // The opening balance is today's balance minus what moved since the 1st, which reads the
+              // month rather than the whole history. Both read nothing for a month yet to come.
               d1.prepare(
                 `SELECT COALESCE(SUM(t.amount), 0) AS total FROM transactions t JOIN accounts a ON a.id = t.account_id
                  WHERE ${scopeOf(accountId, "t.account_id")} AND t.parent_id IS NULL AND t.date BETWEEN ?2 AND ?3`,
@@ -111,7 +115,7 @@ export class ForecastService extends Context.Service<
                 `SELECT t.date, SUM(t.amount) AS total FROM transactions t JOIN accounts a ON a.id = t.account_id
                  WHERE ${scopeOf(accountId, "t.account_id")} AND t.parent_id IS NULL AND t.date BETWEEN ?2 AND ?3
                  GROUP BY t.date ORDER BY t.date`,
-              ).bind(accountId, start, end),
+              ).bind(accountId, start, today),
               bookedAfter(d1, accountId, today, end),
             ])
             const balances = (accounts?.results ?? []) as ForecastAccount[]
@@ -123,7 +127,7 @@ export class ForecastService extends Context.Service<
               future: (future?.results ?? []) as BookedRow[],
             }
           }),
-          schedules.occurrences(today > start ? today : start, end),
+          schedules.occurrences(today, end),
         ], { concurrency: "unbounded" })
 
         if (accountId !== null && raw.accounts.length === 0) return yield* new NotFound({ entity: "Compte", id: accountId })
@@ -134,16 +138,18 @@ export class ForecastService extends Context.Service<
           running += d.total
           dailyBalances.set(d.date, running)
         }
-        const upcoming: UpcomingItem[] = [
+        const items: UpcomingItem[] = [
           ...bookedItems(raw.future),
           ...scheduledItems(occurrences, new Set(raw.accounts.map((a) => a.id))),
         ]
+        // A month yet to come opens on today's balance plus everything expected until its 1st.
+        const carried = items.filter((u) => u.date < start).reduce((sum, u) => sum + u.amount, 0)
         const forecast = computeForecast({
           today,
           month: m,
           dailyBalances,
-          openingBalance: raw.opening,
-          upcoming,
+          openingBalance: raw.opening + carried,
+          upcoming: items.filter((u) => u.date >= start),
         })
         return {
           ...forecast,
