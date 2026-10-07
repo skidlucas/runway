@@ -4,6 +4,7 @@ import { setupRouterSsrQueryIntegration } from "@tanstack/react-router-ssr-query
 import { ErrorView, NotFoundView } from "./components/errors"
 import { getToasts, toast } from "./components/toast"
 import { leaveIfSignedOut } from "./lib/auth"
+import { pageTransitions } from "./lib/page-transitions"
 import { routeTree } from "./routeTree.gen"
 
 export function getRouter() {
@@ -24,6 +25,7 @@ export function getRouter() {
     defaultErrorComponent: ErrorView,
     defaultNotFoundComponent: NotFoundView,
     scrollRestoration: true,
+    defaultViewTransition: pageTransitions(),
   })
   setupRouterSsrQueryIntegration({ router, queryClient })
   return router

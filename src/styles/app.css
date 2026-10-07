@@ -254,6 +254,66 @@ body {
   animation: fade-in 180ms var(--ease-crisp);
 }
 
+/*
+ * Page changes on mobile, typed by lib/page-transitions.ts: tabs cross-fade, a deeper page slides
+ * in from the right over the one it leaves, and slides back out on the way up. The tab bar and the
+ * add button are captured on their own so they stay put while the page moves under them.
+ */
+@media (max-width: 767px) {
+  .tab-bar {
+    view-transition-name: tab-bar;
+  }
+  .fab {
+    view-transition-name: fab;
+  }
+}
+@keyframes fade-out {
+  to {
+    opacity: 0;
+  }
+}
+@keyframes page-enter {
+  from {
+    transform: translateX(100%);
+  }
+}
+@keyframes page-leave {
+  to {
+    transform: translateX(100%);
+  }
+}
+@keyframes page-recede {
+  to {
+    transform: translateX(-25%);
+    opacity: 0.6;
+  }
+}
+@keyframes page-return {
+  from {
+    transform: translateX(-25%);
+    opacity: 0.6;
+  }
+}
+html:active-view-transition-type(tab)::view-transition-old(root) {
+  animation: fade-out 90ms var(--ease-crisp) both;
+}
+html:active-view-transition-type(tab)::view-transition-new(root) {
+  animation: fade-in 160ms var(--ease-crisp) both;
+}
+html:active-view-transition-type(push)::view-transition-old(root) {
+  animation: page-recede 300ms var(--ease-crisp) both;
+}
+html:active-view-transition-type(push)::view-transition-new(root) {
+  animation: page-enter 300ms var(--ease-crisp) both;
+}
+html:active-view-transition-type(back)::view-transition-old(root) {
+  z-index: 1;
+  animation: page-leave 300ms var(--ease-crisp) both;
+}
+html:active-view-transition-type(back)::view-transition-new(root) {
+  animation: page-return 300ms var(--ease-crisp) both;
+}
+
 @keyframes skeleton {
   0%,
   100% {

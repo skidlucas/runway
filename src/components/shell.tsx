@@ -201,15 +201,19 @@ const TABS: NavItem[] = [
 
 const MORE_PATHS = ["/more", "/dashboard", "/wealth", "/settings", "/schedules"]
 
+export const tabOf = (path: string) =>
+  TABS.find((tab) => (tab.match === "/more" ? MORE_PATHS.some((p) => path.startsWith(p)) : path.startsWith(tab.match)))
+
 export function TabBar() {
   const path = useActivePath()
+  const current = tabOf(path)
   return (
     <nav
       aria-label="Navigation"
-      className="safe-bottom fixed inset-x-0 bottom-0 z-40 grid grid-cols-5 border-t border-line bg-bg/95 pt-2 backdrop-blur md:hidden"
+      className="tab-bar safe-bottom fixed inset-x-0 bottom-0 z-40 grid grid-cols-5 border-t border-line bg-bg/95 pt-2 backdrop-blur md:hidden"
     >
       {TABS.map((tab) => {
-        const active = tab.match === "/more" ? MORE_PATHS.some((p) => path.startsWith(p)) : path.startsWith(tab.match)
+        const active = tab === current
         const Icon = tab.icon
         return (
           <Link
@@ -236,7 +240,7 @@ export function Fab() {
       type="button"
       onClick={() => openNewTransaction()}
       aria-label="Nouvelle opération"
-      className="fixed bottom-[calc(84px+env(safe-area-inset-bottom))] right-5 z-40 flex h-12 w-12 items-center justify-center rounded-full bg-accent-solid text-white shadow-[0_10px_30px_rgba(0,0,0,0.35)] md:hidden"
+      className="fab fixed bottom-[calc(84px+env(safe-area-inset-bottom))] right-5 z-40 flex h-12 w-12 items-center justify-center rounded-full bg-accent-solid text-white shadow-[0_10px_30px_rgba(0,0,0,0.35)] md:hidden"
     >
       <Plus size={22} />
     </button>
