@@ -288,7 +288,7 @@ function MobileForecast({ f }: { f: ForecastDto }) {
       <div className="px-5 pb-2 pt-6 text-[13px] text-muted">{f.isFuture ? "Échéances du mois" : "Prochaines échéances"}</div>
       <div className="mx-5">
         {f.upcoming.length === 0 ? <p className="text-muted">{f.isFuture ? "Rien de prévu ce mois-ci." : "Rien de prévu d'ici la fin du mois."}</p> : null}
-        {f.upcoming.slice(0, 6).map((u, i) => (
+        {f.upcoming.map((u, i) => (
           <div key={i} className="flex justify-between border-b border-line-subtle py-2.5">
             <span className="flex flex-col gap-0.5">
               <span>{u.name}</span>
