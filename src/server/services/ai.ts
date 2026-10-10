@@ -3,6 +3,7 @@ import { OpenAiClient, OpenAiLanguageModel } from "@effect/ai-openai"
 import { TypeSafeClient, TypeSafeDecisionModel } from "@effect/ai-typesafe"
 import { Clock, Context, type Duration, Effect, Layer, Redacted, Schedule, Schema } from "effect"
 import { type AiError, Decision, DecisionModel, LanguageModel } from "effect/ai"
+import { Base64 } from "effect/encoding"
 import { FetchHttpClient } from "effect/http"
 import { Db } from "../db/client"
 import { ExternalError } from "../errors"
@@ -65,6 +66,17 @@ const sha256 = async (text: string) => {
   return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("")
 }
 
+/** A file sent along with the prompt, its content in base64. */
+export type AiFile = { readonly mediaType: string; readonly data: string }
+
+// OpenAI's provider drops a PDF given as a base64 string (it only takes bytes, a URL or a file id),
+// while images go through as strings with both providers.
+const filePart = (file: AiFile) => {
+  if (file.mediaType.startsWith("image/")) return { type: "file" as const, mediaType: file.mediaType, data: file.data }
+  const bytes = Base64.decode(file.data)
+  return { type: "file" as const, mediaType: file.mediaType, data: bytes._tag === "Success" ? bytes.success : file.data }
+}
+
 const describeAiError = (error: AiError.AiError) => {
   switch (error.reason._tag) {
     case "AuthenticationError":
@@ -94,7 +106,7 @@ export class Ai extends Context.Service<
   {
     readonly status: AiStatus
     /**
-     * Structured generation, cached by (model, prompt): the same data never pays for a
+     * Structured generation, cached by (model, prompt, files): the same data never pays for a
      * second call. Callers put every input that matters into the prompt.
      */
     generate<S extends Schema.Codec<any, Record<string, any>>>(args: {
@@ -102,6 +114,7 @@ export class Ai extends Context.Service<
       readonly objectName: string
       readonly system: string
       readonly prompt: string
+      readonly files?: ReadonlyArray<AiFile>
     }): Effect.Effect<S["Type"], ExternalError>
     /** Picks one label per item. Items the model could not answer are left out of the map. */
     classify<L extends string>(args: ClassifyArgs<L>): Effect.Effect<Map<string, Classification<L>>, ExternalError>
@@ -141,11 +154,25 @@ export class Ai extends Context.Service<
         readonly objectName: string
         readonly system: string
         readonly prompt: string
+        readonly files?: ReadonlyArray<AiFile>
       }) {
         const layer = languageModel
         if (!layer) return yield* notConfigured
+        const files = args.files ?? []
+        // Files enter the key by their hash: a 5 MB PDF is not serialized a second time. Without
+        // files the key is unchanged, so entries cached before files existed still match.
+        const fileHashes = yield* Effect.promise(() => Promise.all(files.map((f) => sha256(`${f.mediaType}:${f.data}`))))
         const key = yield* Effect.promise(() =>
-          sha256(JSON.stringify([providers.provider, providers.model, args.objectName, args.system, args.prompt])),
+          sha256(
+            JSON.stringify([
+              providers.provider,
+              providers.model,
+              args.objectName,
+              args.system,
+              args.prompt,
+              ...(fileHashes.length ? [fileHashes] : []),
+            ]),
+          ),
         )
         // The cache only saves money: a D1 hiccup must neither block a generation nor fail one
         // that was already paid for.
@@ -160,7 +187,7 @@ export class Ai extends Context.Service<
         const response = yield* LanguageModel.generateObject({
           prompt: [
             { role: "system", content: args.system },
-            { role: "user", content: args.prompt },
+            { role: "user", content: files.length ? [{ type: "text", text: args.prompt }, ...files.map(filePart)] : args.prompt },
           ],
           schema: args.schema,
           objectName: args.objectName,

@@ -1,14 +1,18 @@
 import { useQuery } from "@tanstack/react-query"
-import { Delete } from "lucide-react"
+import { Camera, Delete } from "lucide-react"
 import * as React from "react"
 import { formatDayRelative, monthOf } from "~/domain/dates"
-import { formatMoney, parseAmount } from "~/domain/money"
+import { amountInput, formatMoney, parseAmount } from "~/domain/money"
+import { matchPayee } from "~/domain/payee-match"
 import { useIsMobile, useToday } from "~/lib/hooks"
 import { q, useAction } from "~/lib/queries"
-import { createTransaction } from "~/server/fns/core"
+import { isReceiptFile, prepareReceiptFile, RECEIPT_ACCEPT } from "~/lib/receipt-file"
+import { createTransaction, readReceipt } from "~/server/fns/core"
+import type { ReceiptDraft } from "~/server/services/receipts"
 import { AccountSelect, CategoryPicker, PayeePicker, type PayeeValue } from "./pickers"
+import { toast, toastError } from "./toast"
 import { recordedMessage } from "./transaction-editor"
-import { Button, cx, DateInput, Dialog, Field, Input, Segmented, Sheet, touchHitArea } from "./ui"
+import { Button, ChipButton, cx, DateInput, Dialog, DropZone, Field, Input, Segmented, Sheet, Spinner, touchHitArea } from "./ui"
 
 type Kind = "expense" | "income"
 
@@ -85,8 +89,72 @@ function useEntryState(open: boolean, defaults: EntryDefaults) {
   // Dated after today, the entry is saved as a one-off schedule (see Entries.record).
   const future = draft.date > today
 
-  return { draft, setDraft, setPayee, available, signed, remaining, accounts, today, future }
+  // Fields the document did not show keep what the form already holds.
+  const applyReading = (reading: ReceiptDraft) => {
+    setDraft((d) => ({
+      ...d,
+      kind: reading.kind,
+      amount: reading.amount === null ? d.amount : amountInput(reading.amount),
+      date: reading.date ?? d.date,
+      notes: reading.notes ?? d.notes,
+    }))
+    if (reading.payee !== null) {
+      const known = matchPayee(reading.payee, payees.data ?? [])
+      setPayee(known ? { kind: "id", id: known.id, name: known.name } : { kind: "name", name: reading.payee })
+    }
+  }
+
+  return { draft, setDraft, setPayee, applyReading, available, signed, remaining, accounts, today, future }
 }
+
+type EntryState = ReturnType<typeof useEntryState>
+
+/** Pre-fills the form from an image or a PDF; `available` is false without an AI key. */
+function useReceiptReading(open: boolean, state: EntryState) {
+  const ai = useQuery(q.aiStatus())
+  const [preparing, setPreparing] = React.useState(false)
+  const action = useAction(readReceipt, { writes: [] })
+  // A reading that ends after the form was closed (or closed and reopened) must not fill it.
+  const session = React.useRef(0)
+  React.useEffect(() => {
+    session.current++
+  }, [open])
+  // The reading lands seconds later: it must match against the payees loaded by then.
+  const latest = React.useRef(state)
+  latest.current = state
+
+  const busy = preparing || action.isPending
+  const read = async (file: File) => {
+    if (busy) return
+    const started = session.current
+    let prepared: Awaited<ReturnType<typeof prepareReceiptFile>>
+    setPreparing(true)
+    try {
+      prepared = await prepareReceiptFile(file)
+    } catch (error) {
+      toastError(error)
+      return
+    } finally {
+      setPreparing(false)
+    }
+    action.mutate(
+      { data: { file: prepared, today: state.today } },
+      {
+        onSuccess: (reading) => {
+          if (started !== session.current) return
+          latest.current.applyReading(reading)
+          if (reading.foreign && reading.foreign.rate === null) {
+            toast(`Taux ${reading.foreign.currency} → EUR indisponible : saisis le montant en euros`, { tone: "error" })
+          }
+        },
+      },
+    )
+  }
+
+  return { available: ai.data?.analysis === true, busy, read }
+}
+
+type ReceiptReading = ReturnType<typeof useReceiptReading>
 
 export function TransactionEntry({
   open,
@@ -99,6 +167,7 @@ export function TransactionEntry({
 }) {
   const mobile = useIsMobile()
   const state = useEntryState(open, defaults)
+  const receipt = useReceiptReading(open, state)
   const { draft, signed } = state
   const create = useAction(createTransaction, {
     success: (recorded) => recordedMessage(recorded, "Opération ajoutée"),
@@ -140,7 +209,7 @@ export function TransactionEntry({
   if (mobile) {
     return (
       <Sheet open={open} onOpenChange={onOpenChange} title="Nouvelle opération">
-        <MobileEntry state={state} onCancel={() => onOpenChange(false)} onSubmit={submit} pending={create.isPending} canSubmit={canSubmit} />
+        <MobileEntry state={state} receipt={receipt} onCancel={() => onOpenChange(false)} onSubmit={submit} pending={create.isPending} canSubmit={canSubmit} />
       </Sheet>
     )
   }
@@ -169,6 +238,12 @@ export function TransactionEntry({
           e.preventDefault()
           submit()
         }}
+        onPaste={(e) => {
+          const file = [...e.clipboardData.files].find(isReceiptFile)
+          if (!file || !receipt.available) return
+          e.preventDefault()
+          void receipt.read(file)
+        }}
         onKeyDown={(e) => {
           const target = e.target as HTMLElement
           // Pickers render in a portal but their key events still bubble here through React:
@@ -179,6 +254,17 @@ export function TransactionEntry({
           }
         }}
       >
+        {receipt.available ? (
+          <DropZone
+            onFile={(file) => void receipt.read(file)}
+            busy={receipt.busy}
+            label="Déposer une facture ou une capture"
+            busyLabel="Lecture du document…"
+            hint="image ou PDF · ⌘V pour coller"
+            accept={RECEIPT_ACCEPT}
+            className="h-[72px]"
+          />
+        ) : null}
         <Segmented
           value={draft.kind}
           onChange={(kind) => state.setDraft((d) => ({ ...d, kind }))}
@@ -239,12 +325,14 @@ const KEYS = ["1", "2", "3", "4", "5", "6", "7", "8", "9", ",", "0", "⌫"] as c
 
 function MobileEntry({
   state,
+  receipt,
   onCancel,
   onSubmit,
   pending,
   canSubmit,
 }: {
-  state: ReturnType<typeof useEntryState>
+  state: EntryState
+  receipt: ReceiptReading
   onCancel: () => void
   onSubmit: () => void
   pending: boolean
@@ -288,12 +376,17 @@ function MobileEntry({
         ]}
         className="mx-5"
       />
-      <div className="num px-5 pb-6 pt-8 text-center text-[52px] font-medium tracking-[-0.03em]" aria-live="polite">
+      {receipt.available ? <PhotoButton receipt={receipt} /> : null}
+      {/* Every row above the keypad counts: on a phone browser the keypad's last row is the first to fall off screen. */}
+      <div
+        className={cx("num px-5 pb-4 text-center text-[52px] font-medium leading-[1.15] tracking-[-0.03em]", receipt.available ? "pt-3" : "pt-8")}
+        aria-live="polite"
+      >
         {draft.amount || "0"}
         <span className="text-faint"> €</span>
       </div>
       <div className="mx-5 flex flex-col rounded-[10px] border border-line">
-        <div className="flex items-center justify-between gap-3 border-b border-line px-3.5 py-[13px]">
+        <div className="flex items-center justify-between gap-3 border-b border-line px-3.5 py-[11px]">
           <span className="text-muted">Bénéficiaire</span>
           <PayeePicker
             value={draft.payee}
@@ -305,7 +398,7 @@ function MobileEntry({
             placeholder="Choisir"
           />
         </div>
-        <div className="flex items-center justify-between gap-3 border-b border-line px-3.5 py-[13px]">
+        <div className="flex items-center justify-between gap-3 border-b border-line px-3.5 py-[11px]">
           <span className="text-muted">Catégorie</span>
           <span className="flex min-w-0 flex-1 items-center justify-end gap-2">
             <CategoryPicker
@@ -324,7 +417,7 @@ function MobileEntry({
             ) : null}
           </span>
         </div>
-        <label className="flex items-center justify-between gap-3 border-b border-line px-3.5 py-[13px]">
+        <label className="flex items-center justify-between gap-3 border-b border-line px-3.5 py-[11px]">
           <span className="text-muted">Compte</span>
           <span className="relative font-medium">
             {accountName}
@@ -344,7 +437,7 @@ function MobileEntry({
             </select>
           </span>
         </label>
-        <label className="flex items-center justify-between gap-3 px-3.5 py-[13px]">
+        <label className="flex items-center justify-between gap-3 border-b border-line px-3.5 py-[11px]">
           <span className="text-muted">Date</span>
           <span className="relative font-medium">
             {draft.date ? formatDayRelative(draft.date, state.today) : "—"}
@@ -356,6 +449,15 @@ function MobileEntry({
               className="absolute inset-0 opacity-0"
             />
           </span>
+        </label>
+        <label className="flex items-center justify-between gap-3 px-3.5 py-[11px]">
+          <span className="shrink-0 text-muted">Note</span>
+          <Input
+            value={draft.notes}
+            onChange={(e) => setDraft((d) => ({ ...d, notes: e.target.value }))}
+            placeholder="Optionnel"
+            className="h-auto min-w-0 flex-1 border-0 px-0 text-right font-medium"
+          />
         </label>
       </div>
       {state.future ? <p className="mx-5 mt-2 text-[12px] text-muted">Datée dans le futur : sera créée comme échéance.</p> : null}
@@ -372,6 +474,29 @@ function MobileEntry({
           </button>
         ))}
       </div>
+    </div>
+  )
+}
+
+function PhotoButton({ receipt }: { receipt: ReceiptReading }) {
+  const input = React.useRef<HTMLInputElement>(null)
+  return (
+    <div className="mx-5 mt-2 flex justify-center">
+      <ChipButton onClick={() => input.current?.click()} disabled={receipt.busy}>
+        {receipt.busy ? <Spinner /> : <Camera size={14} className="text-muted" />}
+        {receipt.busy ? "Lecture du document…" : "Depuis une photo"}
+      </ChipButton>
+      <input
+        ref={input}
+        type="file"
+        accept={RECEIPT_ACCEPT}
+        className="hidden"
+        onChange={(e) => {
+          const file = e.target.files?.[0]
+          if (file) void receipt.read(file)
+          e.target.value = ""
+        }}
+      />
     </div>
   )
 }

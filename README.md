@@ -26,7 +26,7 @@ On an empty budget, the Budget page offers to create starter categories, import 
 | --- | --- |
 | `APP_PASSWORD` | The app's single password, at least 12 characters (required) |
 | `SESSION_SECRET` | Encrypts the session cookie, at least 32 characters (required) |
-| `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` | Written insight analysis, questions typed in Insights, and fallback for category suggestions |
+| `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` | Written insight analysis, questions typed in Insights, reading an invoice or a screenshot into a new operation, and fallback for category suggestions |
 | `TYPESAFE_API_KEY` | Category suggestions through Jev (TypeSafe AI) |
 | `AI_PROVIDER` / `AI_MODEL` | Provider of the written analysis, `openai` (default) or `anthropic`, and its model (default: `gpt-6-luna` / `claude-haiku-4-5`) |
 | `DECISION_MODEL` | Jev model (default: `jev-latest`) |
@@ -35,7 +35,7 @@ On an empty budget, the Budget page offers to create starter categories, import 
 
 An optional variable that is not set is not bound to the Worker at all.
 
-Without any AI key, everything works except the written analysis, typed questions and category suggestions, which explain how to enable them. Categorization at import (rules, then each payee's usual category) and rule suggestions never use AI.
+Without any AI key, everything works except the written analysis, typed questions and category suggestions, which explain how to enable them, and reading a document into a new operation, which is not offered. Categorization at import (rules, then each payee's usual category) and rule suggestions never use AI.
 
 ## Tests
 
@@ -48,7 +48,7 @@ bun run check       # all of the above
 ```
 
 - Integration tests use fake AI models and fake market prices: they never go to the network.
-- `RUNWAY_LIVE_AI=1 bunx vitest run tests/integration/ai.test.ts` calls the real providers, with keys read from `.env`.
+- `RUNWAY_LIVE_AI=1 bunx vitest run tests/integration/ai.test.ts tests/integration/receipts.test.ts` calls the real providers, with keys read from `.env`.
 - The e2e suite starts its own server on port 3100 (`scripts/e2e-server.mjs`), on the Alchemy stage `e2e`. That stage is destroyed and recreated on every run, so each run starts from an empty D1 database, with a known password and no AI key. Specs run in order (`01-` → `08-`, then mobile) and share the database, like a user moving from screen to screen.
 - First run: `bunx playwright install chromium`.
 

@@ -14,6 +14,7 @@ import { Insights } from "./services/insights"
 import { LoginGuard } from "./services/login-guard"
 import { MarketData } from "./services/market-data"
 import { Payees } from "./services/payees"
+import { Receipts } from "./services/receipts"
 import { Reports } from "./services/reports"
 import { Rules } from "./services/rules"
 import { Schedules } from "./services/schedules"
@@ -34,7 +35,7 @@ export const makeCoreLayer = (
   const leaves = Layer.mergeAll(Categories.layer, Payees.layer, Rules.layer, Reports.layer).pipe(Layer.provideMerge(base))
   const writes = Transactions.layer.pipe(Layer.provideMerge(leaves))
   const domain = Budget.layer.pipe(Layer.provideMerge(Layer.mergeAll(Accounts.layer, Schedules.layer).pipe(Layer.provideMerge(writes))))
-  return Layer.mergeAll(ForecastService.layer, Demo.layer, ImportExport.layer, Insights.layer, Categorizer.layer, Wealth.layer, Entries.layer).pipe(
+  return Layer.mergeAll(ForecastService.layer, Demo.layer, ImportExport.layer, Insights.layer, Categorizer.layer, Wealth.layer, Entries.layer, Receipts.layer).pipe(
     Layer.provideMerge(domain),
   )
 }

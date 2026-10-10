@@ -61,13 +61,16 @@ test("enters an expense from the keypad", async ({ page }) => {
   for (const key of ["1", "2", ",", "4", "0"]) await sheet.getByRole("button", { name: key, exact: true }).click()
   await expect(sheet).toContainText("12,40 €")
   await pickInCommand(page, sheet.getByRole("button", { name: "Choisir" }).first(), "Fleuriste", "Créer « Fleuriste »")
+  await expect(sheet.getByRole("button", { name: "Depuis une photo" })).toHaveCount(0)
+  await sheet.getByLabel("Note").fill("Pivoines")
   await sheet.getByRole("button", { name: "OK", exact: true }).click()
   await waitForToast(page, "Opération ajoutée")
   await expect(sheet).toHaveCount(0)
 
   await page.getByRole("navigation", { name: "Navigation" }).getByRole("link", { name: "Comptes" }).click()
   await page.getByRole("main").getByRole("link", { name: /^Compte courant/ }).click()
-  await page.getByLabel("Rechercher une opération").fill("Fleuriste")
+  // Searching the note finds it: the note was saved with the operation.
+  await page.getByLabel("Rechercher une opération").fill("Pivoines")
   await expect(page.getByRole("main").getByRole("button", { name: /^Fleuriste/ })).toBeVisible()
   await expect(page.getByRole("main").getByText("−12,40 €", { exact: true })).toBeVisible()
 })

@@ -5,7 +5,7 @@ import { Menu as BMenu } from "@base-ui/react/menu"
 import { Popover as BPopover } from "@base-ui/react/popover"
 import { Select as BSelect } from "@base-ui/react/select"
 import { Switch as BSwitch } from "@base-ui/react/switch"
-import { CalendarDays, Check, ChevronDown, ChevronLeft, ChevronRight, Search, X } from "lucide-react"
+import { CalendarDays, Check, ChevronDown, ChevronLeft, ChevronRight, Search, Upload, X } from "lucide-react"
 import * as React from "react"
 import { addDays, addMonths, type Day, daysInMonth, firstDay, formatDayInput, formatDayLong, formatMonthLong, type Month, monthOf, parseDayInput, weekday } from "~/domain/dates"
 import { formatMoney } from "~/domain/money"
@@ -182,6 +182,71 @@ export const Field = ({
       {children}
       {hint ? <span className="text-[12px] text-faint">{hint}</span> : null}
     </Tag>
+  )
+}
+
+/** A dashed area that takes a dropped file, or opens the file picker when clicked. */
+export function DropZone({
+  onFile,
+  busy,
+  label,
+  busyLabel,
+  hint,
+  accept,
+  inputTestId,
+  className,
+}: {
+  onFile: (file: File) => void
+  busy: boolean
+  label: string
+  busyLabel: string
+  hint?: string
+  accept: string
+  inputTestId?: string
+  /** Sets the height, among others. */
+  className: string
+}) {
+  const [over, setOver] = React.useState(false)
+  const input = React.useRef<HTMLInputElement>(null)
+  return (
+    <button
+      type="button"
+      onClick={() => input.current?.click()}
+      onDragOver={(e) => {
+        e.preventDefault()
+        setOver(true)
+      }}
+      onDragLeave={() => setOver(false)}
+      onDrop={(e) => {
+        e.preventDefault()
+        setOver(false)
+        const file = e.dataTransfer.files[0]
+        if (file) onFile(file)
+      }}
+      className={cx(
+        "flex flex-col items-center justify-center gap-1.5 rounded-[10px] border border-dashed transition-colors",
+        over ? "border-accent bg-accent-soft" : "border-line-strong bg-subtle hover:bg-hover",
+        className,
+      )}
+    >
+      <span className="flex items-center gap-2 font-medium">
+        {busy ? <Spinner /> : <Upload size={15} className="text-muted" />}
+        {busy ? busyLabel : label}
+      </span>
+      {hint ? <span className="num text-[12px] text-faint">{hint}</span> : null}
+      <input
+        ref={input}
+        type="file"
+        data-testid={inputTestId}
+        accept={accept}
+        className="hidden"
+        onChange={(e) => {
+          const file = e.target.files?.[0]
+          if (file) onFile(file)
+          e.target.value = ""
+        }}
+      />
+    </button>
   )
 }
 

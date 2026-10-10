@@ -32,6 +32,8 @@ test("enters an expense and updates the balance", async ({ page }) => {
   await dialog.getByLabel("Montant").fill("42,50")
   await pickInCommand(page, dialog.getByRole("button", { name: "Bénéficiaire" }), "Boulangerie", "Créer « Boulangerie »")
   await pickInCommand(page, dialog.getByRole("button", { name: "Catégorie" }), "Courses", /^Courses/)
+  // The e2e server has no AI key: reading a document is not offered.
+  await expect(dialog.getByRole("button", { name: /Déposer une facture/ })).toHaveCount(0)
   await dialog.getByRole("button", { name: "Ajouter" }).click()
 
   const row = page.getByTestId("tx-row").filter({ hasText: "Boulangerie" })

@@ -1,11 +1,11 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { createFileRoute } from "@tanstack/react-router"
-import { AlertTriangle, Upload } from "lucide-react"
+import { AlertTriangle } from "lucide-react"
 import * as React from "react"
 import { AccountSelect } from "~/components/pickers"
 import { PageHeader } from "~/components/shell"
 import { toast, toastError } from "~/components/toast"
-import { Button, Checkbox, cx, Dialog, Field, Input, Money, ProgressBar, Segmented, Select, Switch, useConfirm } from "~/components/ui"
+import { Button, Checkbox, cx, Dialog, DropZone, Field, Input, Money, ProgressBar, Segmented, Select, Switch, useConfirm } from "~/components/ui"
 import { compareIso, type Day, formatDayShort } from "~/domain/dates"
 import { count, plural } from "~/domain/text"
 import { operationsCsv } from "~/lib/csv-export"
@@ -75,7 +75,16 @@ function DataSettings() {
             <h2 className="text-[15px] font-medium">Importer</h2>
             <p className="text-muted">Depuis Actual, une sauvegarde Runway, ou un fichier bancaire (OFX, QIF, CSV).</p>
           </div>
-          <DropZone onFile={onFile} busy={reading} />
+          <DropZone
+            onFile={onFile}
+            busy={reading}
+            label="Déposer un fichier ici"
+            busyLabel="Lecture du fichier…"
+            hint=".zip (Actual) · .json · .ofx · .qif · .csv"
+            accept=".zip,.json,.csv,.txt,.ofx,.qfx,.qif"
+            inputTestId="import-file"
+            className="h-[120px]"
+          />
         </section>
         <ExportSection />
         <DangerZone />
@@ -85,50 +94,6 @@ function DataSettings() {
       ) : null}
       {pending?.kind === "bank" ? <BankImportDialog pending={pending} onClose={() => setPending(null)} /> : null}
     </>
-  )
-}
-
-function DropZone({ onFile, busy }: { onFile: (f: File) => void; busy: boolean }) {
-  const [over, setOver] = React.useState(false)
-  const input = React.useRef<HTMLInputElement>(null)
-  return (
-    <button
-      type="button"
-      onClick={() => input.current?.click()}
-      onDragOver={(e) => {
-        e.preventDefault()
-        setOver(true)
-      }}
-      onDragLeave={() => setOver(false)}
-      onDrop={(e) => {
-        e.preventDefault()
-        setOver(false)
-        const file = e.dataTransfer.files[0]
-        if (file) onFile(file)
-      }}
-      className={cx(
-        "flex h-[120px] flex-col items-center justify-center gap-1.5 rounded-[10px] border border-dashed transition-colors",
-        over ? "border-accent bg-accent-soft" : "border-line-strong bg-subtle hover:bg-hover",
-      )}
-    >
-      <span className="flex items-center gap-2 font-medium">
-        <Upload size={15} className="text-muted" />
-        {busy ? "Lecture du fichier…" : "Déposer un fichier ici"}
-      </span>
-      <span className="num text-[12px] text-faint">.zip (Actual) · .json · .ofx · .qif · .csv</span>
-      <input
-        ref={input}
-        type="file"
-        data-testid="import-file"
-        accept=".zip,.json,.csv,.txt,.ofx,.qfx,.qif"
-        className="hidden"
-        onChange={(e) => {
-          const file = e.target.files?.[0]
-          if (file) onFile(file)
-          e.target.value = ""
-        }}
-      />
-    </button>
   )
 }
 

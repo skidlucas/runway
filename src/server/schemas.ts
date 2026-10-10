@@ -24,6 +24,15 @@ export const Cents = Schema.Int
 export const Day = Schema.String.check(Schema.makeFilter((s: string) => isDay(s) || "Date invalide"))
 export const Month = Schema.String.check(Schema.makeFilter((s: string) => isMonth(s) || "Mois invalide"))
 
+// 5 MB of file once in base64 (4 characters per 3 bytes). Images are shrunk by the browser well
+// below that; PDFs are sent as they are.
+const MAX_RECEIPT_BASE64 = Math.ceil((5 * 1024 * 1024) / 3) * 4
+
+export const ReceiptFile = Schema.Struct({
+  mediaType: Schema.Literals(["image/jpeg", "application/pdf"]),
+  data: Schema.String.check(Schema.isMaxLength(MAX_RECEIPT_BASE64, { message: "Fichier trop lourd (5 Mo maximum)" })),
+})
+
 export const PayeeInput = Schema.Union([
   Schema.Struct({ kind: Schema.Literal("name"), name: Name }),
   Schema.Struct({ kind: Schema.Literal("id"), id: Id }),

@@ -36,6 +36,8 @@ export class MarketData extends Context.Service<
     cryptoMarkets(ids: ReadonlyArray<string>): Effect.Effect<Map<string, CoinMarket>, ExternalError>
     /** Euro price of each symbol, or why it could not be priced (unknown symbol, Yahoo down, no exchange rate). */
     quotes(symbols: ReadonlyArray<string>): Effect.Effect<Map<string, Result.Result<number, ExternalError>>>
+    /** Today's euro value of one unit of a currency (ISO 4217 code). */
+    euroRate(currency: string): Effect.Effect<number, ExternalError>
     dvfPricePerM2(inseeCode: string, propertyType: PropertyType): Effect.Effect<DvfPrice, ExternalError>
     /** Daily euro prices over the last `days` days (at most 365), oldest first. */
     cryptoHistory(id: string, days: number): Effect.Effect<PricePoint[], ExternalError>
@@ -200,6 +202,15 @@ export const makeLiveMarketData = (fetchFn: typeof fetch, options: MarketDataOpt
     )
   })
 
+  const euroRate = Effect.fn("MarketData.euroRate")(function* (currency: string) {
+    const code = currency.toUpperCase()
+    const rate = (yield* euroRates([code])).get(code)
+    if (rate === undefined || rate._tag === "Failure") {
+      return yield* new ExternalError({ service: "Yahoo Finance", message: `Taux de change ${code} → EUR indisponible` })
+    }
+    return rate.success
+  })
+
   const DvfPage = Schema.Struct({
     data: Schema.Array(
       Schema.Struct({
@@ -340,6 +351,7 @@ export const makeLiveMarketData = (fetchFn: typeof fetch, options: MarketDataOpt
   return MarketData.of({
     cryptoMarkets,
     quotes,
+    euroRate,
     dvfPricePerM2,
     cryptoHistory,
     quoteHistory,

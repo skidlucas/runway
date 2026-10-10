@@ -66,6 +66,7 @@ const offlineMarket: MarketData["Service"] = (() => {
   return MarketData.of({
     cryptoMarkets: () => down,
     quotes: (symbols) => Effect.succeed(new Map(symbols.map((s) => [s, Result.fail(new ExternalError({ service: "test", message: "Hors ligne" }))]))),
+    euroRate: () => down,
     dvfPricePerM2: () => down,
     cryptoHistory: () => down,
     quoteHistory: () => down,

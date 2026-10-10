@@ -7,6 +7,7 @@ import { Budget } from "../services/budget"
 import { Categories } from "../services/categories"
 import { Entries } from "../services/entries"
 import { Payees } from "../services/payees"
+import { Receipts } from "../services/receipts"
 import { Rules } from "../services/rules"
 import { Transactions } from "../services/transactions"
 import {
@@ -20,6 +21,7 @@ import {
   Name,
   Notes,
   PayeeInput,
+  ReceiptFile,
   RuleAction,
   RuleCondition,
   RuleOrigin,
@@ -222,6 +224,11 @@ export const createTransaction = createServerFn({ method: "POST" })
     ),
   )
   .handler(({ data }) => runApp(Entries.use((s) => s.record(data))))
+
+export const readReceipt = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
+  .validator(v(Schema.Struct({ file: ReceiptFile, today: Day })))
+  .handler(({ data }) => runApp(Receipts.use((s) => s.read(data))))
 
 export const updateTransaction = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
