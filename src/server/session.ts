@@ -1,5 +1,5 @@
 import { env } from "./env"
-import { useSession } from "@tanstack/react-start/server"
+import { openSealedSession } from "./sealed-session"
 import { runApp } from "./runtime"
 import { SessionEpoch } from "./services/session-epoch"
 
@@ -8,13 +8,12 @@ import { SessionEpoch } from "./services/session-epoch"
 type SessionData = { authed?: boolean; key?: string; epoch?: number }
 
 export const appSession = () =>
-  useSession<SessionData>({
+  openSealedSession<SessionData>({
     // The __Host- prefix makes browsers refuse the cookie unless it is Secure, on "/" and without
     // a Domain: a sibling subdomain cannot plant its own session cookie.
     name: "__Host-runway_session",
     password: env.SESSION_SECRET,
     maxAge: 60 * 60 * 24 * 30,
-    sessionHeader: false,
     cookie: { httpOnly: true, secure: true, sameSite: "lax", path: "/" },
   })
 
