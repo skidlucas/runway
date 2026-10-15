@@ -179,6 +179,19 @@ describe("plannedByCategory", () => {
 
 describe("plannedStatus", () => {
   const toll = schedule("péage", -8000, monthly, "2026-01-17")
+  const once = { unit: "once", interval: 1 } as const
+
+  it("counts an income schedule of the category still to come this month", () => {
+    const repair = schedule("garage", -645285, once, "2026-10-22")
+    const refund = schedule("assurance", 642285, once, "2026-10-19")
+    const planned = plannedByCategory([repair, refund], "2026-10", new Map([["cat", 7000]])).get("cat")!
+    expect(planned).toMatchObject({ saved: 7000, expected: 642285, amount: 0, target: 0 })
+    expect(plannedStatus(planned, 0)).toBe("covered")
+    // Once booked, the refund is part of the funds and no longer expected.
+    const booked = { ...refund, active: false, nextDate: "2026-10-20", lastBooked: "2026-10-19", bookedInMonth: 1 }
+    expect(plannedByCategory([repair, booked], "2026-10", new Map([["cat", 649285]])).get("cat")).toMatchObject({ expected: 0, amount: 0 })
+    expect(plannedByCategory([repair, { ...refund, active: false }], "2026-10", none).get("cat")).toMatchObject({ expected: 0 })
+  })
 
   it("counts the money carried in against this month's dues", () => {
     const planned = plannedByCategory([toll], "2026-10", new Map([["cat", 3517]])).get("cat")!

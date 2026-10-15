@@ -48,9 +48,11 @@ export type PlannedCategory = {
   readonly setAside: number
   /** Available at the start of the month plus what came into the category since: it pays this month's dues first, the rest counts as set aside. */
   readonly saved: number
+  /** Positive cents the category's income schedules still bring in this month: they fund it like `saved`. */
+  readonly expected: number
   /** Positive cents falling this month, frequent and spaced-out alike. */
   readonly thisMonth: number
-  /** `amount` minus what `saved` already covers: what the budget of the month must reach. */
+  /** `amount` minus what `saved` and `expected` already cover: what the budget of the month must reach. */
   readonly target: number
   readonly lines: ReadonlyArray<PlannedLine>
 }
@@ -106,8 +108,8 @@ const spacedTarget = (s: PlannedSchedule, month: Month, from: Day, to: Day): { d
 /**
  * Expense schedules of each category for `month`. Frequent ones count every occurrence of the
  * month still to come or booked, so that the target stays put once one is paid but drops one
- * that was skipped; spaced-out ones (every
- * few months, yearly, one-off) are smoothed until their next date, net of `funds`.
+ * that was skipped; spaced-out ones (every few months, yearly, one-off) are smoothed until their
+ * next date, net of `funds` and of what income schedules of the category bring in this month.
  */
 export const plannedByCategory = (
   schedules: ReadonlyArray<PlannedSchedule>,
@@ -118,11 +120,18 @@ export const plannedByCategory = (
   const from = firstDay(month)
   const to = lastDay(month)
   const lines = new Map<string, PlannedLine[]>()
+  const expected = new Map<string, number>()
   for (const s of schedules) {
     // A schedule that ran out still counts for the month its last occurrence was paid in; a
     // paused one has occurrences left and asks for nothing.
     const paused = !s.active && nextOnOrAfter(s.timing, s.nextDate) !== null
-    if (paused || s.categoryId === null || s.amount >= 0) continue
+    if (paused || s.categoryId === null || s.amount === 0) continue
+    if (s.amount > 0) {
+      // Only what is still to come: a booked occurrence is already part of `funds`.
+      const count = occurrencesBetween(s.timing, compareIso(s.nextDate, from) > 0 ? s.nextDate : from, to).length
+      if (count > 0) expected.set(s.categoryId, (expected.get(s.categoryId) ?? 0) + count * s.amount)
+      continue
+    }
     const base = { scheduleId: s.id, name: s.name, amount: -s.amount, remaining: remainingOccurrences(s.timing, s.nextDate, s.amount) }
     let line: PlannedLine | null = null
     if (isFrequent(s.timing.recurrence)) {
@@ -145,12 +154,23 @@ export const plannedByCategory = (
   for (const [categoryId, list] of lines) {
     list.sort((a, b) => compareIso(a.date, b.date))
     const saved = Math.max(0, funds.get(categoryId) ?? 0)
+    const coming = expected.get(categoryId) ?? 0
+    const covered = saved + coming
     const due = list.filter((l) => l.kind === "due").reduce((sum, l) => sum + l.amount * l.count, 0)
     const spaced = list.filter((l) => l.kind === "setAside")
-    const setAside = setAsideNeed(spaced, Math.max(0, saved - due))
+    const setAside = setAsideNeed(spaced, Math.max(0, covered - due))
     const thisMonth = due + spaced.filter((l) => l.monthsLeft === 1).reduce((sum, l) => sum + l.amount, 0)
     const amount = due + setAside
-    planned.set(categoryId, { amount, due, setAside, saved, thisMonth, target: amount - Math.min(due, saved), lines: list })
+    planned.set(categoryId, {
+      amount,
+      due,
+      setAside,
+      saved,
+      expected: coming,
+      thisMonth,
+      target: amount - Math.min(due, covered),
+      lines: list,
+    })
   }
   return planned
 }
@@ -162,4 +182,4 @@ export type PlannedStatus = "short" | "upcoming" | "covered"
  * less is set aside than the later schedules need. "covered": both are met.
  */
 export const plannedStatus = (planned: PlannedCategory, budgeted: number): PlannedStatus =>
-  planned.saved + budgeted < planned.thisMonth ? "short" : budgeted < planned.target ? "upcoming" : "covered"
+  planned.saved + planned.expected + budgeted < planned.thisMonth ? "short" : budgeted < planned.target ? "upcoming" : "covered"

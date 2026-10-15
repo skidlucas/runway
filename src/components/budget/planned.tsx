@@ -25,7 +25,7 @@ export function PlannedStatusNote({ category }: { category: BudgetCategoryRow })
   return (
     <p className={cx("mt-3 text-[12px]", status === "short" ? "text-warning" : "text-muted")}>
       {status === "short"
-        ? `Il manque ${formatMoney(planned.thisMonth - planned.saved - category.budgeted)} pour les échéances de ce mois.`
+        ? `Il manque ${formatMoney(planned.thisMonth - planned.saved - planned.expected - category.budgeted)} pour les échéances de ce mois.`
         : `Ce mois-ci est couvert. ${formatMoney(planned.target - category.budgeted)} de plus à mettre de côté pour les échéances à venir.`}
     </p>
   )
@@ -98,6 +98,7 @@ export function PlannedDetail({ planned }: { planned: PlannedCategory }) {
         </div>
       ))}
       <div className="mt-1 flex flex-col gap-1 border-t border-line pt-2">
+        {planned.expected ? <PlannedTotal label="Rentrées prévues ce mois" value={planned.expected} /> : null}
         {planned.due && spaced ? <PlannedTotal label="À payer ce mois" value={planned.due} /> : null}
         {spaced ? (
           <PlannedTotal label={`À mettre de côté (déjà ${formatMoney(Math.max(0, planned.saved - planned.due))})`} value={planned.setAside} />
