@@ -317,6 +317,24 @@ describe("Budget planned from a yearly bill", () => {
     const september = (await h.run(Budget.use((s) => s.month("2030-09")))).groups.flatMap((g) => g.categories).find((x) => x.id === c)!
     expect(september.planned?.lines.find((l) => l.scheduleId === repair)).toMatchObject({ date: "2030-09-12", amount: 40_000 })
   })
+
+  it("counts money that came into the category this month as already set aside", async () => {
+    const accountId = (await h.run(Accounts.use((s) => s.list)))[0]!.id
+    const other = (await h.run(Categories.use((s) => s.tree))).find((g) => !g.isIncome)!.categories[1]!.id
+    await h.run(
+      Schedules.use((s) =>
+        s.create({ name: "Prêt", payee: { kind: "name", name: "Prêt" }, accountId, categoryId: other, amount: -500_000, recurrence: { unit: "once", interval: 1 }, startDate: "2030-07-08", autoPost: false }),
+      ),
+    )
+    h.setNow("2030-07-10T10:00:00Z")
+    await h.run(Transactions.use((s) => s.create({ accountId, date: "2030-07-07", amount: 500_000, payee: { kind: "name", name: "Banque" }, categoryId: other })))
+    h.setNow(NOW)
+    await h.run(Budget.use((s) => s.setAmount("2030-07", other, 5_470)))
+    const july = (await h.run(Budget.use((s) => s.month("2030-07")))).groups.flatMap((g) => g.categories).find((x) => x.id === other)!
+    expect(july.planned).toMatchObject({ saved: 500_000, amount: 0, target: 0 })
+    expect(await h.run(Budget.use((s) => s.fill("2030-07", { kind: "planned" }, [other])))).toBe(1)
+    expect((await h.run(Budget.use((s) => s.month("2030-07")))).groups.flatMap((g) => g.categories).find((x) => x.id === other)!.budgeted).toBe(5_470)
+  })
 })
 
 describe("Age of money", () => {

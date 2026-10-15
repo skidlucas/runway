@@ -194,7 +194,27 @@ export class Budget extends Context.Service<
             }),
           )
 
-      const plannedIn = (m: Month, current: BudgetMonth | undefined, schedules: ReadonlyArray<ScheduleDto>) =>
+      // Money coming into a category (a refund, a loan) funds its schedules like money budgeted there.
+      const inflowsIn = (m: Month) =>
+        db.use(async (_, d1) => {
+          const { results } = await d1
+            .prepare(
+              `SELECT t.category_id AS categoryId, SUM(t.amount) AS total
+               FROM transactions t INDEXED BY tx_date_category_idx
+               WHERE ${BUDGET_LINE_ALONE} AND t.category_id IS NOT NULL AND t.amount > 0 AND t.date BETWEEN ? AND ?
+               GROUP BY t.category_id`,
+            )
+            .bind(firstDay(m), lastDay(m))
+            .all<{ categoryId: string; total: number }>()
+          return new Map(results.map((r) => [r.categoryId, r.total]))
+        })
+
+      const plannedIn = (
+        m: Month,
+        current: BudgetMonth | undefined,
+        schedules: ReadonlyArray<ScheduleDto>,
+        inflows: ReadonlyMap<string, number>,
+      ) =>
         plannedByCategory(
           schedules.filter((s) => s.readable).map((s) => ({
             id: s.id,
@@ -207,7 +227,7 @@ export class Budget extends Context.Service<
             lastBooked: s.lastBooked,
           })),
           m,
-          new Map([...(current?.categories ?? [])].map(([id, cell]) => [id, cell.carryIn])),
+          new Map([...(current?.categories ?? [])].map(([id, cell]) => [id, cell.carryIn + (inflows.get(id) ?? 0)])),
         )
 
       const checkMonth = (month: Month) =>
@@ -234,12 +254,12 @@ export class Budget extends Context.Service<
 
       const month = Effect.fn("Budget.month")(function* (m: Month) {
         yield* checkMonth(m)
-        const [{ tree, months }, uncategorized, schedules] = yield* Effect.all(
-          [compute(m), uncategorizedIn(m), schedulesService.list],
+        const [{ tree, months }, uncategorized, schedules, inflows] = yield* Effect.all(
+          [compute(m), uncategorizedIn(m), schedulesService.list, inflowsIn(m)],
           { concurrency: "unbounded" },
         )
         const current = months.get(m)!
-        const planned = plannedIn(m, current, schedules)
+        const planned = plannedIn(m, current, schedules, inflows)
         const previous = [1, 2, 3].map((d) => months.get(addMonths(m, -d)))
 
         let overspentCount = 0
@@ -343,11 +363,15 @@ export class Budget extends Context.Service<
 
       const fill = Effect.fn("Budget.fill")(function* (m: Month, mode: FillMode, categoryIds?: ReadonlyArray<string>) {
         yield* checkMonth(m)
-        const [{ tree, months }, schedules] = yield* Effect.all(
-          [compute(m), mode.kind === "planned" ? schedulesService.list : Effect.succeed([])],
+        const [{ tree, months }, schedules, inflows] = yield* Effect.all(
+          [
+            compute(m),
+            mode.kind === "planned" ? schedulesService.list : Effect.succeed([]),
+            mode.kind === "planned" ? inflowsIn(m) : Effect.succeed(new Map<string, number>()),
+          ],
           { concurrency: "unbounded" },
         )
-        const planned = plannedIn(m, months.get(m), schedules)
+        const planned = plannedIn(m, months.get(m), schedules, inflows)
         const wanted = categoryIds ? new Set(categoryIds) : null
         const expense = tree
           .filter((g) => !g.isIncome)

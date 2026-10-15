@@ -44,7 +44,7 @@ export type PlannedCategory = {
   readonly due: number
   /** Part of `amount` set aside for spaced-out schedules, this month's included. */
   readonly setAside: number
-  /** Available at the start of the month: it pays this month's dues first, the rest counts as set aside. */
+  /** Available at the start of the month plus what came into the category since: it pays this month's dues first, the rest counts as set aside. */
   readonly saved: number
   /** Positive cents falling this month, frequent and spaced-out alike. */
   readonly thisMonth: number
@@ -104,12 +104,13 @@ const spacedTarget = (s: PlannedSchedule, month: Month, from: Day, to: Day): { d
 /**
  * Expense schedules of each category for `month`. Frequent ones count every occurrence of the
  * month, paid or not, so that the target stays put once one is booked; spaced-out ones (every
- * few months, yearly, one-off) are smoothed until their next date, net of `carryIn`.
+ * few months, yearly, one-off) are smoothed until their next date, net of `funds`.
  */
 export const plannedByCategory = (
   schedules: ReadonlyArray<PlannedSchedule>,
   month: Month,
-  carryIn: ReadonlyMap<string, number>,
+  /** Per category: available at the start of the month plus this month's inflows. */
+  funds: ReadonlyMap<string, number>,
 ): Map<string, PlannedCategory> => {
   const from = firstDay(month)
   const to = lastDay(month)
@@ -137,7 +138,7 @@ export const plannedByCategory = (
   const planned = new Map<string, PlannedCategory>()
   for (const [categoryId, list] of lines) {
     list.sort((a, b) => compareIso(a.date, b.date))
-    const saved = Math.max(0, carryIn.get(categoryId) ?? 0)
+    const saved = Math.max(0, funds.get(categoryId) ?? 0)
     const due = list.filter((l) => l.kind === "due").reduce((sum, l) => sum + l.amount * l.count, 0)
     const spaced = list.filter((l) => l.kind === "setAside")
     const setAside = setAsideNeed(spaced, Math.max(0, saved - due))
