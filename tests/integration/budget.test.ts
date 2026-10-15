@@ -318,6 +318,24 @@ describe("Budget planned from a yearly bill", () => {
     expect(september.planned?.lines.find((l) => l.scheduleId === repair)).toMatchObject({ date: "2030-09-12", amount: 40_000 })
   })
 
+  it("drops a skipped monthly occurrence from the month and keeps a booked one", async () => {
+    const monthly = (name: string) =>
+      h.run(
+        Schedules.use((s) =>
+          s.create({ name, payee: { kind: "name", name }, accountId, categoryId: c, amount: -5_000, recurrence: { unit: "month", interval: 1 }, startDate: "2030-05-08", autoPost: false }),
+        ),
+      )
+    const skipped = await monthly("PER passé")
+    const booked = await monthly("PER payé")
+    h.setNow("2030-05-10T10:00:00Z")
+    await h.run(Schedules.use((s) => s.skip(skipped)))
+    await h.run(Schedules.use((s) => s.post(booked, "2030-05-08")))
+    h.setNow(NOW)
+    const may = (await h.run(Budget.use((s) => s.month("2030-05")))).groups.flatMap((g) => g.categories).find((x) => x.id === c)!
+    expect(may.planned?.lines.find((l) => l.scheduleId === skipped)).toBeUndefined()
+    expect(may.planned?.lines.find((l) => l.scheduleId === booked)).toMatchObject({ date: "2030-05-08", count: 1 })
+  })
+
   it("counts money that came into the category this month as already set aside", async () => {
     const accountId = (await h.run(Accounts.use((s) => s.list)))[0]!.id
     const other = (await h.run(Categories.use((s) => s.tree))).find((g) => !g.isIncome)!.categories[1]!.id

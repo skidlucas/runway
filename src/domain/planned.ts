@@ -13,6 +13,8 @@ export type PlannedSchedule = {
   readonly active: boolean
   /** Day of the last transaction booked by the schedule. */
   readonly lastBooked: Day | null
+  /** Transactions booked by the schedule and dated in the month being planned. */
+  readonly bookedInMonth: number
 }
 
 export type Remaining = {
@@ -103,7 +105,8 @@ const spacedTarget = (s: PlannedSchedule, month: Month, from: Day, to: Day): { d
 
 /**
  * Expense schedules of each category for `month`. Frequent ones count every occurrence of the
- * month, paid or not, so that the target stays put once one is booked; spaced-out ones (every
+ * month still to come or booked, so that the target stays put once one is paid but drops one
+ * that was skipped; spaced-out ones (every
  * few months, yearly, one-off) are smoothed until their next date, net of `funds`.
  */
 export const plannedByCategory = (
@@ -123,8 +126,11 @@ export const plannedByCategory = (
     const base = { scheduleId: s.id, name: s.name, amount: -s.amount, remaining: remainingOccurrences(s.timing, s.nextDate, s.amount) }
     let line: PlannedLine | null = null
     if (isFrequent(s.timing.recurrence)) {
-      const dates = occurrencesBetween(s.timing, from, to)
-      if (dates[0]) line = { ...base, kind: "due", date: dates[0], count: dates.length, monthsLeft: null }
+      // Occurrences before `nextDate` were either booked or skipped: only the booked ones count.
+      const upcoming = occurrencesBetween(s.timing, compareIso(s.nextDate, from) > 0 ? s.nextDate : from, to)
+      const count = upcoming.length + s.bookedInMonth
+      const date = s.bookedInMonth > 0 ? (occurrencesBetween(s.timing, from, to)[0] ?? s.lastBooked) : upcoming[0]
+      if (count > 0 && date) line = { ...base, kind: "due", date, count, monthsLeft: null }
     } else {
       const target = spacedTarget(s, month, from, to)
       if (target) line = { ...base, kind: "setAside", count: 1, ...target }

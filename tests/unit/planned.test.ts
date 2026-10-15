@@ -17,6 +17,7 @@ const schedule = (
   nextDate: startDate,
   active: true,
   lastBooked: null,
+  bookedInMonth: 0,
   ...extra,
 })
 
@@ -33,8 +34,16 @@ describe("plannedByCategory", () => {
   })
 
   it("keeps a monthly schedule already paid this month", () => {
-    const paid = schedule("loyer", -85000, monthly, "2026-01-05", { nextDate: "2026-11-05" })
-    expect(plannedByCategory([paid], "2026-10", none).get("cat")?.amount).toBe(85000)
+    const paid = schedule("loyer", -85000, monthly, "2026-01-05", { nextDate: "2026-11-05", lastBooked: "2026-10-05", bookedInMonth: 1 })
+    expect(plannedByCategory([paid], "2026-10", none).get("cat")?.lines[0]).toMatchObject({ date: "2026-10-05", count: 1 })
+  })
+
+  it("drops an occurrence of the month that was skipped", () => {
+    const skipped = schedule("per", -5000, monthly, "2025-02-08", { nextDate: "2026-11-08" })
+    expect(plannedByCategory([skipped], "2026-10", none).has("cat")).toBe(false)
+    const weekly = schedule("courses", -3000, { unit: "week", interval: 1 }, "2026-10-02", { nextDate: "2026-10-16", lastBooked: "2026-10-02", bookedInMonth: 1 })
+    // Fridays of October 2026: the 2nd booked, the 9th skipped, the 16th, 23rd and 30th to come.
+    expect(plannedByCategory([weekly], "2026-10", none).get("cat")?.lines[0]).toMatchObject({ date: "2026-10-02", count: 4 })
   })
 
   it("smooths a yearly schedule until its date, net of the money already saved", () => {
@@ -161,8 +170,10 @@ describe("plannedByCategory", () => {
       active: false,
       nextDate: "2026-10-11",
       lastBooked: "2026-10-10",
+      bookedInMonth: 1,
     })
     expect(plannedByCategory([loan], "2026-10", none).get("cat")?.amount).toBe(21000)
+    expect(plannedByCategory([{ ...loan, lastBooked: "2026-09-10", bookedInMonth: 0 }], "2026-10", none).has("cat")).toBe(false)
   })
 })
 
