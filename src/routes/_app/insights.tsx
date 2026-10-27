@@ -22,12 +22,16 @@ import { capitalize, count } from "~/domain/text"
 export const Route = createFileRoute("/_app/insights")({
   validateSearch: parseInsightSearch,
   loaderDeps: ({ search }) => search,
-  loader: ({ context, deps }) =>
-    Promise.all([
+  loader: ({ context, deps }) => {
+    // The target picker's lists, started now rather than when it mounts; the page does not wait for them.
+    void context.queryClient.prefetchQuery(q.categories())
+    void context.queryClient.prefetchQuery(q.payees())
+    return Promise.all([
       context.queryClient.ensureQueryData(q.insightView(searchToQuery(deps))),
       context.queryClient.ensureQueryData(q.findings()),
       context.queryClient.ensureQueryData(q.savedViews()),
-    ]),
+    ])
+  },
   component: InsightsPage,
 })
 

@@ -13,7 +13,12 @@ import { postSchedule, skipSchedule } from "~/server/fns/planning"
 import type { ScheduleDto } from "~/server/services/schedules"
 
 export const Route = createFileRoute("/_app/schedules")({
-  loader: ({ context }) => context.queryClient.ensureQueryData(q.schedules()),
+  loader: ({ context }) => {
+    // Started with the list instead of when the page mounts, but not awaited: the suggestions read
+    // a year of history and the page shows without them.
+    void context.queryClient.prefetchQuery(q.scheduleSuggestions())
+    return context.queryClient.ensureQueryData(q.schedules())
+  },
   component: SchedulesPage,
 })
 

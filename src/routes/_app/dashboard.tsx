@@ -28,7 +28,7 @@ export const Route = createFileRoute("/_app/dashboard")({
   validateSearch: (s: Record<string, unknown>): { id?: string } => (typeof s.id === "string" && s.id ? { id: s.id } : {}),
   loaderDeps: ({ search }) => ({ id: search.id }),
   loader: async ({ context, deps }) => {
-    const list = await context.queryClient.ensureQueryData(q.dashboards())
+    const [list] = await Promise.all([context.queryClient.ensureQueryData(q.dashboards()), context.queryClient.ensureQueryData(q.savedViews())])
     const current = list.find((d) => d.id === deps.id) ?? list[0]
     // Loaded together instead of one by one as each widget mounts; awaited so the page is rendered with them.
     await Promise.all((current?.widgets ?? []).map((widget) => prefetchWidget(context.queryClient, widget)))
