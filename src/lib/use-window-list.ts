@@ -26,6 +26,15 @@ export function useWindowList(options: {
     observer.observe(document.body)
     return () => observer.disconnect()
   }, [measure])
+  // The server renders the top of the list, but a reload restores the scroll before hydration: rendering
+  // from it would not match the server's HTML, and React would rebuild the whole page. The first render
+  // starts at 0, then this moves to the real position before the virtualizer attaches to the window,
+  // which scrolls to its offset (declared first so it runs first).
+  React.useLayoutEffect(() => {
+    if (window.scrollY === 0) return
+    virtualizer.scrollOffset = window.scrollY
+    virtualizer.measure()
+  }, [])
   const virtualizer = useWindowVirtualizer({
     count: options.count,
     estimateSize: options.estimateSize,
@@ -33,6 +42,7 @@ export function useWindowList(options: {
     overscan: 10,
     scrollMargin,
     initialRect: { width: 0, height: 900 },
+    initialOffset: 0,
   })
   const items = virtualizer.getVirtualItems()
   const last = items.at(-1)?.index ?? -1
