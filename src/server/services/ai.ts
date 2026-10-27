@@ -1,7 +1,4 @@
-import { AnthropicClient, AnthropicLanguageModel } from "@effect/ai-anthropic"
-import { OpenAiClient, OpenAiLanguageModel } from "@effect/ai-openai"
-import { TypeSafeClient, TypeSafeDecisionModel } from "@effect/ai-typesafe"
-import { Clock, Context, type Duration, Effect, Layer, Redacted, Schedule, Schema } from "effect"
+import { Clock, Context, type Duration, Effect, Layer, Redacted, Schedule, Schema, Scope } from "effect"
 import { type AiError, Decision, DecisionModel, LanguageModel } from "effect/ai"
 import { Base64 } from "effect/encoding"
 import { FetchHttpClient } from "effect/http"
@@ -24,6 +21,10 @@ export class AiConfig extends Context.Service<AiConfig, AiProviders>()("runway/s
 
 const DEFAULT_MODELS = { openai: "gpt-6-luna", anthropic: "claude-haiku-4-5" } as const
 
+// The provider SDKs are about 1 MB of the Worker's code. Imported statically, every new isolate would
+// evaluate them on its first request; here they load on the first AI call.
+const lazyLayer = <A>(load: () => Promise<Layer.Layer<A>>): Layer.Layer<A> => Layer.unwrap(Effect.promise(load))
+
 /** Builds providers from Worker variables and secrets. Missing keys disable the matching feature. */
 export const aiProvidersFromEnv = (env: Record<string, unknown>): AiProviders => {
   const str = (key: string) => (typeof env[key] === "string" && env[key] ? (env[key] as string) : undefined)
@@ -35,22 +36,31 @@ export const aiProvidersFromEnv = (env: Record<string, unknown>): AiProviders =>
   const languageModel =
     provider === "anthropic"
       ? anthropicKey
-        ? AnthropicLanguageModel.layer({ model }).pipe(
-            Layer.provide(AnthropicClient.layer({ apiKey: Redacted.make(anthropicKey) })),
-            Layer.provide(FetchHttpClient.layer),
-          )
+        ? lazyLayer(async () => {
+            const { AnthropicClient, AnthropicLanguageModel } = await import("@effect/ai-anthropic")
+            return AnthropicLanguageModel.layer({ model }).pipe(
+              Layer.provide(AnthropicClient.layer({ apiKey: Redacted.make(anthropicKey) })),
+              Layer.provide(FetchHttpClient.layer),
+            )
+          })
         : null
       : openAiKey
-        ? OpenAiLanguageModel.layer({ model }).pipe(
-            Layer.provide(OpenAiClient.layer({ apiKey: Redacted.make(openAiKey) })),
-            Layer.provide(FetchHttpClient.layer),
-          )
+        ? lazyLayer(async () => {
+            const { OpenAiClient, OpenAiLanguageModel } = await import("@effect/ai-openai")
+            return OpenAiLanguageModel.layer({ model }).pipe(
+              Layer.provide(OpenAiClient.layer({ apiKey: Redacted.make(openAiKey) })),
+              Layer.provide(FetchHttpClient.layer),
+            )
+          })
         : null
   const decisionModel = typesafeKey
-    ? TypeSafeDecisionModel.layer({ model: str("DECISION_MODEL") ?? "jev-latest" }).pipe(
-        Layer.provide(TypeSafeClient.layer({ apiKey: Redacted.make(typesafeKey) })),
-        Layer.provide(FetchHttpClient.layer),
-      )
+    ? lazyLayer(async () => {
+        const { TypeSafeClient, TypeSafeDecisionModel } = await import("@effect/ai-typesafe")
+        return TypeSafeDecisionModel.layer({ model: str("DECISION_MODEL") ?? "jev-latest" }).pipe(
+          Layer.provide(TypeSafeClient.layer({ apiKey: Redacted.make(typesafeKey) })),
+          Layer.provide(FetchHttpClient.layer),
+        )
+      })
     : null
   return { provider, model: languageModel ? model : null, languageModel, decisionModel }
 }
@@ -125,9 +135,11 @@ export class Ai extends Context.Service<
     Effect.gen(function* () {
       const providers = yield* AiConfig
       const db = yield* Db
-      // Built once for the life of the runtime rather than on every call.
-      const languageModel = providers.languageModel ? yield* Layer.build(providers.languageModel) : null
-      const decisionModel = providers.decisionModel ? yield* Layer.build(providers.decisionModel) : null
+      // Built once for the life of the runtime rather than on every call, and only by the first call
+      // that needs one: building loads the provider's SDK.
+      const scope = yield* Scope.Scope
+      const languageModel = providers.languageModel ? yield* Effect.cached(Layer.buildWithScope(providers.languageModel, scope)) : null
+      const decisionModel = providers.decisionModel ? yield* Effect.cached(Layer.buildWithScope(providers.decisionModel, scope)) : null
 
       const status: AiStatus = {
         provider: providers.provider,
@@ -156,8 +168,7 @@ export class Ai extends Context.Service<
         readonly prompt: string
         readonly files?: ReadonlyArray<AiFile>
       }) {
-        const layer = languageModel
-        if (!layer) return yield* notConfigured
+        if (!languageModel) return yield* notConfigured
         const files = args.files ?? []
         // Files enter the key by their hash: a 5 MB PDF is not serialized a second time. Without
         // files the key is unchanged, so entries cached before files existed still match.
@@ -184,6 +195,7 @@ export class Ai extends Context.Service<
           const decoded = Schema.decodeUnknownOption(Schema.fromJsonString(args.schema))(cached.value)
           if (decoded._tag === "Some") return decoded.value as S["Type"]
         }
+        const layer = yield* languageModel
         const response = yield* LanguageModel.generateObject({
           prompt: [
             { role: "system", content: args.system },
@@ -282,8 +294,8 @@ export class Ai extends Context.Service<
 
       const classifyWith = <L extends string>(args: ClassifyArgs<L>): Effect.Effect<Map<string, Classification<L>>, ExternalError> => {
         if (args.items.length === 0 || Object.keys(args.criteria).length < 2) return Effect.succeed(new Map())
-        if (decisionModel) return classifyWithDecisions(decisionModel, args)
-        if (languageModel) return classifyWithLanguageModel(languageModel, args)
+        if (decisionModel) return Effect.flatMap(decisionModel, (layer) => classifyWithDecisions(layer, args))
+        if (languageModel) return Effect.flatMap(languageModel, (layer) => classifyWithLanguageModel(layer, args))
         return Effect.fail(
           new ExternalError({ service: "ai", message: "Aucun modèle configuré (TYPESAFE_API_KEY, OPENAI_API_KEY ou ANTHROPIC_API_KEY)" }),
         )
