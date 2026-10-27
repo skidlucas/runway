@@ -1,9 +1,11 @@
 @import "tailwindcss";
-@import "@fontsource/geist/400.css";
-@import "@fontsource/geist/500.css";
-@import "@fontsource/geist/600.css";
-@import "@fontsource/geist-mono/400.css";
-@import "@fontsource/geist-mono/500.css";
+/* Latin only: the UI is French. The full imports add cyrillic, vietnamese and latin-ext faces,
+   the smallest of which Vite inlines as base64, putting ~60 kB into this render-blocking file. */
+@import "@fontsource/geist/latin-400.css";
+@import "@fontsource/geist/latin-500.css";
+@import "@fontsource/geist/latin-600.css";
+@import "@fontsource/geist-mono/latin-400.css";
+@import "@fontsource/geist-mono/latin-500.css";
 
 @custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
 /* A mouse or trackpad: touch screens (tablets included) have no hover to reveal anything. */

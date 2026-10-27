@@ -271,3 +271,16 @@ export const DuplicateProbe = Schema.Struct({
   importedId: Schema.optional(NullableString),
   importedPayee: Schema.optional(NullableString),
 })
+
+// Inputs of the import server functions. They live here rather than next to those functions: a
+// schema exported from a server-function file stays in the client bundle, and pulls Effect in.
+// Exported for the tests: a field missing here is silently dropped from what the browser sends.
+export const ImportStructureInput = Schema.Struct({
+  structure: BundleStructure,
+  include: Schema.Struct({ budgets: Schema.Boolean, rules: Schema.Boolean, schedules: Schema.Boolean }),
+})
+export const ImportExtrasInput = Schema.Struct({ extras: BundleExtras, maps: IdMaps })
+export const ImportTransactionsInput = Schema.Struct({
+  rows: Schema.Array(ImportRow),
+  options: Schema.Struct({ dedupe: Schema.Boolean, applyRules: Schema.Boolean }),
+})

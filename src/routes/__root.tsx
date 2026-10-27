@@ -5,6 +5,7 @@ import type * as React from "react"
 import { useEffect } from "react"
 import { useThemeSync } from "~/components/theme"
 import { Toaster } from "~/components/toast"
+import geistRegular from "@fontsource/geist/files/geist-latin-400-normal.woff2?url"
 import appCss from "~/styles/app.css?url"
 
 // Runs before paint so the page never flashes the wrong theme.
@@ -21,6 +22,8 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
     ],
     links: [
       { rel: "stylesheet", href: appCss },
+      // Body text face: without the preload it is only requested once the CSS is parsed.
+      { rel: "preload", href: geistRegular, as: "font", type: "font/woff2", crossOrigin: "anonymous" },
       { rel: "icon", type: "image/svg+xml", href: "/favicon.svg" },
       { rel: "apple-touch-icon", href: "/apple-touch-icon.png" },
       { rel: "manifest", href: "/manifest.webmanifest" },

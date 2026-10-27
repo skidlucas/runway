@@ -2,7 +2,7 @@ import { createServerFn } from "@tanstack/react-start"
 import { Schema } from "effect"
 import { authMiddleware } from "../auth"
 import { runApp } from "../runtime"
-import { BundleExtras, BundleStructure, Day, DuplicateProbe, IdMaps, ImportRow } from "../schemas"
+import { Day, DuplicateProbe, ImportExtrasInput, ImportStructureInput, ImportTransactionsInput } from "../schemas"
 import { Demo } from "../services/demo"
 import { ImportExport } from "../services/import-export"
 
@@ -11,17 +11,6 @@ const v = Schema.toStandardSchemaV1
 export const seedDemo = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
   .handler(() => runApp(Demo.use((s) => s.seed)))
-
-// Exported for the tests: a field missing here is silently dropped from what the browser sends.
-export const ImportStructureInput = Schema.Struct({
-  structure: BundleStructure,
-  include: Schema.Struct({ budgets: Schema.Boolean, rules: Schema.Boolean, schedules: Schema.Boolean }),
-})
-export const ImportExtrasInput = Schema.Struct({ extras: BundleExtras, maps: IdMaps })
-export const ImportTransactionsInput = Schema.Struct({
-  rows: Schema.Array(ImportRow),
-  options: Schema.Struct({ dedupe: Schema.Boolean, applyRules: Schema.Boolean }),
-})
 
 export const importStructure = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
