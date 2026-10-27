@@ -1,4 +1,4 @@
-import { infiniteQueryOptions, type QueryClient, queryOptions, useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { type InfiniteData, infiniteQueryOptions, type QueryClient, queryOptions, useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import {
   getAccounts,
   getAgeOfMoney,
@@ -16,7 +16,7 @@ import { getForecast, getScheduledRows, getSchedules, getScheduleSuggestions, ge
 import { getCashFlow, getCategorySpending, getDashboards, getAccountsTotal, getSpendingComparison } from "~/server/fns/reports"
 import type { InsightViewConfig } from "~/server/db/schema"
 import type { AccountDto } from "~/server/services/accounts"
-import type { TxCursor, TxFilter } from "~/server/services/transactions"
+import type { TxCursor, TxFilter, TxPage, TxRow } from "~/server/services/transactions"
 import { toast, toastError } from "~/components/toast"
 import type { Month } from "~/domain/dates"
 
@@ -212,6 +212,40 @@ export const refreshAfter = (client: QueryClient, written: ReadonlyArray<Written
   return Promise.all([...names].map((name) => client.invalidateQueries({ queryKey: [name] })))
 }
 
+/**
+ * Shows an edit on the register rows at once. The refresh that follows the write replaces them with the
+ * server's version, which also brings what the patch leaves stale (running balances, order by date).
+ */
+export const patchTransactionRows = async (client: QueryClient, ids: ReadonlyArray<string>, patch: Partial<TxRow>) => {
+  // A fetch already in flight would land after the patch with the rows as they were.
+  await client.cancelQueries({ queryKey: ["transactions"] })
+  const wanted = new Set(ids)
+  const apply = (rows: TxRow[]) => rows.map((row) => (wanted.has(row.id) ? { ...row, ...patch } : row))
+  client.setQueriesData<InfiniteData<TxPage>>({ queryKey: ["transactions"] }, (data) =>
+    data && {
+      ...data,
+      pages: data.pages.map((page) => ({
+        ...page,
+        rows: apply(page.rows),
+        children: Object.fromEntries(Object.entries(page.children).map(([parent, rows]) => [parent, apply(rows)])),
+      })),
+    },
+  )
+}
+
+/** `patchTransactionRows` for a new category, with its name for the views that show it rather than the picker. */
+export const patchTransactionCategory = (client: QueryClient, ids: ReadonlyArray<string>, categoryId: string | null) => {
+  const groups = client.getQueryData(q.categories().queryKey)
+  const categoryName = (categoryId && groups?.flatMap((g) => g.categories).find((c) => c.id === categoryId)?.name) || null
+  return patchTransactionRows(client, ids, { categoryId, categoryName })
+}
+
+/** `patchTransactionRows` for an existing payee, named from the list the payee picker loaded. */
+export const patchTransactionPayee = (client: QueryClient, id: string, payeeId: string) => {
+  const payeeName = client.getQueryData(q.payeeNames().queryKey)?.find((p) => p.id === payeeId)?.name ?? null
+  return patchTransactionRows(client, [id], { payeeId, payeeName })
+}
+
 /** Wraps a server function call in a mutation; a success refreshes what reads the data it `writes`. */
 export function useAction<TInput, TOutput>(
   fn: (input: TInput) => Promise<TOutput>,
@@ -221,12 +255,15 @@ export function useAction<TInput, TOutput>(
     writes: ReadonlyArray<Written>
     /** Calls sharing a scope run one after the other, in the order they were made. */
     scope?: string
+    /** Shows the expected result before the server answers; a failure refreshes `writes` to undo it. */
+    optimistic?: (input: TInput, client: QueryClient) => void | Promise<void>
   },
 ) {
   const client = useQueryClient()
   return useMutation({
     mutationFn: fn,
     scope: options.scope ? { id: options.scope } : undefined,
+    onMutate: options.optimistic && ((input) => options.optimistic?.(input, client)),
     onSuccess: async (output) => {
       const message = typeof options.success === "function" ? options.success(output) : options.success
       if (message) toast(message)
@@ -234,6 +271,9 @@ export function useAction<TInput, TOutput>(
       await refreshAfter(client, options.writes)
       options.onSuccess?.(output)
     },
-    onError: toastError,
+    onError: (error) => {
+      toastError(error)
+      if (options.optimistic) void refreshAfter(client, options.writes)
+    },
   })
 }

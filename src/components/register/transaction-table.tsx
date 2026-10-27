@@ -15,7 +15,7 @@ import { Button, Calendar, Checkbox, Chip, cx, DateInput, IconButton, InlineEdit
 import { type Day, formatDayLong, formatDayShort, monthOf, parseDayInput } from "~/domain/dates"
 import { amountInput, formatMoney, parseAmount } from "~/domain/money"
 import { useToday } from "~/lib/hooks"
-import { useAction } from "~/lib/queries"
+import { patchTransactionCategory, patchTransactionPayee, patchTransactionRows, useAction } from "~/lib/queries"
 import { useWindowList } from "~/lib/use-window-list"
 import { createTransaction, setTransactionsCleared, updateTransaction } from "~/server/fns/core"
 import type { ScheduledRow } from "~/server/services/schedules"
@@ -286,8 +286,18 @@ const TransactionRow = React.memo(function TransactionRow({
   rowIndex: number
 }) {
   const [dialog, setDialog] = React.useState<null | "edit" | "rule" | "schedule">(null)
-  const update = useAction(updateTransaction, { writes: ["transactions"] })
-  const cleared = useAction(setTransactionsCleared, { writes: ["cleared"] })
+  const update = useAction(updateTransaction, {
+    writes: ["transactions"],
+    // Only an existing payee: a new one has no id yet, and a transfer adds or removes its mirror operation.
+    optimistic: ({ data }, client) =>
+      data.payee?.kind === "id" && !tx.transferAccountId
+        ? patchTransactionPayee(client, tx.id, data.payee.id)
+        : undefined,
+  })
+  const cleared = useAction(setTransactionsCleared, {
+    writes: ["cleared"],
+    optimistic: ({ data }, client) => patchTransactionRows(client, data.ids, { cleared: data.cleared }),
+  })
   const remove = useDeleteTransactions()
   const duplicate = useAction(createTransaction, { success: "Opération dupliquée", writes: ["transactions"] })
   const future = tx.date > today
@@ -403,9 +413,13 @@ const TransactionRow = React.memo(function TransactionRow({
 function InlineDate({ tx }: { tx: TxRow }) {
   const [open, setOpen] = React.useState(false)
   const [draft, setDraft] = React.useState(tx.date)
+  const today = useToday()
   const update = useAction(updateTransaction, {
     success: (recorded) => recordedMessage(recorded, undefined, "Opération transformée en échéance du"),
     writes: ["transactions", "schedules"],
+    // A date in the future turns the operation into a schedule: it leaves the register on the refresh.
+    optimistic: ({ data }, client) =>
+      data.date && data.date <= today ? patchTransactionRows(client, [tx.id], { date: data.date }) : undefined,
   })
   const save = (date: Day) => {
     setOpen(false)
@@ -444,7 +458,11 @@ function InlineDate({ tx }: { tx: TxRow }) {
 }
 
 function InlineCategory({ tx }: { tx: TxRow }) {
-  const update = useAction(updateTransaction, { writes: ["transactionCategories"] })
+  const update = useAction(updateTransaction, {
+    writes: ["transactionCategories"],
+    optimistic: ({ data }, client) =>
+      data.categoryId === undefined ? undefined : patchTransactionCategory(client, [tx.id], data.categoryId),
+  })
   return (
     <span className="flex min-w-0 items-center gap-1.5">
       <CategoryPicker
@@ -461,7 +479,10 @@ function InlineCategory({ tx }: { tx: TxRow }) {
 }
 
 function InlineAmount({ tx, future }: { tx: TxRow; future: boolean }) {
-  const update = useAction(updateTransaction, { writes: ["transactions"] })
+  const update = useAction(updateTransaction, {
+    writes: ["transactions"],
+    optimistic: ({ data }, client) => (data.amount === undefined ? undefined : patchTransactionRows(client, [tx.id], { amount: data.amount })),
+  })
   return (
     <InlineEdit
       value={amountInput(tx.amount)}

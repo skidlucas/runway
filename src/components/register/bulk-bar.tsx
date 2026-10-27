@@ -3,13 +3,22 @@ import { CategoryPicker } from "~/components/pickers"
 import { useDeleteTransactions } from "~/components/transaction-editor"
 import { Button } from "~/components/ui"
 import { count } from "~/domain/text"
-import { useAction } from "~/lib/queries"
+import { patchTransactionCategory, patchTransactionRows, useAction } from "~/lib/queries"
 import { setTransactionsCategory, setTransactionsCleared } from "~/server/fns/core"
 import type { TxRow } from "~/server/services/transactions"
 
 export function BulkBar({ ids, rows, onDone }: { ids: string[]; rows: TxRow[]; onDone: () => void }) {
-  const setCategory = useAction(setTransactionsCategory, { success: "Catégorie appliquée", onSuccess: onDone, writes: ["transactionCategories"] })
-  const setCleared = useAction(setTransactionsCleared, { onSuccess: onDone, writes: ["cleared"] })
+  const setCategory = useAction(setTransactionsCategory, {
+    success: "Catégorie appliquée",
+    onSuccess: onDone,
+    writes: ["transactionCategories"],
+    optimistic: ({ data }, client) => patchTransactionCategory(client, data.ids, data.categoryId),
+  })
+  const setCleared = useAction(setTransactionsCleared, {
+    onSuccess: onDone,
+    writes: ["cleared"],
+    optimistic: ({ data }, client) => patchTransactionRows(client, data.ids, { cleared: data.cleared }),
+  })
   const remove = useDeleteTransactions(onDone)
   const chosen = new Set(ids)
   const allCleared = rows.filter((r) => chosen.has(r.id)).every((r) => r.cleared)

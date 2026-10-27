@@ -5,7 +5,7 @@ import { TransactionEditor, useDeleteTransactions } from "~/components/transacti
 import { cx, IconButton, Menu, Money } from "~/components/ui"
 import { formatDayShort } from "~/domain/dates"
 import { useToday } from "~/lib/hooks"
-import { useAction } from "~/lib/queries"
+import { patchTransactionRows, useAction } from "~/lib/queries"
 import { useWindowList } from "~/lib/use-window-list"
 import { setTransactionsCleared } from "~/server/fns/core"
 import type { ScheduledRow } from "~/server/services/schedules"
@@ -29,7 +29,10 @@ export function MobileList({
   const today = useToday()
   const [editing, setEditing] = React.useState<TxRow | null>(null)
   const remove = useDeleteTransactions()
-  const cleared = useAction(setTransactionsCleared, { writes: ["cleared"] })
+  const cleared = useAction(setTransactionsCleared, {
+    writes: ["cleared"],
+    optimistic: ({ data }, client) => patchTransactionRows(client, data.ids, { cleared: data.cleared }),
+  })
   const lines = React.useMemo(
     () => interleave<MobileLine>(rows, scheduled, (tx) => [{ kind: "tx", tx }], (row) => ({ kind: "scheduled", row })),
     [rows, scheduled],
