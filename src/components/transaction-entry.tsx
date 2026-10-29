@@ -174,6 +174,7 @@ export function TransactionEntry({
   const create = useAction(createTransaction, {
     success: (recorded) => recordedMessage(recorded, "Opération ajoutée"),
     writes: ["transactions", "schedules"],
+    awaitRefresh: false,
     onSuccess: () => onOpenChange(false),
   })
 
@@ -372,7 +373,7 @@ function MobileEntry({
           onClick={onSubmit}
           disabled={!canSubmit || pending}
         >
-          OK
+          {pending ? <Spinner /> : "OK"}
         </button>
       </div>
       <div className="mx-5 flex items-center gap-3">

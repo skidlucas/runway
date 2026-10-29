@@ -257,6 +257,11 @@ export function useAction<TInput, TOutput>(
     scope?: string
     /** Shows the expected result before the server answers; a failure refreshes `writes` to undo it. */
     optimistic?: (input: TInput, client: QueryClient) => void | Promise<void>
+    /**
+     * False runs `onSuccess` as soon as the server answered, and the views on screen catch up a moment
+     * later: for a form used several times in a row, which should neither wait nor stay pending.
+     */
+    awaitRefresh?: boolean
   },
 ) {
   const client = useQueryClient()
@@ -268,7 +273,8 @@ export function useAction<TInput, TOutput>(
       const message = typeof options.success === "function" ? options.success(output) : options.success
       if (message) toast(message)
       // Callers close or navigate in `onSuccess`: wait for fresh data so the next view never shows the old one.
-      await refreshAfter(client, options.writes)
+      if (options.awaitRefresh === false) void refreshAfter(client, options.writes)
+      else await refreshAfter(client, options.writes)
       options.onSuccess?.(output)
     },
     onError: (error) => {
