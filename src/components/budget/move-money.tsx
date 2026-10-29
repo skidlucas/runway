@@ -80,7 +80,7 @@ export function MoveMoneyDialog({
     mode === "cover" ? (category.available < 0 ? amountInput(-category.available) : "") : amountInput(category.available),
   )
   const available = new Map(budget.groups.flatMap((g) => g.categories.map((c) => [c.id, c.available] as const)))
-  const move = useAction(moveBudget, { success: "Budget mis à jour", onSuccess: onClose, writes: ["budgets"] })
+  const move = useAction(moveBudget, { success: "Budget mis à jour", onSuccess: onClose, writes: ["budgets"], awaitRefresh: false })
   const cents = parseAmount(amount)
   const fromToBudget = other?.kind === "toBudget"
   const submit = () => {

@@ -33,7 +33,7 @@ export function PlannedStatusNote({ category }: { category: BudgetCategoryRow })
 
 export function PlannedCell({ category, month }: { category: BudgetCategoryRow; month: string }) {
   const [open, setOpen] = React.useState(false)
-  const save = useAction(setBudgetAmount, { writes: ["budgets"], onSuccess: () => setOpen(false) })
+  const save = useAction(setBudgetAmount, { writes: ["budgets"], onSuccess: () => setOpen(false), awaitRefresh: false })
   const planned = category.planned
   if (!planned) return <span className="num text-right text-[12px] text-faint">—</span>
   const status = statusOf(category)

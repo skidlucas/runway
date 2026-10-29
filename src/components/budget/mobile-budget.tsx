@@ -86,7 +86,7 @@ function MobileBudgetDialog({
   onMove: (mode: MoveMode) => void
 }) {
   const [text, setText] = React.useState(category.budgeted ? amountInput(category.budgeted) : "")
-  const save = useAction(setBudgetAmount, { onSuccess: onClose, writes: ["budgets"] })
+  const save = useAction(setBudgetAmount, { onSuccess: onClose, writes: ["budgets"], awaitRefresh: false })
   const value = text.trim() === "" ? 0 : parseAmount(text)
   return (
     <Dialog
