@@ -16,6 +16,7 @@ import { getForecast, getScheduledRows, getSchedules, getScheduleSuggestions, ge
 import { getCashFlow, getCategorySpending, getDashboards, getAccountsTotal, getSpendingComparison } from "~/server/fns/reports"
 import type { InsightViewConfig } from "~/server/db/schema"
 import type { AccountDto } from "~/server/services/accounts"
+import type { ScheduledRow } from "~/server/services/schedules"
 import type { TxCursor, TxFilter, TxPage, TxRow } from "~/server/services/transactions"
 import { toast, toastError } from "~/components/toast"
 import type { Month } from "~/domain/dates"
@@ -250,6 +251,21 @@ export const removeTransactionRows = async (client: QueryClient, ids: ReadonlyAr
       })),
     },
   )
+}
+
+/**
+ * Takes the occurrence a schedule just booked or skipped off the registers at once; its next one
+ * shown there, if any, becomes the one to act on.
+ */
+export const removeScheduledRow = async (client: QueryClient, scheduleId: string) => {
+  await client.cancelQueries({ queryKey: ["scheduledRows"] })
+  client.setQueriesData<{ today: string; rows: ScheduledRow[] }>({ queryKey: ["scheduledRows"] }, (data) => {
+    if (!data) return data
+    const rows = data.rows.filter((row) => !(row.scheduleId === scheduleId && row.next))
+    // Newest first: the last remaining row of the schedule is its next occurrence.
+    const following = rows.findLastIndex((row) => row.scheduleId === scheduleId)
+    return { ...data, rows: rows.map((row, i) => (i === following ? { ...row, next: true } : row)) }
+  })
 }
 
 /** `patchTransactionRows` for a new category, with its name for the views that show it rather than the picker. */

@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query"
 import { useConfirm } from "~/components/ui"
 import { formatDayShort } from "~/domain/dates"
-import { q, useAction, useCategoryName } from "~/lib/queries"
+import { q, removeScheduledRow, useAction, useCategoryName } from "~/lib/queries"
 import { postSchedule, skipSchedule } from "~/server/fns/planning"
 import type { ScheduledRow } from "~/server/services/schedules"
 import type { TxRow } from "~/server/services/transactions"
@@ -21,8 +21,18 @@ export function interleave<T>(rows: TxRow[], scheduled: ScheduledRow[], ofTx: (t
 export const scheduledKey = (row: ScheduledRow) => `schedule:${row.scheduleId}:${row.dueDate}`
 
 export function useScheduledRow(row: ScheduledRow) {
-  const post = useAction(postSchedule, { success: "Opération enregistrée", writes: ["transactions", "schedules"] })
-  const skip = useAction(skipSchedule, { success: "Échéance passée", writes: ["schedules"] })
+  const post = useAction(postSchedule, {
+    success: "Opération enregistrée",
+    writes: ["transactions", "schedules"],
+    awaitRefresh: false,
+    optimistic: ({ data }, client) => removeScheduledRow(client, data.id),
+  })
+  const skip = useAction(skipSchedule, {
+    success: "Échéance passée",
+    writes: ["schedules"],
+    awaitRefresh: false,
+    optimistic: ({ data }, client) => removeScheduledRow(client, data.id),
+  })
   const accounts = useQuery(q.accounts())
   const category = useCategoryName(row.categoryId)
   const { confirm, dialog } = useConfirm()
