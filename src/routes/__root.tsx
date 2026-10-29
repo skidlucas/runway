@@ -15,7 +15,9 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
   head: () => ({
     meta: [
       { charSet: "utf-8" },
-      { name: "viewport", content: "width=device-width, initial-scale=1, viewport-fit=cover" },
+      // maximum-scale stops iOS from zooming on a focused field under 16px (and staying zoomed);
+      // pinch-zoom still works there.
+      { name: "viewport", content: "width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover" },
       { title: "runway" },
       { name: "theme-color", content: "#0e0f11" },
       { name: "apple-mobile-web-app-capable", content: "yes" },
