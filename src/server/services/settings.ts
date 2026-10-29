@@ -24,6 +24,8 @@ const isValid = {
   aiEnabled: Schema.is(Schema.Boolean),
 } satisfies { [K in keyof AppSettings]: (value: unknown) => value is AppSettings[K] }
 
+const TIME_ZONE_TTL_MS = 5 * 60_000
+
 const valueOf = <K extends keyof AppSettings>(key: K, value: unknown): AppSettings[K] =>
   (isValid[key] as (value: unknown) => value is AppSettings[K])(value) ? value : DEFAULTS[key]
 
@@ -54,15 +56,23 @@ export class Settings extends Context.Service<
         db
           .use((orm) => orm.select().from(settings).where(eq(settings.key, key)).get())
           .pipe(Effect.map((row) => (row ? valueOf(key, row.value) : DEFAULTS[key])))
+      // Read by nearly every request; it only changes when the browser reports another zone. Another
+      // isolate of the worker may keep the previous zone for up to TIME_ZONE_TTL_MS after that.
+      let timeZone: { value: string; readAt: number } | undefined
       const set = <K extends keyof AppSettings>(key: K, value: AppSettings[K]) =>
         db
           .use((orm) =>
             orm.insert(settings).values({ key, value }).onConflictDoUpdate({ target: settings.key, set: { value } }),
           )
-          .pipe(Effect.asVoid)
-      const today = Effect.all([get("timeZone"), Clock.currentTimeMillis], { concurrency: "unbounded" }).pipe(
-        Effect.map(([tz, now]) => todayIn(tz, new Date(now))),
-      )
+          .pipe(
+            Effect.tap(() => Effect.sync(() => (key === "timeZone" ? (timeZone = undefined) : undefined))),
+            Effect.asVoid,
+          )
+      const today = Effect.gen(function* () {
+        const now = yield* Clock.currentTimeMillis
+        if (!timeZone || now - timeZone.readAt >= TIME_ZONE_TTL_MS) timeZone = { value: yield* get("timeZone"), readAt: now }
+        return todayIn(timeZone.value, new Date(now))
+      })
       return Settings.of({ all, get, set, today })
     }),
   )

@@ -631,7 +631,8 @@ export class Transactions extends Context.Service<
       const insertStatements = (rows: ReadonlyArray<NewTxRow>) => transactionInsertStatements(db.d1, rows)
 
       const create = Effect.fn("Transactions.create")(function* (input: TxInput) {
-        const { id, rows } = yield* buildRows(yield* settings.today, input)
+        const [lookup, today] = yield* Effect.all([preloaded([input]), settings.today], { concurrency: "unbounded" })
+        const { id, rows } = yield* buildRows(today, input, undefined, lookup)
         yield* db.batch(insertStatements(rows))
         return id
       })
