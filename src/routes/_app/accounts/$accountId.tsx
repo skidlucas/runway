@@ -29,11 +29,12 @@ export const Route = createFileRoute("/_app/accounts/$accountId")({
   loader: ({ context, params, deps }) => {
     const all = params.accountId === "all"
     const filtered = isFiltered(deps) || deps.q?.trim()
+    // Started, not awaited: only the header's end-of-month figure reads it, and it is the slowest read.
+    if (!all) void context.queryClient.prefetchQuery(q.forecast({ accountId: params.accountId }))
     return Promise.all([
       context.queryClient.ensureQueryData(q.categories()),
       // Loaded with the operations so that the schedule lines do not push the list down afterwards.
       filtered ? null : context.queryClient.prefetchQuery(q.scheduledRows(scheduledFilterOf(params.accountId))),
-      all ? null : context.queryClient.prefetchQuery(q.forecast({ accountId: params.accountId })),
       context.queryClient.ensureInfiniteQueryData(q.transactions(txFilterOf(params.accountId, deps))),
     ])
   },
