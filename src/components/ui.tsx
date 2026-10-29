@@ -951,6 +951,26 @@ export const Dot = ({ color, className }: { color: string; className?: string })
 
 // --- Overlays ------------------------------------------------------------------
 
+// How many dialogs and sheets are open, so that toasts can stay out of their way.
+let openDialogs = 0
+const dialogListeners = new Set<() => void>()
+const subscribeDialogs = (listener: () => void) => {
+  dialogListeners.add(listener)
+  return () => dialogListeners.delete(listener)
+}
+const countOpenDialog = (delta: number) => {
+  openDialogs += delta
+  for (const listener of dialogListeners) listener()
+}
+const useCountedOpen = (open: boolean) =>
+  React.useEffect(() => {
+    if (!open) return
+    countOpenDialog(1)
+    return () => countOpenDialog(-1)
+  }, [open])
+
+export const useAnyDialogOpen = () => React.useSyncExternalStore(subscribeDialogs, () => openDialogs > 0, () => false)
+
 export const Dialog = ({
   open,
   onOpenChange,
@@ -967,35 +987,38 @@ export const Dialog = ({
   children?: React.ReactNode
   footer?: React.ReactNode
   width?: number
-}) => (
-  <BDialog.Root open={open} onOpenChange={(o) => onOpenChange(o)}>
-    <BDialog.Portal>
-      <BDialog.Backdrop className="animate-fade fixed inset-0 z-50 bg-overlay" />
-      <BDialog.Popup
-        className="animate-pop fixed left-1/2 top-[12vh] z-50 flex max-h-[80vh] w-[calc(100vw-24px)] -translate-x-1/2 flex-col rounded-[12px] border border-line-control bg-elevated shadow-[var(--shadow-modal)] outline-none"
-        style={{ maxWidth: width }}
-      >
-        <div className="flex items-start gap-3 border-b border-line px-5 pb-3.5 pt-[18px]">
-          <div className="flex min-w-0 flex-1 flex-col gap-1">
-            <BDialog.Title className="text-[15px] font-medium">{title}</BDialog.Title>
-            {description ? <BDialog.Description className="text-muted">{description}</BDialog.Description> : null}
+}) => {
+  useCountedOpen(open)
+  return (
+    <BDialog.Root open={open} onOpenChange={(o) => onOpenChange(o)}>
+      <BDialog.Portal>
+        <BDialog.Backdrop className="animate-fade fixed inset-0 z-50 bg-overlay" />
+        <BDialog.Popup
+          className="animate-pop fixed left-1/2 top-[12vh] z-50 flex max-h-[80vh] w-[calc(100vw-24px)] -translate-x-1/2 flex-col rounded-[12px] border border-line-control bg-elevated shadow-[var(--shadow-modal)] outline-none"
+          style={{ maxWidth: width }}
+        >
+          <div className="flex items-start gap-3 border-b border-line px-5 pb-3.5 pt-[18px]">
+            <div className="flex min-w-0 flex-1 flex-col gap-1">
+              <BDialog.Title className="text-[15px] font-medium">{title}</BDialog.Title>
+              {description ? <BDialog.Description className="text-muted">{description}</BDialog.Description> : null}
+            </div>
+            <BDialog.Close
+              render={
+                <IconButton label="Fermer" size="sm">
+                  <X size={14} />
+                </IconButton>
+              }
+            />
           </div>
-          <BDialog.Close
-            render={
-              <IconButton label="Fermer" size="sm">
-                <X size={14} />
-              </IconButton>
-            }
-          />
-        </div>
-        {children ? <div className="min-h-0 overflow-y-auto">{children}</div> : null}
-        {footer ? (
-          <div className="flex items-center justify-between gap-2 border-t border-line px-5 py-3.5">{footer}</div>
-        ) : null}
-      </BDialog.Popup>
-    </BDialog.Portal>
-  </BDialog.Root>
-)
+          {children ? <div className="min-h-0 overflow-y-auto">{children}</div> : null}
+          {footer ? (
+            <div className="flex items-center justify-between gap-2 border-t border-line px-5 py-3.5">{footer}</div>
+          ) : null}
+        </BDialog.Popup>
+      </BDialog.Portal>
+    </BDialog.Root>
+  )
+}
 
 /** Asks before a destructive or irreversible action. `children` holds extra choices (where to move what is deleted…). */
 export const ConfirmDialog = ({
@@ -1079,16 +1102,19 @@ export const Sheet = ({
   onOpenChange: (open: boolean) => void
   title: string
   children: React.ReactNode
-}) => (
-  <BDialog.Root open={open} onOpenChange={(o) => onOpenChange(o)}>
-    <BDialog.Portal>
-      <BDialog.Popup className="animate-pop fixed inset-0 z-50 flex flex-col bg-bg outline-none">
-        <BDialog.Title className="sr-only">{title}</BDialog.Title>
-        {children}
-      </BDialog.Popup>
-    </BDialog.Portal>
-  </BDialog.Root>
-)
+}) => {
+  useCountedOpen(open)
+  return (
+    <BDialog.Root open={open} onOpenChange={(o) => onOpenChange(o)}>
+      <BDialog.Portal>
+        <BDialog.Popup className="animate-pop fixed inset-0 z-50 flex flex-col bg-bg outline-none">
+          <BDialog.Title className="sr-only">{title}</BDialog.Title>
+          {children}
+        </BDialog.Popup>
+      </BDialog.Portal>
+    </BDialog.Root>
+  )
+}
 
 export const Popover = ({
   trigger,

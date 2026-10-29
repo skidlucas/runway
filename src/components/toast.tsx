@@ -1,14 +1,20 @@
 import { X } from "lucide-react"
 import * as React from "react"
 import { leaveIfSignedOut } from "~/lib/auth"
-import { cx, IconButton } from "./ui"
+import { cx, IconButton, useAnyDialogOpen } from "./ui"
 
 type Toast = { id: number; message: string; tone: "default" | "error"; action?: { label: string; run: () => void } }
 
 let toasts: Toast[] = []
 let nextId = 1
 // A toast being read or reached with the keyboard keeps the rest of its time until it is let go.
-const timers = new Map<number, { handle: ReturnType<typeof setTimeout> | null; remaining: number; startedAt: number }>()
+// So does an undo offer hidden behind an open dialog (see `Toaster`), so that it outlives the
+// dialog; a plain notice runs out unseen rather than pile up with others for when it closes.
+const timers = new Map<
+  number,
+  { handle: ReturnType<typeof setTimeout> | null; remaining: number; startedAt: number; held: boolean; waitsForDialog: boolean }
+>()
+let dialogOpen = false
 const listeners = new Set<() => void>()
 const emit = () => {
   for (const l of listeners) l()
@@ -18,8 +24,14 @@ export const toast = (message: string, options: { tone?: Toast["tone"]; action?:
   const id = nextId++
   toasts = [...toasts, { id, message, tone: options.tone ?? "default", ...(options.action ? { action: options.action } : {}) }]
   emit()
-  timers.set(id, { handle: null, remaining: options.duration ?? (options.tone === "error" ? 6000 : 3500), startedAt: 0 })
-  holdToast(id, false)
+  timers.set(id, {
+    handle: null,
+    remaining: options.duration ?? (options.tone === "error" ? 6000 : 3500),
+    startedAt: 0,
+    held: false,
+    waitsForDialog: !!options.action && options.tone !== "error",
+  })
+  runOrPause(id)
 }
 
 export const toastError = (error: unknown) => {
@@ -33,6 +45,14 @@ export const getToasts = () => toasts
 export const holdToast = (id: number, held: boolean) => {
   const timer = timers.get(id)
   if (!timer) return
+  timer.held = held
+  runOrPause(id)
+}
+
+const runOrPause = (id: number) => {
+  const timer = timers.get(id)
+  if (!timer) return
+  const held = timer.held || (dialogOpen && timer.waitsForDialog)
   if (held && timer.handle) {
     clearTimeout(timer.handle)
     timer.handle = null
@@ -58,11 +78,19 @@ const subscribe = (l: () => void) => {
 
 export function Toaster() {
   const list = React.useSyncExternalStore(subscribe, getToasts, getToasts)
+  // Toasts sit above dialogs and stack upwards: on a phone they end up over a dialog's own
+  // buttons. Hide them until it closes; errors stay, as they usually say why it is still open.
+  const hidden = useAnyDialogOpen()
+  React.useEffect(() => {
+    dialogOpen = hidden
+    for (const id of timers.keys()) runOrPause(id)
+  }, [hidden])
   return (
     // One live region that is always there: screen readers often skip a region that appears
-    // already filled, which would hide the undo offer of a deletion.
-    <div role="status" className="pointer-events-none fixed bottom-4 right-4 z-[60] flex flex-col gap-2 max-md:bottom-[96px] max-md:left-4">
-      {list.map((t) => (
+    // already filled, which would hide the undo offer of a deletion. On a phone it sits above the
+    // floating "+" button (see `shell.tsx`), the next tap when entering operations in a row.
+    <div role="status" className="pointer-events-none fixed bottom-4 right-4 z-[60] flex flex-col gap-2 max-md:bottom-[calc(140px+env(safe-area-inset-bottom))] max-md:left-4">
+      {(hidden ? list.filter((t) => t.tone === "error") : list).map((t) => (
         <ToastItem key={t.id} toast={t} />
       ))}
     </div>

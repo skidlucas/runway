@@ -104,3 +104,34 @@ test("swiping an operation clears it, which moves the cleared balance", async ({
   await clear.click()
   await expect.poll(clearedBalance).toBe(before - 1240)
 })
+
+test("toasts wait for an open dialog to close instead of covering its buttons", async ({ page }) => {
+  await open(page, "/accounts")
+  await page.getByRole("main").getByRole("link", { name: /^Compte courant/ }).click()
+  await page.getByRole("button", { name: "Nouvelle opération" }).click()
+  const sheet = page.getByRole("dialog", { name: "Nouvelle opération" })
+  for (const key of ["0", ",", "0", "3"]) await sheet.getByRole("button", { name: key, exact: true }).click()
+  await sheet.getByLabel("Note").fill("Toast sous la fenêtre")
+  await sheet.getByRole("button", { name: "OK", exact: true }).click()
+  await waitForToast(page, "Opération ajoutée")
+  // The next entry starts from the "+" button: the toast leaves it uncovered.
+  const fab = page.getByRole("button", { name: "Nouvelle opération" })
+  expect(
+    await fab.evaluate((el) => {
+      const r = el.getBoundingClientRect()
+      return el.contains(document.elementFromPoint(r.x + r.width / 2, r.y + 4))
+    }),
+  ).toBe(true)
+
+  // Opened while the toast is still up: the toast steps aside, then the undo offer shows once the dialog is gone.
+  await page.getByRole("main").getByRole("button", { name: /^Toast sous la fenêtre/ }).click()
+  const editor = page.getByRole("dialog", { name: "Modifier l'opération" })
+  await expect(editor).toBeVisible()
+  // Checked once, not retried: the toast would end up gone on its own. And a CSS locator, as an
+  // open dialog hides the rest of the page from role queries.
+  expect(await page.locator('[role="status"]', { hasText: "Opération ajoutée" }).isVisible()).toBe(false)
+  await editor.getByRole("button", { name: "Supprimer" }).click({ timeout: 1000 })
+  await expect(editor).toHaveCount(0)
+  await waitForToast(page, "1 opération supprimée")
+  await expect(page.getByRole("status").getByRole("button", { name: "Annuler" })).toBeVisible()
+})
