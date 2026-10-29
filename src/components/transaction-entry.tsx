@@ -12,7 +12,7 @@ import type { ReceiptDraft } from "~/server/services/receipts"
 import { AccountSelect, CategoryPicker, PayeePicker, type PayeeValue } from "./pickers"
 import { toast, toastError } from "./toast"
 import { recordedMessage } from "./transaction-editor"
-import { Button, ChipButton, cx, DateInput, Dialog, DropZone, Field, Input, Segmented, Sheet, Spinner, touchHitArea } from "./ui"
+import { Button, ChipButton, cx, DateInput, Dialog, DropZone, Field, Input, Segmented, Sheet, Spinner, Switch, touchHitArea } from "./ui"
 
 type Kind = "expense" | "income"
 
@@ -28,6 +28,7 @@ type Draft = {
   accountId: string
   date: string
   notes: string
+  cleared: boolean
 }
 
 function useEntryState(open: boolean, defaults: EntryDefaults) {
@@ -45,6 +46,7 @@ function useEntryState(open: boolean, defaults: EntryDefaults) {
       accountId: defaults.accountId ?? firstAccount?.id ?? "",
       date: today,
       notes: "",
+      cleared: false,
     }),
     [defaults.accountId, defaults.categoryId, firstAccount?.id, today],
   )
@@ -193,7 +195,7 @@ export function TransactionEntry({
                 : { kind: "name", name: draft.payee.name },
         categoryId: draft.categoryId,
         notes: draft.notes.trim() || null,
-        cleared: false,
+        cleared: draft.cleared,
       },
     })
   }
@@ -316,6 +318,12 @@ export function TransactionEntry({
         <Field label="Note">
           <Input value={draft.notes} onChange={(e) => state.setDraft((d) => ({ ...d, notes: e.target.value }))} placeholder="Optionnel" />
         </Field>
+        {state.future ? null : (
+          <label className="flex items-center gap-2 text-fg-2">
+            <Switch checked={draft.cleared} onCheckedChange={(cleared) => state.setDraft((d) => ({ ...d, cleared }))} label="Pointée" />
+            Pointée (vue sur le relevé)
+          </label>
+        )}
       </form>
     </Dialog>
   )
@@ -367,15 +375,23 @@ function MobileEntry({
           OK
         </button>
       </div>
-      <Segmented
-        value={draft.kind}
-        onChange={(kind) => setDraft((d) => ({ ...d, kind }))}
-        options={[
-          { value: "expense", label: "Dépense" },
-          { value: "income", label: "Revenu" },
-        ]}
-        className="mx-5"
-      />
+      <div className="mx-5 flex items-center gap-3">
+        <Segmented
+          value={draft.kind}
+          onChange={(kind) => setDraft((d) => ({ ...d, kind }))}
+          options={[
+            { value: "expense", label: "Dépense" },
+            { value: "income", label: "Revenu" },
+          ]}
+          className="flex-1"
+        />
+        {state.future ? null : (
+          <label className="flex shrink-0 items-center gap-2 text-muted">
+            <Switch checked={draft.cleared} onCheckedChange={(cleared) => setDraft((d) => ({ ...d, cleared }))} label="Pointée" />
+            Pointée
+          </label>
+        )}
+      </div>
       {receipt.available ? <PhotoButton receipt={receipt} /> : null}
       {/* Every row above the keypad counts: on a phone browser the keypad's last row is the first to fall off screen. */}
       <div
