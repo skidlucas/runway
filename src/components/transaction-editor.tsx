@@ -3,7 +3,17 @@ import { Plus, Trash2 } from "lucide-react"
 import * as React from "react"
 import { formatDayShort } from "~/domain/dates"
 import { amountInput, formatMoney, parseAmount } from "~/domain/money"
-import { q, refreshAfter, useAction, useCategoryName } from "~/lib/queries"
+import { useToday } from "~/lib/hooks"
+import {
+  patchTransactionCategory,
+  patchTransactionPayee,
+  patchTransactionRows,
+  q,
+  refreshAfter,
+  removeTransactionRows,
+  useAction,
+  useCategoryName,
+} from "~/lib/queries"
 import { createRule, deleteTransactions, restoreTransactions, updateTransaction } from "~/server/fns/core"
 import type { Recorded } from "~/server/services/entries"
 import type { TxRow } from "~/server/services/transactions"
@@ -33,15 +43,16 @@ export const payeeInputOf = (value: PayeeValue) =>
         : ({ kind: "name", name: value.name } as const)
 
 /**
- * Deletes transactions and offers to undo it from the toast. The toast is raised from the
- * mutation options, not from `mutate` callbacks: the row that started the deletion unmounts as
- * soon as the list refreshes.
+ * Deletes transactions and offers to undo it from the toast. The rows leave the registers before
+ * the server answers, which unmounts the row that started the deletion: the toast is raised from
+ * the mutation options, which outlive it, not from `mutate` callbacks.
  */
 export function useDeleteTransactions(onSuccess?: () => void) {
   const client = useQueryClient()
   return useMutation({
     mutationFn: (ids: ReadonlyArray<string>) => deleteTransactions({ data: { ids: [...ids] } }),
-    onSuccess: async ({ undoId }, ids) => {
+    onMutate: (ids) => removeTransactionRows(client, ids),
+    onSuccess: ({ undoId }, ids) => {
       const undo = () =>
         restoreTransactions({ data: { undoId } })
           .then(() => refreshAfter(client, ["transactions"]))
@@ -50,10 +61,13 @@ export function useDeleteTransactions(onSuccess?: () => void) {
         action: { label: "Annuler", run: () => void undo() },
         duration: 8000,
       })
-      await refreshAfter(client, ["transactions"])
+      void refreshAfter(client, ["transactions"])
       onSuccess?.()
     },
-    onError: (error) => toastError(error),
+    onError: (error) => {
+      toastError(error)
+      void refreshAfter(client, ["transactions"])
+    },
   })
 }
 
@@ -83,10 +97,26 @@ export function TransactionEditor({
   const [lines, setLines] = React.useState<SplitLine[]>(
     tx.isParent && splits ? splits.map((s) => splitLine({ amount: amountInput(s.amount), categoryId: s.categoryId, notes: s.notes ?? "" })) : [],
   )
+  const today = useToday()
   const update = useAction(updateTransaction, {
     success: (recorded) => recordedMessage(recorded, "Opération modifiée", "Opération transformée en échéance du"),
     onSuccess: onClose,
     writes: ["transactions", "schedules"],
+    awaitRefresh: false,
+    // The row shows the fields typed at once. Left to the refresh: a move to the future (it becomes a
+    // schedule), another account, new split lines, and a new or transfer payee (no id yet, or a mirror).
+    optimistic: async ({ data }, client) => {
+      if ((data.date && data.date > today) || data.accountId !== undefined || data.splits !== undefined) return
+      if (data.payee && data.payee.kind !== "id") return
+      await patchTransactionRows(client, [data.id], {
+        ...(data.date ? { date: data.date } : {}),
+        ...(data.amount !== undefined ? { amount: data.amount } : {}),
+        ...(data.notes !== undefined ? { notes: data.notes } : {}),
+        ...(data.cleared !== undefined ? { cleared: data.cleared } : {}),
+      })
+      if (data.payee?.kind === "id" && !tx.transferAccountId) await patchTransactionPayee(client, data.id, data.payee.id)
+      if (data.categoryId !== undefined) await patchTransactionCategory(client, [data.id], data.categoryId)
+    },
   })
   const remove = useDeleteTransactions(onClose)
 

@@ -233,6 +233,25 @@ export const patchTransactionRows = async (client: QueryClient, ids: ReadonlyArr
   )
 }
 
+/** Takes deleted operations off the registers at once, with their split lines and transfer mirrors. */
+export const removeTransactionRows = async (client: QueryClient, ids: ReadonlyArray<string>) => {
+  await client.cancelQueries({ queryKey: ["transactions"] })
+  const gone = new Set(ids)
+  for (const [, data] of client.getQueriesData<InfiniteData<TxPage>>({ queryKey: ["transactions"] })) {
+    for (const page of data?.pages ?? []) for (const row of page.rows) if (gone.has(row.id) && row.transferId) gone.add(row.transferId)
+  }
+  client.setQueriesData<InfiniteData<TxPage>>({ queryKey: ["transactions"] }, (data) =>
+    data && {
+      ...data,
+      pages: data.pages.map((page) => ({
+        ...page,
+        rows: page.rows.filter((row) => !gone.has(row.id)),
+        children: Object.fromEntries(Object.entries(page.children).filter(([parent]) => !gone.has(parent))),
+      })),
+    },
+  )
+}
+
 /** `patchTransactionRows` for a new category, with its name for the views that show it rather than the picker. */
 export const patchTransactionCategory = (client: QueryClient, ids: ReadonlyArray<string>, categoryId: string | null) => {
   const groups = client.getQueryData(q.categories().queryKey)
