@@ -11,6 +11,7 @@ import { createTransaction, readReceipt } from "~/server/fns/core"
 import type { ReceiptDraft } from "~/server/services/receipts"
 import { AccountSelect, CategoryPicker, PayeePicker, type PayeeValue } from "./pickers"
 import { toast, toastError } from "./toast"
+import { ClearedMark } from "./register/cleared-mark"
 import { recordedMessage } from "./transaction-editor"
 import { Button, ChipButton, cx, DateInput, Dialog, DropZone, Field, Input, Segmented, Sheet, Spinner, Switch, touchHitArea } from "./ui"
 
@@ -359,6 +360,7 @@ function MobileEntry({
     })
 
   const accountName = state.accounts.data?.find((a) => a.id === draft.accountId)?.name ?? "—"
+  const chips = !state.future || receipt.available
 
   return (
     <div className="flex h-full flex-col pt-[env(safe-area-inset-top)]">
@@ -376,27 +378,24 @@ function MobileEntry({
           {pending ? <Spinner /> : "OK"}
         </button>
       </div>
-      <div className="mx-5 flex items-center gap-3">
-        <Segmented
-          value={draft.kind}
-          onChange={(kind) => setDraft((d) => ({ ...d, kind }))}
-          options={[
-            { value: "expense", label: "Dépense" },
-            { value: "income", label: "Revenu" },
-          ]}
-          className="flex-1"
-        />
-        {state.future ? null : (
-          <label className="flex shrink-0 items-center gap-2 text-muted">
-            <Switch checked={draft.cleared} onCheckedChange={(cleared) => setDraft((d) => ({ ...d, cleared }))} label="Pointée" />
-            Pointée
-          </label>
-        )}
-      </div>
-      {receipt.available ? <PhotoButton receipt={receipt} /> : null}
+      <Segmented
+        value={draft.kind}
+        onChange={(kind) => setDraft((d) => ({ ...d, kind }))}
+        options={[
+          { value: "expense", label: "Dépense" },
+          { value: "income", label: "Revenu" },
+        ]}
+        className="mx-5"
+      />
+      {chips ? (
+        <div className="mx-5 mt-2 flex justify-center gap-2">
+          {state.future ? null : <ClearedChip cleared={draft.cleared} onToggle={() => setDraft((d) => ({ ...d, cleared: !d.cleared }))} />}
+          {receipt.available ? <PhotoButton receipt={receipt} /> : null}
+        </div>
+      ) : null}
       {/* Every row above the keypad counts: on a phone browser the keypad's last row is the first to fall off screen. */}
       <div
-        className={cx("num px-5 pb-4 text-center text-[52px] font-medium leading-[1.15] tracking-[-0.03em]", receipt.available ? "pt-3" : "pt-8")}
+        className={cx("num px-5 pb-4 text-center text-[52px] font-medium leading-[1.15] tracking-[-0.03em]", chips ? "pt-3" : "pt-8")}
         aria-live="polite"
       >
         {draft.amount || "0"}
@@ -495,10 +494,19 @@ function MobileEntry({
   )
 }
 
+function ClearedChip({ cleared, onToggle }: { cleared: boolean; onToggle: () => void }) {
+  return (
+    <ChipButton onClick={onToggle} aria-pressed={cleared} className={cleared ? "border-positive text-positive" : undefined}>
+      <ClearedMark tx={{ cleared, reconciled: false }} />
+      {cleared ? "Pointée" : "Non pointée"}
+    </ChipButton>
+  )
+}
+
 function PhotoButton({ receipt }: { receipt: ReceiptReading }) {
   const input = React.useRef<HTMLInputElement>(null)
   return (
-    <div className="mx-5 mt-2 flex justify-center">
+    <>
       <ChipButton onClick={() => input.current?.click()} disabled={receipt.busy}>
         {receipt.busy ? <Spinner /> : <Camera size={14} className="text-muted" />}
         {receipt.busy ? "Lecture du document…" : "Depuis une photo"}
@@ -514,6 +522,6 @@ function PhotoButton({ receipt }: { receipt: ReceiptReading }) {
           e.target.value = ""
         }}
       />
-    </div>
+    </>
   )
 }
