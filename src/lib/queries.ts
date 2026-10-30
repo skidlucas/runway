@@ -305,6 +305,17 @@ export const patchBudgetMove = (client: QueryClient, move: { month: string; from
     return changes
   })
 
+/** Shows categories in their new order inside their groups at once, in the settings and on every budget month loaded. */
+export const patchCategoryOrder = async (client: QueryClient, order: ReadonlyArray<{ categoryIds: ReadonlyArray<string> }>) => {
+  await Promise.all([client.cancelQueries({ queryKey: ["categories"] }), client.cancelQueries({ queryKey: ["budget"] })])
+  const rank = new Map(order.flatMap((g) => g.categoryIds.map((id, i) => [id, i] as const)))
+  const sorted = <C extends { id: string }>(categories: C[]) => categories.toSorted((a, b) => (rank.get(a.id) ?? 0) - (rank.get(b.id) ?? 0))
+  client.setQueryData(q.categories().queryKey, (tree) => tree?.map((g) => ({ ...g, categories: sorted(g.categories) })))
+  client.setQueriesData<BudgetMonthDto>({ queryKey: ["budget"] }, (budget) =>
+    budget && { ...budget, groups: budget.groups.map((g) => ({ ...g, categories: sorted(g.categories) })) },
+  )
+}
+
 /** Wraps a server function call in a mutation; a success refreshes what reads the data it `writes`. */
 export function useAction<TInput, TOutput>(
   fn: (input: TInput) => Promise<TOutput>,

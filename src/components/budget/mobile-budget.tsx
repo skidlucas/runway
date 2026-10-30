@@ -19,7 +19,7 @@ export function MobileBudget({ budget, month, showHidden }: { budget: BudgetMont
   const [editing, setEditing] = React.useState<BudgetCategoryRow | null>(null)
   const [moving, setMoving] = React.useState<{ category: BudgetCategoryRow; mode: MoveMode } | null>(null)
   const groups = budget.groups.filter((g) => !g.isIncome && (showHidden || !g.hidden))
-  const categoryActions = useCategoryActions(budget, month)
+  const categoryActions = useCategoryActions(budget, month, showHidden)
   return (
     <div className={MOBILE_TABLE}>
       <div className={cx(MOBILE_GRID, "sticky top-0 z-10 border-b border-line bg-bg py-2 text-[11px] text-muted")}>
@@ -30,12 +30,14 @@ export function MobileBudget({ budget, month, showHidden }: { budget: BudgetMont
       </div>
       {groups.map((g) => (
         <section key={g.id} className="col-span-full grid grid-cols-subgrid">
-          <div className={cx(MOBILE_GRID, "items-center border-b border-line-subtle bg-row-group py-2 text-[13px] font-medium text-fg-2")}>
-            <span className="truncate" title={g.name}>{g.name}</span>
-            <span className="num text-right text-[12px]">{formatMoney(g.budgeted, { currency: false })}</span>
-            <span className="num text-right text-[12px] text-muted">{formatSpent(g.spent, { currency: false })}</span>
-            <span className="num text-right text-[12px]">{formatMoney(g.available, { currency: false })}</span>
-          </div>
+          <ContextMenu items={categoryActions.groupActions(g)}>
+            <div className={cx(MOBILE_GRID, "items-center border-b border-line-subtle bg-row-group py-2 text-[13px] font-medium text-fg-2")}>
+              <span className="truncate" title={g.name}>{g.name}</span>
+              <span className="num text-right text-[12px]">{formatMoney(g.budgeted, { currency: false })}</span>
+              <span className="num text-right text-[12px] text-muted">{formatSpent(g.spent, { currency: false })}</span>
+              <span className="num text-right text-[12px]">{formatMoney(g.available, { currency: false })}</span>
+            </div>
+          </ContextMenu>
           {g.categories
             .filter((c) => showHidden || !c.hidden)
             .map((c) => (

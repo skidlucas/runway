@@ -2,13 +2,12 @@ import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { createFileRoute } from "@tanstack/react-router"
 import { ArrowDown, ArrowUp, Eye, EyeOff, MoreHorizontal, Plus, Trash2 } from "lucide-react"
 import * as React from "react"
-import { CategoryPicker } from "~/components/pickers"
+import { DeleteCategoriesDialog, NewGroupDialog } from "~/components/category-dialogs"
 import { PageHeader } from "~/components/shell"
-import { Button, ConfirmDialog, ContextMenu, cx, Dialog, Field, IconButton, InlineEdit, Input, Menu, type MenuItem, revealOnHover, SkeletonRows } from "~/components/ui"
+import { Button, ContextMenu, cx, IconButton, InlineEdit, Input, Menu, type MenuItem, revealOnHover, SkeletonRows } from "~/components/ui"
 import { q, useAction } from "~/lib/queries"
 import {
   createCategory,
-  createCategoryGroup,
   deleteCategory,
   deleteCategoryGroup,
   reorderCategories,
@@ -149,7 +148,7 @@ function GroupRow({
           />
         </span>
         {deleting ? (
-          <DeleteDialog
+          <DeleteCategoriesDialog
             title={`Supprimer le groupe « ${group.name} »`}
             description={`Ses ${group.categories.length} catégories seront supprimées. Leurs opérations et budgets peuvent être transférés.`}
             exclude={group.categories.map((c) => c.id)}
@@ -219,7 +218,7 @@ function CategoryRow({
           </IconButton>
         </span>
         {deleting ? (
-          <DeleteDialog
+          <DeleteCategoriesDialog
             title={`Supprimer « ${category.name} »`}
             description="Choisis où transférer ses opérations et son budget, ou laisse-les sans catégorie."
             exclude={[category.id]}
@@ -229,43 +228,6 @@ function CategoryRow({
         ) : null}
       </div>
     </ContextMenu>
-  )
-}
-
-function DeleteDialog({
-  title,
-  description,
-  exclude,
-  onConfirm,
-  onClose,
-}: {
-  title: string
-  description: string
-  exclude: string[]
-  onConfirm: (reassignTo: string | null) => Promise<unknown>
-  onClose: () => void
-}) {
-  const [target, setTarget] = React.useState<string | null>(null)
-  const run = useAction((reassignTo: string | null) => onConfirm(reassignTo), {
-    success: "Supprimé",
-    onSuccess: onClose,
-    // Operations, schedules, budgets, rules and saved views move to the replacement.
-    writes: ["categories", "transactionCategories", "schedules", "budgets", "rules", "savedViews"],
-  })
-  return (
-    <ConfirmDialog
-      onOpenChange={(o) => !o && onClose()}
-      title={title}
-      description={description}
-      pending={run.isPending}
-      onConfirm={() => run.mutate(target)}
-    >
-      <div className="px-5 py-4">
-        <Field label="Transférer vers">
-          <CategoryPicker value={target} onChange={setTarget} exclude={exclude} placeholder="Aucune (laisser sans catégorie)" />
-        </Field>
-      </div>
-    </ConfirmDialog>
   )
 }
 
@@ -300,32 +262,5 @@ function AddCategory({ groupId }: { groupId: string }) {
         Fermer
       </Button>
     </form>
-  )
-}
-
-function NewGroupDialog({ onClose }: { onClose: () => void }) {
-  const [name, setName] = React.useState("")
-  const create = useAction(createCategoryGroup, { success: "Groupe créé", onSuccess: onClose, writes: ["categories"] })
-  return (
-    <Dialog
-      open
-      onOpenChange={(o) => !o && onClose()}
-      title="Nouveau groupe"
-      width={400}
-      footer={
-        <>
-          <span />
-          <Button variant="primary" disabled={!name.trim()} loading={create.isPending} onClick={() => create.mutate({ data: { name } })}>
-            Créer
-          </Button>
-        </>
-      }
-    >
-      <div className="px-5 py-4">
-        <Field label="Nom">
-          <Input autoFocus value={name} onChange={(e) => setName(e.target.value)} />
-        </Field>
-      </div>
-    </Dialog>
   )
 }

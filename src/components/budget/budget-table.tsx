@@ -26,7 +26,7 @@ export function BudgetTable({ budget, month, showHidden }: { budget: BudgetMonth
   const editable = expenseGroups.flatMap((g) => g.categories.filter((c) => showHidden || !c.hidden).map((c) => c.id))
   const [editing, setEditing] = React.useState<string | null>(null)
   const fill = useAction(fillBudget, { success: (n) => `${count(n, "catégorie")} ${plural(n, "mise")} à jour`, writes: ["budgets"] })
-  const categoryActions = useCategoryActions(budget, month)
+  const categoryActions = useCategoryActions(budget, month, showHidden)
   const step = (id: string, next: EditStep) => {
     if (next === "open") setEditing(id)
     else if (next === "close") setEditing(null)
@@ -75,7 +75,7 @@ export function BudgetTable({ budget, month, showHidden }: { budget: BudgetMonth
       </div>
       {expenseGroups.map((g) => (
         <React.Fragment key={g.id}>
-          <GroupRow group={g} />
+          <GroupRow group={g} actions={categoryActions.groupActions(g)} />
           {g.categories
             .filter((c) => showHidden || !c.hidden)
             .map((c) => (
@@ -93,13 +93,18 @@ export function BudgetTable({ budget, month, showHidden }: { budget: BudgetMonth
       ))}
       {incomeGroups.map((g) => (
         <React.Fragment key={g.id}>
-          <div role="row" className={cx(GRID, "h-[34px] items-center border-b border-line-subtle bg-row-group px-5 font-medium text-fg-2")}>
-            <span>{g.name}</span>
-            <span />
-            <span />
-            <span className="num text-right text-[12px] text-muted">Reçu</span>
-            <span className="num text-right text-[12px]">{formatMoney(g.spent)}</span>
-          </div>
+          <ContextMenu items={categoryActions.groupActions(g)}>
+            <div
+              role="row"
+              className={cx(GRID, "h-[34px] items-center border-b border-line-subtle bg-row-group px-5 font-medium text-fg-2 data-[popup-open]:bg-hover")}
+            >
+              <span>{g.name}</span>
+              <span />
+              <span />
+              <span className="num text-right text-[12px] text-muted">Reçu</span>
+              <span className="num text-right text-[12px]">{formatMoney(g.spent)}</span>
+            </div>
+          </ContextMenu>
           {g.categories
             .filter((c) => showHidden || !c.hidden)
             .map((c) => (
@@ -120,18 +125,20 @@ export function BudgetTable({ budget, month, showHidden }: { budget: BudgetMonth
   )
 }
 
-function GroupRow({ group }: { group: BudgetGroupRow }) {
+function GroupRow({ group, actions }: { group: BudgetGroupRow; actions: MenuItem[] }) {
   return (
-    <div
-      role="row"
-      className={cx(GRID, "h-[34px] items-center border-b border-line-subtle bg-row-group px-5 font-medium text-fg-2")}
-    >
-      <span className="truncate" title={group.name}>{group.name}</span>
-      <span className="num text-right text-[12px] text-faint">{group.plannedTotal ? formatMoney(group.plannedTotal) : "—"}</span>
-      <span className="num text-right text-[12px]">{formatMoney(group.budgeted)}</span>
-      <span className="num text-right text-[12px] text-muted">{formatSpent(group.spent)}</span>
-      <span className="num text-right text-[12px]">{formatMoney(group.available)}</span>
-    </div>
+    <ContextMenu items={actions}>
+      <div
+        role="row"
+        className={cx(GRID, "h-[34px] items-center border-b border-line-subtle bg-row-group px-5 font-medium text-fg-2 data-[popup-open]:bg-hover")}
+      >
+        <span className="truncate" title={group.name}>{group.name}</span>
+        <span className="num text-right text-[12px] text-faint">{group.plannedTotal ? formatMoney(group.plannedTotal) : "—"}</span>
+        <span className="num text-right text-[12px]">{formatMoney(group.budgeted)}</span>
+        <span className="num text-right text-[12px] text-muted">{formatSpent(group.spent)}</span>
+        <span className="num text-right text-[12px]">{formatMoney(group.available)}</span>
+      </div>
+    </ContextMenu>
   )
 }
 

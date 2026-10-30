@@ -154,6 +154,51 @@ test("opens a category's and an operation's actions with a right click", async (
   await expect(row).toContainText("−42,50 €")
 })
 
+test("manages categories and groups from the budget's right click menus", async ({ page }) => {
+  await open(page, "/budget")
+  const categoryOrder = () => page.locator("[data-testid^='category-row-']").evaluateAll((rows) => rows.map((r) => r.getAttribute("data-testid")!.slice(13)))
+  const manage = async (name: string, action: string) => {
+    await page.getByTestId(`category-row-${name}`).click({ button: "right" })
+    await page.getByRole("menuitem", { name: "Gestion de la catégorie" }).click()
+    await page.getByRole("menuitem", { name: action }).click()
+  }
+
+  await page.getByRole("row").filter({ hasText: /^Quotidien/ }).click({ button: "right" })
+  await page.getByRole("menuitem", { name: "Ajouter une catégorie…" }).click()
+  const create = page.getByRole("dialog", { name: "Nouvelle catégorie dans Quotidien" })
+  await create.getByLabel("Nom").fill("Cadeaux")
+  await create.getByRole("button", { name: "Créer" }).click()
+  await waitForToast(page, "Catégorie créée")
+  await expect.poll(categoryOrder).toEqual(expect.arrayContaining(["Santé", "Cadeaux"]))
+  const before = await categoryOrder()
+  expect(before.indexOf("Cadeaux")).toBe(before.indexOf("Santé") + 1)
+
+  await manage("Cadeaux", "Monter")
+  await expect.poll(async () => (await categoryOrder()).indexOf("Cadeaux")).toBe(before.indexOf("Santé"))
+
+  await manage("Cadeaux", "Modifier…")
+  const edit = page.getByRole("dialog", { name: "Modifier la catégorie" })
+  await edit.getByLabel("Nom").fill("Fêtes")
+  await edit.getByRole("combobox", { name: "Groupe" }).click()
+  await page.getByRole("option", { name: "Loisirs" }).click()
+  await edit.getByRole("button", { name: "Enregistrer" }).click()
+  await expect(edit).toHaveCount(0)
+  await expect(page.getByTestId("category-row-Cadeaux")).toHaveCount(0)
+  await expect(page.getByTestId("category-row-Fêtes")).toBeVisible()
+
+  await page.getByRole("row").filter({ hasText: /^Loisirs/ }).click({ button: "right" })
+  await page.getByRole("menuitem", { name: "Renommer le groupe…" }).click()
+  const rename = page.getByRole("dialog", { name: "Renommer le groupe" })
+  await rename.getByLabel("Nom").fill("Détente")
+  await rename.getByLabel("Nom").press("Enter")
+  await expect(page.getByRole("row").filter({ hasText: /^Détente/ })).toBeVisible()
+
+  await manage("Fêtes", "Supprimer…")
+  await page.getByTestId("confirm-dialog-confirm").click()
+  await waitForToast(page, "Supprimé")
+  await expect(page.getByTestId("category-row-Fêtes")).toHaveCount(0)
+})
+
 test("plans an operation dated after today as a schedule, outside today's balance", async ({ page }) => {
   await openJointAccount(page)
   await page.getByRole("button", { name: "Opération", exact: true }).click()

@@ -1150,6 +1150,7 @@ export const Popover = ({
 export type MenuItem =
   | { label: string; onSelect: () => void; icon?: React.ReactNode; danger?: boolean; disabled?: boolean; shortcut?: string }
   | { separator: true }
+  | { label: string; items: ReadonlyArray<MenuItem>; icon?: React.ReactNode }
 
 export const Menu = ({
   trigger,
@@ -1246,19 +1247,34 @@ function keepNativeContextMenu(event: BaseUIEvent<React.MouseEvent<HTMLElement>>
   event.stopPropagation()
 }
 
+const menuItemClass =
+  "flex cursor-default items-center gap-2 rounded-[6px] px-2 py-1.5 outline-none data-[disabled]:opacity-40 data-[highlighted]:bg-hover"
+
 function MenuItems({ items }: { items: ReadonlyArray<MenuItem> }) {
   return items.map((item, i) =>
     "separator" in item ? (
       <BMenu.Separator key={i} className="my-1 h-px bg-line" />
+    ) : "items" in item ? (
+      <BMenu.SubmenuRoot key={i}>
+        <BMenu.SubmenuTrigger className={cx(menuItemClass, "text-fg-2 data-[popup-open]:bg-hover")}>
+          {item.icon ? <span className="text-muted">{item.icon}</span> : null}
+          <span className="flex-1">{item.label}</span>
+          <ChevronRight size={13} className="text-faint" />
+        </BMenu.SubmenuTrigger>
+        <BMenu.Portal>
+          <BMenu.Positioner alignOffset={-4} className="z-50">
+            <BMenu.Popup className={cx(popupClass, "min-w-[200px] p-1")}>
+              <MenuItems items={item.items} />
+            </BMenu.Popup>
+          </BMenu.Positioner>
+        </BMenu.Portal>
+      </BMenu.SubmenuRoot>
     ) : (
       <BMenu.Item
         key={i}
         disabled={item.disabled}
         onClick={item.onSelect}
-        className={cx(
-          "flex cursor-default items-center gap-2 rounded-[6px] px-2 py-1.5 outline-none data-[disabled]:opacity-40 data-[highlighted]:bg-hover",
-          item.danger ? "text-negative" : "text-fg-2",
-        )}
+        className={cx(menuItemClass, item.danger ? "text-negative" : "text-fg-2")}
       >
         {item.icon ? <span className="text-muted">{item.icon}</span> : null}
         <span className="flex-1">{item.label}</span>
