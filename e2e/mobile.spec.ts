@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test"
+import { expect, type Locator, type Page, test } from "@playwright/test"
 import { formatMoney } from "../src/domain/money"
 import { amountIn, cents, open, pickInCommand, visible, waitForToast } from "./helpers"
 
@@ -103,6 +103,51 @@ test("swiping an operation clears it, which moves the cleared balance", async ({
   await row.dispatchEvent("touchend", { touches: [] })
   await clear.click()
   await expect.poll(clearedBalance).toBe(before - 1240)
+})
+
+/** Holds a real finger on `target`, through the DevTools protocol: Playwright has no long press. */
+const longPress = async (page: Page, target: Locator) => {
+  // What Playwright checks before a click: the finger must land on the target, not on a page still settling.
+  await expect
+    .poll(() =>
+      target.evaluate((el) => {
+        const r = el.getBoundingClientRect()
+        const hit = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2)
+        return hit !== null && el.contains(hit)
+      }),
+    )
+    .toBe(true)
+  const box = await target.boundingBox()
+  if (!box) throw new Error("target not laid out")
+  const point = { x: box.x + box.width / 2, y: box.y + box.height / 2 }
+  const cdp = await page.context().newCDPSession(page)
+  await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [point] })
+  await page.waitForTimeout(700)
+  await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] })
+  await cdp.detach()
+}
+
+test("a long press opens a row's menu without opening the row", async ({ page }) => {
+  await open(page, "/budget")
+  await longPress(page, page.getByRole("main").getByRole("button", { name: /^Courses/ }))
+  await expect(page.getByRole("menuitem", { name: "Remettre à zéro" })).toBeVisible()
+  await expect(page.locator('[role="dialog"]')).toHaveCount(0)
+  await page.keyboard.press("Escape")
+
+  await open(page, "/wealth")
+  await longPress(page, page.getByRole("main").getByRole("button", { name: /^Compte courant/ }))
+  await page.getByRole("menuitem", { name: "Voir les opérations" }).click()
+  await expect(page).toHaveURL(/\/accounts\/[^/?]+$/)
+
+  // Cleared by the swipe of the previous test.
+  const header = page.locator("header").filter({ hasText: "Compte courant" })
+  const clearedBalance = async () => cents((await header.getByText(/^Pointé/).innerText()).replace("Pointé", ""))
+  const before = await clearedBalance()
+  await page.getByLabel("Rechercher une opération").fill("Fleuriste")
+  await longPress(page, page.getByRole("main").getByRole("button", { name: /^Fleuriste/ }))
+  await page.getByRole("menuitem", { name: "Dépointer" }).click()
+  await expect.poll(clearedBalance).toBe(before + 1240)
+  await expect(page.locator('[role="dialog"]')).toHaveCount(0)
 })
 
 test("toasts wait for an open dialog to close instead of covering its buttons", async ({ page }) => {

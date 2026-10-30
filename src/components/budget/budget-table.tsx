@@ -2,12 +2,13 @@ import { Link } from "@tanstack/react-router"
 import { MoreHorizontal, Plus } from "lucide-react"
 import * as React from "react"
 import { useAppUi } from "~/components/shell"
-import { cx, IconButton, Menu, revealOnHover, useReturnFocus } from "~/components/ui"
+import { ContextMenu, cx, IconButton, Menu, type MenuItem, revealOnHover, useReturnFocus } from "~/components/ui"
 import { amountInput, formatMoney, parseAmount } from "~/domain/money"
 import { count, plural } from "~/domain/text"
 import { useAction } from "~/lib/queries"
 import { fillBudget, setBudgetAmount } from "~/server/fns/core"
 import type { BudgetCategoryRow, BudgetGroupRow, BudgetMonthDto } from "~/server/services/budget"
+import { useCategoryActions } from "./category-actions"
 import { AvailableMenu } from "./move-money"
 import { PlannedCell } from "./planned"
 import { formatSpent } from "./spent"
@@ -25,6 +26,7 @@ export function BudgetTable({ budget, month, showHidden }: { budget: BudgetMonth
   const editable = expenseGroups.flatMap((g) => g.categories.filter((c) => showHidden || !c.hidden).map((c) => c.id))
   const [editing, setEditing] = React.useState<string | null>(null)
   const fill = useAction(fillBudget, { success: (n) => `${count(n, "catégorie")} ${plural(n, "mise")} à jour`, writes: ["budgets"] })
+  const categoryActions = useCategoryActions(budget, month)
   const step = (id: string, next: EditStep) => {
     if (next === "open") setEditing(id)
     else if (next === "close") setEditing(null)
@@ -84,6 +86,7 @@ export function BudgetTable({ budget, month, showHidden }: { budget: BudgetMonth
                 budget={budget}
                 editing={editing === c.id}
                 onEdit={(next) => step(c.id, next)}
+                actions={categoryActions.expenseActions(c)}
               />
             ))}
         </React.Fragment>
@@ -100,16 +103,19 @@ export function BudgetTable({ budget, month, showHidden }: { budget: BudgetMonth
           {g.categories
             .filter((c) => showHidden || !c.hidden)
             .map((c) => (
-              <div key={c.id} role="row" className={cx(GRID, "h-9 items-center border-b border-line-subtle pl-9 pr-5 hover:bg-hover")}>
-                <CategoryLink category={c} month={month} />
-                <span />
-                <span />
-                <span />
-                <span className="num text-right text-[12px] text-positive">{formatMoney(c.spent)}</span>
-              </div>
+              <ContextMenu key={c.id} items={categoryActions.incomeActions(c)}>
+                <div role="row" className={cx(GRID, "h-9 items-center border-b border-line-subtle pl-9 pr-5 hover:bg-hover data-[popup-open]:bg-hover")}>
+                  <CategoryLink category={c} month={month} />
+                  <span />
+                  <span />
+                  <span />
+                  <span className="num text-right text-[12px] text-positive">{formatMoney(c.spent)}</span>
+                </div>
+              </ContextMenu>
             ))}
         </React.Fragment>
       ))}
+      {categoryActions.dialogs}
     </div>
   )
 }
@@ -148,43 +154,47 @@ function CategoryRow({
   budget,
   editing,
   onEdit,
+  actions,
 }: {
   category: BudgetCategoryRow
   month: string
   budget: BudgetMonthDto
   editing: boolean
   onEdit: (next: EditStep) => void
+  actions: MenuItem[]
 }) {
   const { openNewTransaction } = useAppUi()
   return (
-    <div
-      role="row"
-      data-testid={`category-row-${category.name}`}
-      className={cx(GRID, "group h-9 items-center border-b border-line-subtle pl-9 pr-5 hover:bg-hover")}
-    >
-      <span className="flex min-w-0 items-center gap-2">
-        <CategoryLink category={category} month={month} />
-        {category.carryover ? (
-          <span className="text-[11px] text-faint" title="Le dépassement est reporté sur le mois suivant">
-            ↻
-          </span>
-        ) : null}
-        <button
-          type="button"
-          className={cx("text-faint hover:text-fg", revealOnHover)}
-          aria-label={`Ajouter une opération dans ${category.name}`}
-          onClick={() => openNewTransaction({ categoryId: category.id })}
-        >
-          <Plus size={13} />
-        </button>
-      </span>
-      <PlannedCell category={category} month={month} />
-      <BudgetedCell category={category} month={month} editing={editing} onEdit={onEdit} />
-      <span className="num text-right text-[12px] text-muted">{formatSpent(category.spent)}</span>
-      <span className="flex justify-end">
-        <AvailableMenu category={category} month={month} budget={budget} />
-      </span>
-    </div>
+    <ContextMenu items={actions}>
+      <div
+        role="row"
+        data-testid={`category-row-${category.name}`}
+        className={cx(GRID, "group h-9 items-center border-b border-line-subtle pl-9 pr-5 hover:bg-hover data-[popup-open]:bg-hover")}
+      >
+        <span className="flex min-w-0 items-center gap-2">
+          <CategoryLink category={category} month={month} />
+          {category.carryover ? (
+            <span className="text-[11px] text-faint" title="Le dépassement est reporté sur le mois suivant">
+              ↻
+            </span>
+          ) : null}
+          <button
+            type="button"
+            className={cx("text-faint hover:text-fg", revealOnHover)}
+            aria-label={`Ajouter une opération dans ${category.name}`}
+            onClick={() => openNewTransaction({ categoryId: category.id })}
+          >
+            <Plus size={13} />
+          </button>
+        </span>
+        <PlannedCell category={category} month={month} />
+        <BudgetedCell category={category} month={month} editing={editing} onEdit={onEdit} />
+        <span className="num text-right text-[12px] text-muted">{formatSpent(category.spent)}</span>
+        <span className="flex justify-end">
+          <AvailableMenu category={category} month={month} budget={budget} />
+        </span>
+      </div>
+    </ContextMenu>
   )
 }
 

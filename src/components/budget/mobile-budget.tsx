@@ -1,9 +1,10 @@
 import * as React from "react"
-import { AmountPill, Button, cx, Dialog, Field, Input } from "~/components/ui"
+import { AmountPill, Button, ContextMenu, cx, Dialog, Field, Input } from "~/components/ui"
 import { amountInput, formatMoney, parseAmount } from "~/domain/money"
 import { useAction } from "~/lib/queries"
 import { setBudgetAmount } from "~/server/fns/core"
 import type { BudgetCategoryRow, BudgetMonthDto } from "~/server/services/budget"
+import { useCategoryActions } from "./category-actions"
 import { type MoveMode, MoveMoneyDialog } from "./move-money"
 import { PlannedDetail, PlannedStatusNote, StatusIcon, statusOf } from "./planned"
 import { formatSpent } from "./spent"
@@ -18,6 +19,7 @@ export function MobileBudget({ budget, month, showHidden }: { budget: BudgetMont
   const [editing, setEditing] = React.useState<BudgetCategoryRow | null>(null)
   const [moving, setMoving] = React.useState<{ category: BudgetCategoryRow; mode: MoveMode } | null>(null)
   const groups = budget.groups.filter((g) => !g.isIncome && (showHidden || !g.hidden))
+  const categoryActions = useCategoryActions(budget, month)
   return (
     <div className={MOBILE_TABLE}>
       <div className={cx(MOBILE_GRID, "sticky top-0 z-10 border-b border-line bg-bg py-2 text-[11px] text-muted")}>
@@ -37,22 +39,23 @@ export function MobileBudget({ budget, month, showHidden }: { budget: BudgetMont
           {g.categories
             .filter((c) => showHidden || !c.hidden)
             .map((c) => (
-              <button
-                key={c.id}
-                type="button"
-                onClick={() => setEditing(c)}
-                className={cx(MOBILE_GRID, "min-h-12 w-full items-center border-b border-line-subtle py-2 text-left")}
-              >
-                <span className="flex min-w-0 items-center gap-1.5">
-                  <span className="line-clamp-2 break-words text-[14px] leading-tight">{c.name}</span>
-                  <StatusIcon status={statusOf(c)} size={13} />
-                </span>
-                <span className="num text-right text-[12px]">{formatMoney(c.budgeted, { currency: false })}</span>
-                <span className="num text-right text-[12px] text-muted">{formatSpent(c.spent, { currency: false })}</span>
-                <span className="flex justify-end">
-                  <AmountPill value={c.available} currency={false} />
-                </span>
-              </button>
+              <ContextMenu key={c.id} items={categoryActions.expenseActions(c)}>
+                <button
+                  type="button"
+                  onClick={() => setEditing(c)}
+                  className={cx(MOBILE_GRID, "min-h-12 w-full items-center border-b border-line-subtle py-2 text-left")}
+                >
+                  <span className="flex min-w-0 items-center gap-1.5">
+                    <span className="line-clamp-2 break-words text-[14px] leading-tight">{c.name}</span>
+                    <StatusIcon status={statusOf(c)} size={13} />
+                  </span>
+                  <span className="num text-right text-[12px]">{formatMoney(c.budgeted, { currency: false })}</span>
+                  <span className="num text-right text-[12px] text-muted">{formatSpent(c.spent, { currency: false })}</span>
+                  <span className="flex justify-end">
+                    <AmountPill value={c.available} currency={false} />
+                  </span>
+                </button>
+              </ContextMenu>
             ))}
         </section>
       ))}
@@ -67,6 +70,7 @@ export function MobileBudget({ budget, month, showHidden }: { budget: BudgetMont
           }}
         />
       ) : null}
+      {categoryActions.dialogs}
       {moving ? (
         <MoveMoneyDialog mode={moving.mode} category={moving.category} month={month} budget={budget} onClose={() => setMoving(null)} />
       ) : null}

@@ -1,8 +1,8 @@
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query"
 import { createFileRoute, useNavigate } from "@tanstack/react-router"
-import { Lock, MoreHorizontal, Pencil, Plus, Trash2 } from "lucide-react"
+import { MoreHorizontal, Plus } from "lucide-react"
 import * as React from "react"
-import { EditAccountDialog, ReconcileDialog } from "~/components/account-dialogs"
+import { useAccountActions } from "~/components/account-dialogs"
 import { SuggestButton, SuggestionsBar, SuggestionsProvider, useCategorySuggestions } from "~/components/category-suggestions"
 import { AccountSummary, MobileAccountSummary } from "~/components/register/account-summary"
 import { BulkBar } from "~/components/register/bulk-bar"
@@ -10,12 +10,11 @@ import { isFiltered, NO_SCHEDULED, type RegisterSearch, scheduledFilterOf, txFil
 import { MobileList } from "~/components/register/mobile-list"
 import { TransactionTable } from "~/components/register/transaction-table"
 import { PageHeader, useAppUi } from "~/components/shell"
-import { Button, EmptyState, IconButton, Menu, RemovableChip, SearchInput, SkeletonRows, useConfirm } from "~/components/ui"
+import { Button, EmptyState, IconButton, Menu, RemovableChip, SearchInput, SkeletonRows } from "~/components/ui"
 import { formatMonthLong } from "~/domain/dates"
 import { count } from "~/domain/text"
 import { shortcutBlocked, useDebounced, useIsMobile } from "~/lib/hooks"
-import { q, useAction, useCategoryName } from "~/lib/queries"
-import { deleteAccount, setAccountClosed } from "~/server/fns/core"
+import { q, useCategoryName } from "~/lib/queries"
 import type { TxPage } from "~/server/services/transactions"
 
 export const Route = createFileRoute("/_app/accounts/$accountId")({
@@ -54,7 +53,6 @@ function AccountPage({ accountId }: { accountId: string }) {
   const [text, setText] = React.useState(search.q ?? "")
   const debounced = useDebounced(text, 250)
   const [selected, setSelected] = React.useState<Set<string>>(new Set())
-  const [dialog, setDialog] = React.useState<null | "edit-account" | "reconcile">(null)
   const mobile = useIsMobile()
   const searchRef = React.useRef<HTMLInputElement>(null)
   const { openNewTransaction } = useAppUi()
@@ -93,13 +91,7 @@ function AccountPage({ accountId }: { accountId: string }) {
     return () => window.removeEventListener("keydown", onKey)
   }, [])
 
-  const { confirm, dialog: confirmDialog } = useConfirm()
-  const closeAccount = useAction(setAccountClosed, { success: "Compte mis à jour", writes: ["accounts"] })
-  const removeAccount = useAction(deleteAccount, {
-    success: "Compte supprimé",
-    writes: ["everything"],
-    onSuccess: () => void navigate({ to: "/accounts" }),
-  })
+  const accountActions = useAccountActions({ onRemoved: () => void navigate({ to: "/accounts" }) })
 
   const categoryName = useCategoryName(search.categoryId)
   const title = all ? "Toutes les opérations" : (account?.name ?? "Compte")
@@ -128,7 +120,7 @@ function AccountPage({ accountId }: { accountId: string }) {
             </Button>
             {account ? (
               <>
-                <Button onClick={() => setDialog("reconcile")} className="max-md:hidden">
+                <Button onClick={() => accountActions.openDialog("reconcile", account)} className="max-md:hidden">
                   Rapprocher
                 </Button>
                 <Menu
@@ -137,26 +129,7 @@ function AccountPage({ accountId }: { accountId: string }) {
                       <MoreHorizontal size={15} />
                     </IconButton>
                   }
-                  items={[
-                    { label: "Modifier le compte", icon: <Pencil size={13} />, onSelect: () => setDialog("edit-account") },
-                    { label: "Rapprocher", icon: <Lock size={13} />, onSelect: () => setDialog("reconcile") },
-                    {
-                      label: account.closed ? "Rouvrir le compte" : "Clôturer le compte",
-                      onSelect: () => closeAccount.mutate({ data: { id: account.id, closed: !account.closed } }),
-                    },
-                    { separator: true },
-                    {
-                      label: "Supprimer le compte",
-                      danger: true,
-                      icon: <Trash2 size={13} />,
-                      onSelect: async () => {
-                        const ok = await confirm({
-                          title: `Supprimer « ${account.name} »${account.transactionCount === 1 ? " et son opération" : account.transactionCount > 1 ? ` et ses ${count(account.transactionCount, "opération")}` : ""} ?`,
-                        })
-                        if (ok) removeAccount.mutate({ data: { id: account.id } })
-                      },
-                    },
-                  ]}
+                  items={accountActions.actionsFor(account)}
                 />
               </>
             ) : null}
@@ -227,9 +200,7 @@ function AccountPage({ accountId }: { accountId: string }) {
           </Button>
         </div>
       ) : null}
-      {dialog === "edit-account" && account ? <EditAccountDialog account={account} onClose={() => setDialog(null)} /> : null}
-      {dialog === "reconcile" && account ? <ReconcileDialog account={account} onClose={() => setDialog(null)} /> : null}
-      {confirmDialog}
+      {accountActions.dialogs}
     </>
   )
 }

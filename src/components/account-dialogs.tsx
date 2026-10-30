@@ -1,11 +1,14 @@
+import { useQuery } from "@tanstack/react-query"
+import { Lock, Pencil, Trash2 } from "lucide-react"
 import * as React from "react"
 import { amountInput, formatMoney, parseAmount } from "~/domain/money"
+import { count } from "~/domain/text"
 import { localToday } from "~/lib/hooks"
-import { useAction } from "~/lib/queries"
-import { createAccount, reconcileAccount, updateAccount } from "~/server/fns/core"
+import { q, useAction } from "~/lib/queries"
+import { createAccount, deleteAccount, reconcileAccount, setAccountClosed, updateAccount } from "~/server/fns/core"
 import { ACCOUNT_KINDS, type AccountKind } from "~/domain/accounts"
 import type { AccountDto } from "~/server/services/accounts"
-import { Button, DateInput, Dialog, Field, Input, Select, Switch } from "./ui"
+import { Button, DateInput, Dialog, Field, Input, type MenuItem, Select, Switch, useConfirm } from "./ui"
 
 const ACCOUNT_KIND_LABELS: Record<AccountKind, string> = {
   checking: "Compte courant",
@@ -15,6 +18,49 @@ const ACCOUNT_KIND_LABELS: Record<AccountKind, string> = {
   other: "Autre",
 }
 const ACCOUNT_KIND_OPTIONS = ACCOUNT_KINDS.map((value) => ({ value, label: ACCOUNT_KIND_LABELS[value] }))
+
+type AccountDialog = "edit" | "reconcile"
+
+/** The actions on an account, shared by its page and the sidebar. `dialogs` must be rendered by the caller. */
+export function useAccountActions({ onRemoved }: { onRemoved?: (id: string) => void } = {}) {
+  const accounts = useQuery(q.accounts())
+  const [opened, setOpened] = React.useState<{ kind: AccountDialog; id: string } | null>(null)
+  const { confirm, dialog: confirmDialog } = useConfirm()
+  const close = useAction(setAccountClosed, { success: "Compte mis à jour", writes: ["accounts"] })
+  const remove = useAction(deleteAccount, { success: "Compte supprimé", writes: ["everything"] })
+  const openDialog = (kind: AccountDialog, account: AccountDto) => setOpened({ kind, id: account.id })
+  const account = opened && accounts.data?.find((a) => a.id === opened.id)
+
+  const actionsFor = (account: AccountDto): MenuItem[] => [
+    { label: "Modifier le compte", icon: <Pencil size={13} />, onSelect: () => openDialog("edit", account) },
+    { label: "Rapprocher", icon: <Lock size={13} />, onSelect: () => openDialog("reconcile", account) },
+    {
+      label: account.closed ? "Rouvrir le compte" : "Clôturer le compte",
+      onSelect: () => close.mutate({ data: { id: account.id, closed: !account.closed } }),
+    },
+    { separator: true },
+    {
+      label: "Supprimer le compte",
+      danger: true,
+      icon: <Trash2 size={13} />,
+      onSelect: async () => {
+        const ok = await confirm({
+          title: `Supprimer « ${account.name} »${account.transactionCount === 1 ? " et son opération" : account.transactionCount > 1 ? ` et ses ${count(account.transactionCount, "opération")}` : ""} ?`,
+        })
+        if (ok) remove.mutate({ data: { id: account.id } }, { onSuccess: () => onRemoved?.(account.id) })
+      },
+    },
+  ]
+
+  const dialogs = (
+    <>
+      {opened?.kind === "edit" && account ? <EditAccountDialog account={account} onClose={() => setOpened(null)} /> : null}
+      {opened?.kind === "reconcile" && account ? <ReconcileDialog account={account} onClose={() => setOpened(null)} /> : null}
+      {confirmDialog}
+    </>
+  )
+  return { actionsFor, openDialog, dialogs }
+}
 
 export function CreateAccountDialog({ onClose, onCreated }: { onClose: () => void; onCreated?: (id: string) => void }) {
   const [name, setName] = React.useState("")

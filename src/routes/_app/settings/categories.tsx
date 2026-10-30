@@ -4,7 +4,7 @@ import { ArrowDown, ArrowUp, Eye, EyeOff, MoreHorizontal, Plus, Trash2 } from "l
 import * as React from "react"
 import { CategoryPicker } from "~/components/pickers"
 import { PageHeader } from "~/components/shell"
-import { Button, ConfirmDialog, cx, Dialog, Field, IconButton, InlineEdit, Input, Menu, revealOnHover, SkeletonRows } from "~/components/ui"
+import { Button, ConfirmDialog, ContextMenu, cx, Dialog, Field, IconButton, InlineEdit, Input, Menu, type MenuItem, revealOnHover, SkeletonRows } from "~/components/ui"
 import { q, useAction } from "~/lib/queries"
 import {
   createCategory,
@@ -118,46 +118,54 @@ function GroupRow({
 }) {
   const update = useAction(updateCategoryGroup, { writes: ["categories"] })
   const [deleting, setDeleting] = React.useState(false)
+  const actions: MenuItem[] = [
+    {
+      label: group.hidden ? "Afficher" : "Masquer",
+      icon: group.hidden ? <Eye size={13} /> : <EyeOff size={13} />,
+      onSelect: () => update.mutate({ data: { id: group.id, hidden: !group.hidden } }),
+    },
+    { label: "Supprimer…", danger: true, icon: <Trash2 size={13} />, onSelect: () => setDeleting(true) },
+  ]
   return (
-    <div className="group flex h-[34px] items-center gap-2 border-b border-line-subtle bg-row-group px-5 font-medium text-fg-2">
-      <InlineName value={group.name} onSave={(name) => update.mutate({ data: { id: group.id, name } })} />
-      {group.isIncome ? <span className="text-[11px] font-normal text-faint">revenus</span> : null}
-      {group.hidden ? <span className="text-[11px] font-normal text-faint">masqué</span> : null}
-      <span className={cx("ml-auto flex items-center gap-1", revealOnHover)}>
-        <IconButton label="Monter" size="sm" disabled={!canUp} onClick={() => onMove(-1)}>
-          <ArrowUp size={13} />
-        </IconButton>
-        <IconButton label="Descendre" size="sm" disabled={!canDown} onClick={() => onMove(1)}>
-          <ArrowDown size={13} />
-        </IconButton>
-        <Menu
-          trigger={
-            <IconButton label="Actions du groupe" size="sm">
-              <MoreHorizontal size={13} />
-            </IconButton>
-          }
-          items={[
-            {
-              label: group.hidden ? "Afficher" : "Masquer",
-              icon: group.hidden ? <Eye size={13} /> : <EyeOff size={13} />,
-              onSelect: () => update.mutate({ data: { id: group.id, hidden: !group.hidden } }),
-            },
-            { label: "Supprimer…", danger: true, icon: <Trash2 size={13} />, onSelect: () => setDeleting(true) },
-          ]}
-        />
-      </span>
-      {deleting ? (
-        <DeleteDialog
-          title={`Supprimer le groupe « ${group.name} »`}
-          description={`Ses ${group.categories.length} catégories seront supprimées. Leurs opérations et budgets peuvent être transférés.`}
-          exclude={group.categories.map((c) => c.id)}
-          onConfirm={(reassignTo) => deleteCategoryGroup({ data: { id: group.id, reassignTo } })}
-          onClose={() => setDeleting(false)}
-        />
-      ) : null}
-    </div>
+    <ContextMenu items={[...moveItems(canUp, canDown, onMove), { separator: true }, ...actions]}>
+      <div className="group flex h-[34px] items-center gap-2 border-b border-line-subtle bg-row-group px-5 font-medium text-fg-2 data-[popup-open]:bg-hover">
+        <InlineName value={group.name} onSave={(name) => update.mutate({ data: { id: group.id, name } })} />
+        {group.isIncome ? <span className="text-[11px] font-normal text-faint">revenus</span> : null}
+        {group.hidden ? <span className="text-[11px] font-normal text-faint">masqué</span> : null}
+        <span className={cx("ml-auto flex items-center gap-1", revealOnHover)}>
+          <IconButton label="Monter" size="sm" disabled={!canUp} onClick={() => onMove(-1)}>
+            <ArrowUp size={13} />
+          </IconButton>
+          <IconButton label="Descendre" size="sm" disabled={!canDown} onClick={() => onMove(1)}>
+            <ArrowDown size={13} />
+          </IconButton>
+          <Menu
+            trigger={
+              <IconButton label="Actions du groupe" size="sm">
+                <MoreHorizontal size={13} />
+              </IconButton>
+            }
+            items={actions}
+          />
+        </span>
+        {deleting ? (
+          <DeleteDialog
+            title={`Supprimer le groupe « ${group.name} »`}
+            description={`Ses ${group.categories.length} catégories seront supprimées. Leurs opérations et budgets peuvent être transférés.`}
+            exclude={group.categories.map((c) => c.id)}
+            onConfirm={(reassignTo) => deleteCategoryGroup({ data: { id: group.id, reassignTo } })}
+            onClose={() => setDeleting(false)}
+          />
+        ) : null}
+      </div>
+    </ContextMenu>
   )
 }
+
+const moveItems = (canUp: boolean, canDown: boolean, onMove: (delta: number) => void): MenuItem[] => [
+  { label: "Monter", icon: <ArrowUp size={13} />, onSelect: () => onMove(-1), disabled: !canUp },
+  { label: "Descendre", icon: <ArrowDown size={13} />, onSelect: () => onMove(1), disabled: !canDown },
+]
 
 function CategoryRow({
   category,
@@ -173,41 +181,54 @@ function CategoryRow({
   const update = useAction(updateCategory, { writes: ["categories"] })
   const [deleting, setDeleting] = React.useState(false)
   return (
-    <div data-testid="category-settings-row" className="group flex h-9 items-center gap-2 border-b border-line-subtle pl-9 pr-5 hover:bg-hover">
-      <InlineName
-        value={category.name}
-        className={category.hidden ? "text-faint" : ""}
-        onSave={(name) => update.mutate({ data: { id: category.id, name } })}
-      />
-      {category.hidden ? <span className="text-[11px] text-faint">masquée</span> : null}
-      <span className={cx("ml-auto flex items-center gap-1", revealOnHover)}>
-        <IconButton label="Monter" size="sm" disabled={!canUp} onClick={() => onMove(-1)}>
-          <ArrowUp size={13} />
-        </IconButton>
-        <IconButton label="Descendre" size="sm" disabled={!canDown} onClick={() => onMove(1)}>
-          <ArrowDown size={13} />
-        </IconButton>
-        <IconButton
-          label={category.hidden ? "Afficher" : "Masquer"}
-          size="sm"
-          onClick={() => update.mutate({ data: { id: category.id, hidden: !category.hidden } })}
-        >
-          {category.hidden ? <Eye size={13} /> : <EyeOff size={13} />}
-        </IconButton>
-        <IconButton label="Supprimer" size="sm" onClick={() => setDeleting(true)}>
-          <Trash2 size={13} />
-        </IconButton>
-      </span>
-      {deleting ? (
-        <DeleteDialog
-          title={`Supprimer « ${category.name} »`}
-          description="Choisis où transférer ses opérations et son budget, ou laisse-les sans catégorie."
-          exclude={[category.id]}
-          onConfirm={(reassignTo) => deleteCategory({ data: { id: category.id, reassignTo } })}
-          onClose={() => setDeleting(false)}
+    <ContextMenu
+      items={[
+        ...moveItems(canUp, canDown, onMove),
+        { separator: true },
+        {
+          label: category.hidden ? "Afficher" : "Masquer",
+          icon: category.hidden ? <Eye size={13} /> : <EyeOff size={13} />,
+          onSelect: () => update.mutate({ data: { id: category.id, hidden: !category.hidden } }),
+        },
+        { label: "Supprimer…", danger: true, icon: <Trash2 size={13} />, onSelect: () => setDeleting(true) },
+      ]}
+    >
+      <div data-testid="category-settings-row" className="group flex h-9 items-center gap-2 border-b border-line-subtle pl-9 pr-5 hover:bg-hover data-[popup-open]:bg-hover">
+        <InlineName
+          value={category.name}
+          className={category.hidden ? "text-faint" : ""}
+          onSave={(name) => update.mutate({ data: { id: category.id, name } })}
         />
-      ) : null}
-    </div>
+        {category.hidden ? <span className="text-[11px] text-faint">masquée</span> : null}
+        <span className={cx("ml-auto flex items-center gap-1", revealOnHover)}>
+          <IconButton label="Monter" size="sm" disabled={!canUp} onClick={() => onMove(-1)}>
+            <ArrowUp size={13} />
+          </IconButton>
+          <IconButton label="Descendre" size="sm" disabled={!canDown} onClick={() => onMove(1)}>
+            <ArrowDown size={13} />
+          </IconButton>
+          <IconButton
+            label={category.hidden ? "Afficher" : "Masquer"}
+            size="sm"
+            onClick={() => update.mutate({ data: { id: category.id, hidden: !category.hidden } })}
+          >
+            {category.hidden ? <Eye size={13} /> : <EyeOff size={13} />}
+          </IconButton>
+          <IconButton label="Supprimer" size="sm" onClick={() => setDeleting(true)}>
+            <Trash2 size={13} />
+          </IconButton>
+        </span>
+        {deleting ? (
+          <DeleteDialog
+            title={`Supprimer « ${category.name} »`}
+            description="Choisis où transférer ses opérations et son budget, ou laisse-les sans catégorie."
+            exclude={[category.id]}
+            onConfirm={(reassignTo) => deleteCategory({ data: { id: category.id, reassignTo } })}
+            onClose={() => setDeleting(false)}
+          />
+        ) : null}
+      </div>
+    </ContextMenu>
   )
 }
 

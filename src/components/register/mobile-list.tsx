@@ -1,17 +1,15 @@
 import { Check, MoreHorizontal, SkipForward } from "lucide-react"
 import * as React from "react"
 import { SuggestionChip } from "~/components/category-suggestions"
-import { TransactionEditor, useDeleteTransactions } from "~/components/transaction-editor"
-import { cx, IconButton, Menu, Money } from "~/components/ui"
+import { ContextMenu, cx, IconButton, Menu, type MenuItem, Money } from "~/components/ui"
 import { formatDayShort } from "~/domain/dates"
 import { useToday } from "~/lib/hooks"
-import { patchTransactionRows, useAction } from "~/lib/queries"
 import { useWindowList } from "~/lib/use-window-list"
-import { setTransactionsCleared } from "~/server/fns/core"
 import type { ScheduledRow } from "~/server/services/schedules"
 import type { TxRow } from "~/server/services/transactions"
 import { ClearedMark } from "./cleared-mark"
 import { interleave, scheduledKey, useScheduledRow } from "./scheduled"
+import { useTransactionActions } from "./transaction-actions"
 
 type MobileLine = { kind: "tx"; tx: TxRow } | { kind: "scheduled"; row: ScheduledRow }
 
@@ -27,12 +25,7 @@ export function MobileList({
   onReachEnd: () => void
 }) {
   const today = useToday()
-  const [editing, setEditing] = React.useState<TxRow | null>(null)
-  const remove = useDeleteTransactions()
-  const cleared = useAction(setTransactionsCleared, {
-    writes: ["cleared"],
-    optimistic: ({ data }, client) => patchTransactionRows(client, data.ids, { cleared: data.cleared }),
-  })
+  const txActions = useTransactionActions({ today, splitsOf: (tx) => childrenByParent[tx.id] })
   const lines = React.useMemo(
     () => interleave<MobileLine>(rows, scheduled, (tx) => [{ kind: "tx", tx }], (row) => ({ kind: "scheduled", row })),
     [rows, scheduled],
@@ -64,7 +57,8 @@ export function MobileList({
                 <MobileScheduledRow row={line.row} />
               ) : (
                 <SwipeRow
-                  onOpen={() => setEditing(line.tx)}
+                  onOpen={() => txActions.open("edit", line.tx)}
+                  menu={txActions.actionsFor(line.tx)}
                   actions={[
                     ...(line.tx.reconciled
                       ? []
@@ -72,13 +66,13 @@ export function MobileList({
                           {
                             label: line.tx.cleared ? "Dépointer" : "Pointer",
                             tone: "accent" as const,
-                            run: () => cleared.mutate({ data: { ids: [line.tx.id], cleared: !line.tx.cleared } }),
+                            run: () => txActions.toggleCleared(line.tx),
                           },
                         ]),
-                    { label: "Supprimer", tone: "danger", run: () => remove.mutate([line.tx.id]) },
+                    { label: "Supprimer", tone: "danger", run: () => txActions.remove.mutate([line.tx.id]) },
                   ]}
                 >
-                  <button type="button" onClick={() => setEditing(line.tx)} className="flex min-w-0 flex-1 flex-col gap-0.5 text-left">
+                  <button type="button" onClick={() => txActions.open("edit", line.tx)} className="flex min-w-0 flex-1 flex-col gap-0.5 text-left">
                     <span className={cx("truncate font-medium", line.tx.date > today && "text-muted")}>{line.tx.payeeName ?? line.tx.notes ?? "—"}</span>
                     <span className={cx("truncate text-[12px] text-faint", !line.tx.categoryId && !line.tx.transferAccountId && !line.tx.isParent && !line.tx.offBudget && "text-warning")}>
                       {formatDayShort(line.tx.date)}
@@ -101,14 +95,18 @@ export function MobileList({
           )
         })}
       </div>
-      {editing ? <TransactionEditor tx={editing} splits={childrenByParent[editing.id]} onClose={() => setEditing(null)} /> : null}
+      {txActions.dialogs}
     </div>
   )
 }
 
 function MobileScheduledRow({ row }: { row: ScheduledRow }) {
   const s = useScheduledRow(row)
-  return (
+  const actions: MenuItem[] = [
+    { label: "Enregistrer", icon: <Check size={13} />, onSelect: s.post, disabled: s.busy },
+    { label: "Passer", icon: <SkipForward size={13} />, onSelect: s.skip, disabled: s.busy },
+  ]
+  const line = (
     <div data-testid="scheduled-row" className="flex items-center gap-3 border-b border-line-subtle px-5 py-3 text-muted">
       <div className="flex min-w-0 flex-1 flex-col gap-0.5">
         <span className="truncate font-medium italic" title={row.name}>{row.name}</span>
@@ -124,25 +122,26 @@ function MobileScheduledRow({ row }: { row: ScheduledRow }) {
               <MoreHorizontal size={15} />
             </IconButton>
           }
-          items={[
-            { label: "Enregistrer", icon: <Check size={13} />, onSelect: s.post },
-            { label: "Passer", icon: <SkipForward size={13} />, onSelect: s.skip },
-          ]}
+          items={actions}
         />
       ) : null}
       {s.confirmDialog}
     </div>
   )
+  return row.next ? <ContextMenu items={actions}>{line}</ContextMenu> : line
 }
 
 /** A list row that reveals actions when swiped to the left. */
 function SwipeRow({
   children,
   actions,
+  menu,
   onOpen,
 }: {
   children: React.ReactNode
   actions: Array<{ label: string; tone: "accent" | "danger"; run: () => void }>
+  /** Opened by a long press. */
+  menu: MenuItem[]
   onOpen: () => void
 }) {
   const [offset, setOffset] = React.useState(0)
@@ -167,31 +166,33 @@ function SwipeRow({
         ))}
       </div>
       {/* Not a button itself: it holds the row's own buttons. Keyboard users open the row through the payee button. */}
-      <div
-        className="relative flex items-center gap-3 bg-bg px-5 py-[11px] transition-transform duration-150"
-        style={{ transform: `translateX(${offset}px)` }}
-        onTouchStart={(e) => {
-          const t = e.touches[0]
-          if (t) start.current = { x: t.clientX, y: t.clientY, base: offset }
-        }}
-        onTouchMove={(e) => {
-          const t = e.touches[0]
-          if (!t || !start.current) return
-          const dx = t.clientX - start.current.x
-          if (Math.abs(dx) < Math.abs(t.clientY - start.current.y)) return
-          setOffset(Math.max(-width, Math.min(0, start.current.base + dx)))
-        }}
-        onTouchEnd={() => {
-          setOffset((o) => (o < -width / 2 ? -width : 0))
-          start.current = null
-        }}
-        onClick={(e) => {
-          if (offset !== 0) setOffset(0)
-          else if (!(e.target as HTMLElement).closest("button")) onOpen()
-        }}
-      >
-        {children}
-      </div>
+      <ContextMenu items={menu}>
+        <div
+          className="relative flex items-center gap-3 bg-bg px-5 py-[11px] transition-transform duration-150"
+          style={{ transform: `translateX(${offset}px)` }}
+          onTouchStart={(e) => {
+            const t = e.touches[0]
+            if (t) start.current = { x: t.clientX, y: t.clientY, base: offset }
+          }}
+          onTouchMove={(e) => {
+            const t = e.touches[0]
+            if (!t || !start.current) return
+            const dx = t.clientX - start.current.x
+            if (Math.abs(dx) < Math.abs(t.clientY - start.current.y)) return
+            setOffset(Math.max(-width, Math.min(0, start.current.base + dx)))
+          }}
+          onTouchEnd={() => {
+            setOffset((o) => (o < -width / 2 ? -width : 0))
+            start.current = null
+          }}
+          onClick={(e) => {
+            if (offset !== 0) setOffset(0)
+            else if (!(e.target as HTMLElement).closest("button")) onOpen()
+          }}
+        >
+          {children}
+        </div>
+      </ContextMenu>
     </div>
   )
 }

@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query"
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router"
-import { MoreHorizontal, Pencil, Plus, RefreshCw, Trash2 } from "lucide-react"
+import { List, MoreHorizontal, Pencil, Plus, RefreshCw, Trash2 } from "lucide-react"
 import * as React from "react"
 import { AssetDialog } from "~/components/asset-dialog"
 import { LineChart, Sparkline } from "~/components/charts"
@@ -8,7 +8,7 @@ import { creditOf, DataCredit } from "~/components/data-credit"
 import { LoanScheduleDialog } from "~/components/loan-schedule"
 import { PageHeader } from "~/components/shell"
 import { toast } from "~/components/toast"
-import { Button, Chip, cx, DateInput, EmptyState, heroAmountClass, IconButton, Input, Menu, Money, SectionTitle, Segmented, Sheet, SkeletonRows, Tabs, useConfirm } from "~/components/ui"
+import { Button, Chip, ContextMenu, cx, DateInput, EmptyState, heroAmountClass, IconButton, Input, Menu, type MenuItem, Money, SectionTitle, Segmented, Sheet, SkeletonRows, Tabs, useConfirm } from "~/components/ui"
 import { addDays, type Day, formatDayLong, formatDayShort, formatMonthLong, formatMonthShort, type Month } from "~/domain/dates"
 import { formatMoney, formatPercent, formatUnitPrice, parseAmount } from "~/domain/money"
 import {
@@ -108,6 +108,38 @@ function WealthPage() {
   const refreshAll = () =>
     refresh.mutate({ data: { ids: items.filter((i) => isAutomaticSource(i.source)).map((i) => i.id) } }, { onSuccess: toastRefresh })
 
+  const remove = useAction(deleteAsset, { success: "Bien supprimé", writes: ["assets"] })
+  const { confirm, dialog: confirmDialog } = useConfirm()
+  const actionsFor = (item: WealthItem): MenuItem[] =>
+    item.kind === "account"
+      ? [
+          {
+            label: "Voir les opérations",
+            icon: <List size={13} />,
+            onSelect: () => void navigate({ to: "/accounts/$accountId", params: { accountId: item.id } }),
+          },
+        ]
+      : [
+          { label: "Modifier", icon: <Pencil size={13} />, onSelect: () => setDialog({ item }) },
+          ...(isAutomaticSource(item.source)
+            ? [
+                {
+                  label: "Mettre à jour l'estimation",
+                  icon: <RefreshCw size={13} />,
+                  onSelect: () => refresh.mutate({ data: { ids: [item.id] } }, { onSuccess: toastRefresh }),
+                  disabled: refresh.isPending,
+                },
+              ]
+            : []),
+          { separator: true },
+          {
+            label: "Supprimer",
+            danger: true,
+            icon: <Trash2 size={13} />,
+            onSelect: async () => (await confirm({ title: `Supprimer « ${item.name} » et son historique ?` })) && remove.mutate({ data: { id: item.id } }),
+          },
+        ]
+
   return (
     <>
       <PageHeader
@@ -132,7 +164,7 @@ function WealthPage() {
       {!data ? (
         <SkeletonRows rows={10} height={46} />
       ) : mobile ? (
-        <MobileWealth data={data} items={items} allExcluded={allExcluded} onOpen={(i) => setSelectedId(i.id)} openId={selectedId} onClose={() => setSelectedId(null)} onEdit={(item) => setDialog({ item })} />
+        <MobileWealth data={data} items={items} allExcluded={allExcluded} onOpen={(i) => setSelectedId(i.id)} openId={selectedId} onClose={() => setSelectedId(null)} onEdit={(item) => setDialog({ item })} actionsFor={actionsFor} />
       ) : (
         <div className="grid min-h-[calc(100vh-48px)] grid-cols-[minmax(0,1fr)_340px] max-[1100px]:grid-cols-1">
           <div className="flex min-w-0 flex-col border-r border-line max-[1100px]:border-r-0">
@@ -158,9 +190,9 @@ function WealthPage() {
                 />
               )
             ) : type === "crypto" ? (
-              <CryptoTable items={shown} selectedId={selected?.id ?? null} onSelect={(i) => setSelectedId(i.id)} today={data.today} />
+              <CryptoTable items={shown} selectedId={selected?.id ?? null} onSelect={(i) => setSelectedId(i.id)} actionsFor={actionsFor} today={data.today} />
             ) : (
-              <AssetTable items={shown} selectedId={selected?.id ?? null} onSelect={(i) => setSelectedId(i.id)} today={data.today} />
+              <AssetTable items={shown} selectedId={selected?.id ?? null} onSelect={(i) => setSelectedId(i.id)} actionsFor={actionsFor} today={data.today} />
             )}
             {excluded.length > 0 ? (
               <section aria-label="Hors patrimoine" className="mt-4">
@@ -170,13 +202,14 @@ function WealthPage() {
                   items={excluded}
                   selectedId={selected?.id ?? null}
                   onSelect={(i) => setSelectedId(i.id)}
+                  actionsFor={actionsFor}
                   today={data.today}
                 />
               </section>
             ) : null}
           </div>
           <aside className="bg-panel max-[1100px]:border-t max-[1100px]:border-line">
-            {selected ? <Detail key={selected.id} item={selected} months={data.months} today={data.today} onEdit={() => setDialog({ item: selected })} /> : null}
+            {selected ? <Detail key={selected.id} item={selected} months={data.months} today={data.today} actions={actionsFor(selected)} /> : null}
           </aside>
         </div>
       )}
@@ -197,6 +230,7 @@ function WealthPage() {
           onSaved={(id) => setSelectedId(id)}
         />
       ) : null}
+      {confirmDialog}
     </>
   )
 }
@@ -312,12 +346,14 @@ function AssetTable({
   items,
   selectedId,
   onSelect,
+  actionsFor,
   today,
 }: {
   label?: string
   items: WealthItem[]
   selectedId: string | null
   onSelect: (item: WealthItem) => void
+  actionsFor: (item: WealthItem) => MenuItem[]
   today: string
 }) {
   return (
@@ -341,48 +377,51 @@ function AssetTable({
                 </span>
               </div>
             ) : null}
-            <button
-              type="button"
-              aria-pressed={selectedId === item.id}
-              data-testid="asset-row"
-              onClick={() => onSelect(item)}
-              className={cx(
-                COLUMNS,
-                "h-[46px] w-full border-b border-line-subtle text-left hover:bg-hover",
-                selectedId === item.id && "bg-hover",
-              )}
-            >
-              <span className="flex min-w-0 flex-col gap-0.5">
-                <span className="flex min-w-0 items-center gap-1.5">
-                  <span className="truncate" title={item.name}>{item.name}</span>
-                  {item.share === FULL_SHARE ? null : <Chip className="shrink-0">{formatShare(item.share)}</Chip>}
-                </span>
-                <span className="truncate text-[11px] text-faint">
-                  {item.isLiability ? "Passif" : TYPE_LABELS[item.type]}
-                  {item.subtitle ? ` · ${item.subtitle}` : ""}
-                  {item.trend && item.trend.date !== today ? ` · ${formatDayShort(item.trend.date)}` : ""}
-                </span>
-              </span>
-              <span className="num text-right text-[12px] text-muted">{item.purchase ? euros(own(item.purchase.amount)) : "—"}</span>
-              <span className="num text-right text-[12px] text-fg-2">{item.declared ? euros(own(item.declared.amount)) : "—"}</span>
-              <span className="flex min-w-0 flex-col items-end gap-0.5">
-                <span className={cx("num text-[12px]", item.retainedUsed !== "estimated" && "text-muted")}>
-                  {item.estimate ? euros(sign * own(item.estimate.amount)) : "—"}
-                </span>
-                {item.trend ? (
-                  <TrendCells trend={item.trend} className="text-[11px]" />
-                ) : (
-                  <span
-                    className={cx(
-                      "max-w-full truncate text-[11px]",
-                      captionTone[caption.tone],
-                    )}
-                  >
-                    {caption.text}
-                  </span>
+            <ContextMenu items={actionsFor(item)}>
+              <button
+                type="button"
+                aria-pressed={selectedId === item.id}
+                data-testid="asset-row"
+                onClick={() => onSelect(item)}
+                onContextMenu={() => onSelect(item)}
+                className={cx(
+                  COLUMNS,
+                  "h-[46px] w-full border-b border-line-subtle text-left hover:bg-hover data-[popup-open]:bg-hover",
+                  selectedId === item.id && "bg-hover",
                 )}
-              </span>
-            </button>
+              >
+                <span className="flex min-w-0 flex-col gap-0.5">
+                  <span className="flex min-w-0 items-center gap-1.5">
+                    <span className="truncate" title={item.name}>{item.name}</span>
+                    {item.share === FULL_SHARE ? null : <Chip className="shrink-0">{formatShare(item.share)}</Chip>}
+                  </span>
+                  <span className="truncate text-[11px] text-faint">
+                    {item.isLiability ? "Passif" : TYPE_LABELS[item.type]}
+                    {item.subtitle ? ` · ${item.subtitle}` : ""}
+                    {item.trend && item.trend.date !== today ? ` · ${formatDayShort(item.trend.date)}` : ""}
+                  </span>
+                </span>
+                <span className="num text-right text-[12px] text-muted">{item.purchase ? euros(own(item.purchase.amount)) : "—"}</span>
+                <span className="num text-right text-[12px] text-fg-2">{item.declared ? euros(own(item.declared.amount)) : "—"}</span>
+                <span className="flex min-w-0 flex-col items-end gap-0.5">
+                  <span className={cx("num text-[12px]", item.retainedUsed !== "estimated" && "text-muted")}>
+                    {item.estimate ? euros(sign * own(item.estimate.amount)) : "—"}
+                  </span>
+                  {item.trend ? (
+                    <TrendCells trend={item.trend} className="text-[11px]" />
+                  ) : (
+                    <span
+                      className={cx(
+                        "max-w-full truncate text-[11px]",
+                        captionTone[caption.tone],
+                      )}
+                    >
+                      {caption.text}
+                    </span>
+                  )}
+                </span>
+              </button>
+            </ContextMenu>
           </React.Fragment>
         )
       })}
@@ -438,11 +477,13 @@ function CryptoTable({
   items,
   selectedId,
   onSelect,
+  actionsFor,
   today,
 }: {
   items: WealthItem[]
   selectedId: string | null
   onSelect: (item: WealthItem) => void
+  actionsFor: (item: WealthItem) => MenuItem[]
   today: string
 }) {
   return (
@@ -458,29 +499,31 @@ function CryptoTable({
       {items.map((item) => {
         const unit = item.estimate?.unitPrice ?? null
         return (
-          <button
-            key={item.id}
-            type="button"
-            aria-pressed={selectedId === item.id}
-            data-testid="asset-row"
-            onClick={() => onSelect(item)}
-            className={cx(CRYPTO_COLUMNS, "h-[46px] w-full border-b border-line-subtle text-left hover:bg-hover", selectedId === item.id && "bg-hover")}
-          >
-            <span className="flex min-w-0 flex-col gap-0.5">
-              <span className="flex min-w-0 items-center gap-1.5">
-                <span className="truncate" title={item.name}>{item.name}</span>
-                {item.share === FULL_SHARE ? null : <Chip className="shrink-0">{formatShare(item.share)}</Chip>}
+          <ContextMenu key={item.id} items={actionsFor(item)}>
+            <button
+              type="button"
+              aria-pressed={selectedId === item.id}
+              data-testid="asset-row"
+              onClick={() => onSelect(item)}
+              onContextMenu={() => onSelect(item)}
+              className={cx(CRYPTO_COLUMNS, "h-[46px] w-full border-b border-line-subtle text-left hover:bg-hover data-[popup-open]:bg-hover", selectedId === item.id && "bg-hover")}
+            >
+              <span className="flex min-w-0 flex-col gap-0.5">
+                <span className="flex min-w-0 items-center gap-1.5">
+                  <span className="truncate" title={item.name}>{item.name}</span>
+                  {item.share === FULL_SHARE ? null : <Chip className="shrink-0">{formatShare(item.share)}</Chip>}
+                </span>
+                <span className={cx("truncate text-[11px]", captionTone[estimateCaption(item, today).tone])}>{estimateCaption(item, today).text}</span>
               </span>
-              <span className={cx("truncate text-[11px]", captionTone[estimateCaption(item, today).tone])}>{estimateCaption(item, today).text}</span>
-            </span>
-            <span className="num text-right text-[12px]">{unit === null ? "—" : formatUnitPrice(unit)}</span>
-            <Trend change={item.trend?.change24h ?? null} className="num text-right text-[12px]" />
-            <Trend change={item.trend?.change7d ?? null} className="num text-right text-[12px]" />
-            <span className={cx("flex justify-end", SPARKLINE_COLUMN)}>
-              {item.trend ? <Sparkline values={item.trend.sparkline} width={96} /> : null}
-            </span>
-            <span className="num text-right text-[12px]">{euros(item.value)}</span>
-          </button>
+              <span className="num text-right text-[12px]">{unit === null ? "—" : formatUnitPrice(unit)}</span>
+              <Trend change={item.trend?.change24h ?? null} className="num text-right text-[12px]" />
+              <Trend change={item.trend?.change7d ?? null} className="num text-right text-[12px]" />
+              <span className={cx("flex justify-end", SPARKLINE_COLUMN)}>
+                {item.trend ? <Sparkline values={item.trend.sparkline} width={96} /> : null}
+              </span>
+              <span className="num text-right text-[12px]">{euros(item.value)}</span>
+            </button>
+          </ContextMenu>
         )
       })}
     </div>
@@ -515,9 +558,7 @@ function sourceDescription(item: WealthItem, today: Day): string | null {
   }
 }
 
-function Detail({ item, months, today, onEdit }: { item: WealthItem; months: Month[]; today: string; onEdit: () => void }) {
-  const remove = useAction(deleteAsset, { success: "Bien supprimé", writes: ["assets"] })
-  const { confirm, dialog: confirmDialog } = useConfirm()
+function Detail({ item, months, today, actions }: { item: WealthItem; months: Month[]; today: string; actions: MenuItem[] }) {
   const setRetained = useAction(updateAsset, { success: "Valeur retenue modifiée", writes: ["assets"] })
   const refresh = useAction(refreshValuations, { writes: ["assets"] })
   const isAsset = item.kind === "asset"
@@ -586,16 +627,7 @@ function Detail({ item, months, today, onEdit }: { item: WealthItem; months: Mon
                 <MoreHorizontal size={14} />
               </IconButton>
             }
-            items={[
-              { label: "Modifier", icon: <Pencil size={13} />, onSelect: onEdit },
-              { separator: true },
-              {
-                label: "Supprimer",
-                danger: true,
-                icon: <Trash2 size={13} />,
-                onSelect: async () => (await confirm({ title: `Supprimer « ${item.name} » et son historique ?` })) && remove.mutate({ data: { id: item.id } }),
-              },
-            ]}
+            items={actions}
           />
         ) : null}
       </div>
@@ -677,7 +709,6 @@ function Detail({ item, months, today, onEdit }: { item: WealthItem; months: Mon
       {scheduleOpen && item.source?.kind === "loan" ? (
         <LoanScheduleDialog assetId={item.id} terms={item.source} today={today} onClose={() => setScheduleOpen(false)} />
       ) : null}
-      {confirmDialog}
     </div>
   )
 }
@@ -839,6 +870,7 @@ function MobileWealth({
   onOpen,
   onClose,
   onEdit,
+  actionsFor,
 }: {
   data: WealthOverview
   items: WealthItem[]
@@ -847,6 +879,7 @@ function MobileWealth({
   onOpen: (item: WealthItem) => void
   onClose: () => void
   onEdit: (item: WealthItem) => void
+  actionsFor: (item: WealthItem) => MenuItem[]
 }) {
   const [filter, setFilter] = React.useState<WealthBucket | "all">("all")
   const present = new Set([...items, ...allExcluded].map((i) => i.bucket))
@@ -872,11 +905,11 @@ function MobileWealth({
           </button>
         ))}
       </div>
-      <MobileRows items={shown} today={data.today} onOpen={onOpen} className="mt-2.5" />
+      <MobileRows items={shown} today={data.today} onOpen={onOpen} actionsFor={actionsFor} className="mt-2.5" />
       {excluded.length > 0 ? (
         <section aria-label="Hors patrimoine" className="mt-4">
           <ExcludedTitle items={excluded} />
-          <MobileRows items={excluded} today={data.today} onOpen={onOpen} />
+          <MobileRows items={excluded} today={data.today} onOpen={onOpen} actionsFor={actionsFor} />
         </section>
       ) : null}
       <Sheet open={open !== null} onOpenChange={(o) => !o && onClose()} title={open?.name ?? ""}>
@@ -891,7 +924,7 @@ function MobileWealth({
           ) : null}
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto">
-          {open ? <Detail key={open.id} item={open} months={data.months} today={data.today} onEdit={() => onEdit(open)} /> : null}
+          {open ? <Detail key={open.id} item={open} months={data.months} today={data.today} actions={actionsFor(open)} /> : null}
         </div>
       </Sheet>
     </div>
@@ -902,11 +935,13 @@ function MobileRows({
   items,
   today,
   onOpen,
+  actionsFor,
   className,
 }: {
   items: ReadonlyArray<WealthItem>
   today: Day
   onOpen: (item: WealthItem) => void
+  actionsFor: (item: WealthItem) => MenuItem[]
   className?: string
 }) {
   return (
@@ -918,20 +953,22 @@ function MobileRows({
               <TrendLabels />
             </div>
           ) : null}
-          <button
-            type="button"
-            onClick={() => onOpen(item)}
-            className="flex w-full items-center gap-3 border-b border-line-subtle px-5 py-[11px] text-left"
-          >
-            <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-              <span className="truncate font-medium" title={item.name}>{item.name}</span>
-              <span className="truncate text-[12px] text-faint">{estimateCaption(item, today).text}</span>
-            </span>
-            <span className="flex shrink-0 flex-col items-end gap-0.5">
-              <Money value={item.value} decimals={0} className="text-[14px]" />
-              {item.trend ? <TrendCells trend={item.trend} className="text-[12px]" /> : null}
-            </span>
-          </button>
+          <ContextMenu items={actionsFor(item)}>
+            <button
+              type="button"
+              onClick={() => onOpen(item)}
+              className="flex w-full items-center gap-3 border-b border-line-subtle px-5 py-[11px] text-left"
+            >
+              <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+                <span className="truncate font-medium" title={item.name}>{item.name}</span>
+                <span className="truncate text-[12px] text-faint">{estimateCaption(item, today).text}</span>
+              </span>
+              <span className="flex shrink-0 flex-col items-end gap-0.5">
+                <Money value={item.value} decimals={0} className="text-[14px]" />
+                {item.trend ? <TrendCells trend={item.trend} className="text-[12px]" /> : null}
+              </span>
+            </button>
+          </ContextMenu>
         </React.Fragment>
       ))}
     </div>

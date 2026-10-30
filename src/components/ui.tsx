@@ -1,10 +1,12 @@
 import { clsx } from "clsx"
 import { Checkbox as BCheckbox } from "@base-ui/react/checkbox"
+import { ContextMenu as BContextMenu } from "@base-ui/react/context-menu"
 import { Dialog as BDialog } from "@base-ui/react/dialog"
 import { Menu as BMenu } from "@base-ui/react/menu"
 import { Popover as BPopover } from "@base-ui/react/popover"
 import { Select as BSelect } from "@base-ui/react/select"
 import { Switch as BSwitch } from "@base-ui/react/switch"
+import type { BaseUIEvent } from "@base-ui/react/types"
 import { CalendarDays, Check, ChevronDown, ChevronLeft, ChevronRight, Search, Upload, X } from "lucide-react"
 import * as React from "react"
 import { addDays, addMonths, type Day, daysInMonth, firstDay, formatDayInput, formatDayLong, formatMonthLong, type Month, monthOf, parseDayInput, weekday } from "~/domain/dates"
@@ -1163,30 +1165,108 @@ export const Menu = ({
     <BMenu.Portal>
       <BMenu.Positioner align={align} sideOffset={6} className="z-50">
         <BMenu.Popup className={cx(popupClass, "min-w-[200px] p-1")}>
-          {items.map((item, i) =>
-            "separator" in item ? (
-              <BMenu.Separator key={i} className="my-1 h-px bg-line" />
-            ) : (
-              <BMenu.Item
-                key={i}
-                disabled={item.disabled}
-                onClick={item.onSelect}
-                className={cx(
-                  "flex cursor-default items-center gap-2 rounded-[6px] px-2 py-1.5 outline-none data-[disabled]:opacity-40 data-[highlighted]:bg-hover",
-                  item.danger ? "text-negative" : "text-fg-2",
-                )}
-              >
-                {item.icon ? <span className="text-muted">{item.icon}</span> : null}
-                <span className="flex-1">{item.label}</span>
-                {item.shortcut ? <Kbd>{item.shortcut}</Kbd> : null}
-              </BMenu.Item>
-            ),
-          )}
+          <MenuItems items={items} />
         </BMenu.Popup>
       </BMenu.Positioner>
     </BMenu.Portal>
   </BMenu.Root>
 )
+
+/**
+ * Opens `items` at the pointer on a right click (or a long press on touch) anywhere in `children`,
+ * which must be a single element: it becomes the trigger itself, so a grid row keeps its layout and role.
+ * Rows highlight themselves while open with `data-[popup-open]:`.
+ */
+export function ContextMenu({ items, children }: { items: ReadonlyArray<MenuItem>; children: React.ReactElement }) {
+  // A long press is left to Base UI's touch timer. Some browsers also fire `contextmenu` on a long
+  // press, which would open the menu a second way, as for a mouse.
+  const touching = React.useRef(false)
+  return (
+    <BContextMenu.Root
+      onOpenChange={(open, details) => {
+        if (open && details.event.type.startsWith("touch")) swallowReleaseClick(document)
+      }}
+    >
+      <BContextMenu.Trigger
+        render={children}
+        // Text would get selected under a held finger.
+        className="pointer-coarse:select-none"
+        onContextMenu={(event) => {
+          if (touching.current) event.preventBaseUIHandler()
+          else keepNativeContextMenu(event)
+        }}
+        onTouchStart={() => {
+          touching.current = true
+        }}
+        onTouchEnd={() => {
+          touching.current = false
+        }}
+        onTouchCancel={() => {
+          touching.current = false
+        }}
+      />
+      <BContextMenu.Portal>
+        <BContextMenu.Positioner className="z-50">
+          <BContextMenu.Popup className={cx(popupClass, "min-w-[200px] p-1")}>
+            <MenuItems items={items} />
+          </BContextMenu.Popup>
+        </BContextMenu.Positioner>
+      </BContextMenu.Portal>
+    </BContextMenu.Root>
+  )
+}
+
+/**
+ * Lifting the finger that opened a menu by a long press still clicks what is under it: the row, which
+ * would open behind the menu, or an item when the menu had to be moved over the finger to fit.
+ */
+function swallowReleaseClick(doc: Document) {
+  const swallow = (event: Event) => {
+    event.preventDefault()
+    event.stopPropagation()
+  }
+  doc.addEventListener(
+    "touchend",
+    () => {
+      doc.addEventListener("click", swallow, { capture: true, once: true })
+      // Not every browser clicks after a long press: the next real tap must still go through.
+      window.setTimeout(() => doc.removeEventListener("click", swallow, { capture: true }), 400)
+    },
+    { once: true },
+  )
+}
+
+// React events bubble through portals, so a right click in a picker or dialog opened from a row would
+// reach the row: those keep the browser menu, as do text fields, for copy and paste. Stopping the
+// propagation also skips Base UI's document listener, which would otherwise cancel the browser menu.
+function keepNativeContextMenu(event: BaseUIEvent<React.MouseEvent<HTMLElement>>) {
+  const target = event.target as Element
+  if (event.currentTarget.contains(target) && !target.closest("input, textarea, [contenteditable]")) return
+  event.preventBaseUIHandler()
+  event.stopPropagation()
+}
+
+function MenuItems({ items }: { items: ReadonlyArray<MenuItem> }) {
+  return items.map((item, i) =>
+    "separator" in item ? (
+      <BMenu.Separator key={i} className="my-1 h-px bg-line" />
+    ) : (
+      <BMenu.Item
+        key={i}
+        disabled={item.disabled}
+        onClick={item.onSelect}
+        className={cx(
+          "flex cursor-default items-center gap-2 rounded-[6px] px-2 py-1.5 outline-none data-[disabled]:opacity-40 data-[highlighted]:bg-hover",
+          item.danger ? "text-negative" : "text-fg-2",
+        )}
+      >
+        {item.icon ? <span className="text-muted">{item.icon}</span> : null}
+        <span className="flex-1">{item.label}</span>
+        {item.shortcut ? <Kbd>{item.shortcut}</Kbd> : null}
+      </BMenu.Item>
+    ),
+  )
+}
 
 // --- States --------------------------------------------------------------------
 

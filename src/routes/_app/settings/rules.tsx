@@ -4,7 +4,7 @@ import { ArrowDown, ArrowUp, MoreHorizontal, Play, Plus, Sparkles, Trash2 } from
 import * as React from "react"
 import { RuleEditor, useRuleNames } from "~/components/rule-editor"
 import { PageHeader } from "~/components/shell"
-import { Button, Chip, cx, EmptyState, IconButton, Menu, revealOnHover, SectionTitle, SkeletonRows, Switch, useConfirm } from "~/components/ui"
+import { Button, Chip, ContextMenu, cx, EmptyState, IconButton, Menu, type MenuItem, revealOnHover, SectionTitle, SkeletonRows, Switch, useConfirm } from "~/components/ui"
 import { describeRule, type RuleNames } from "~/domain/rules"
 import { count, plural } from "~/domain/text"
 import { q, useAction } from "~/lib/queries"
@@ -144,40 +144,50 @@ function RuleRow({
   const remove = useAction(deleteRule, { success: "Règle supprimée", writes: ["rules"] })
   const { confirm, dialog: confirmDialog } = useConfirm()
   const apply = useAction(applyRule, { success: (n) => `${count(n, "opération")} ${plural(n, "mise")} à jour`, writes: ["transactions"] })
+  const actions: MenuItem[] = [
+    { label: "Appliquer aux opérations non catégorisées", icon: <Play size={13} />, onSelect: () => apply.mutate({ data: { id: rule.id } }) },
+    { label: "Modifier…", onSelect: onEdit },
+    { separator: true },
+    { label: "Supprimer", danger: true, icon: <Trash2 size={13} />, onSelect: async () => (await confirm({ title: "Supprimer cette règle ?" })) && remove.mutate({ data: { id: rule.id } }) },
+  ]
   return (
-    <div data-testid="rule-row" className={cx("group flex items-center gap-3 border-t border-line-subtle px-5 py-2.5 hover:bg-hover", !rule.enabled && "text-muted")}>
-      <Switch
-        checked={rule.enabled}
-        label="Activer la règle"
-        onCheckedChange={(enabled) => update.mutate({ data: { id: rule.id, rule: { ...rule, enabled } } })}
-      />
-      <button type="button" onClick={onEdit} className="flex min-w-0 flex-1 flex-col text-left">
-        <span className={cx("truncate", rule.enabled && "text-fg-2")}>{text.conditions},</span>
-        <span className="truncate">{text.actions}.</span>
-      </button>
-      {rule.origin !== "manual" ? <Chip>{rule.origin === "imported" ? "importée" : "suggérée"}</Chip> : null}
-      <span className={cx("flex items-center gap-1", revealOnHover)}>
-        <IconButton label="Monter" size="sm" disabled={!canUp} onClick={() => onMove(-1)}>
-          <ArrowUp size={13} />
-        </IconButton>
-        <IconButton label="Descendre" size="sm" disabled={!canDown} onClick={() => onMove(1)}>
-          <ArrowDown size={13} />
-        </IconButton>
-      </span>
-      <Menu
-        trigger={
-          <IconButton label="Actions" size="sm">
-            <MoreHorizontal size={14} />
+    <ContextMenu
+      items={[
+        { label: "Monter", icon: <ArrowUp size={13} />, onSelect: () => onMove(-1), disabled: !canUp },
+        { label: "Descendre", icon: <ArrowDown size={13} />, onSelect: () => onMove(1), disabled: !canDown },
+        { separator: true },
+        ...actions,
+      ]}
+    >
+      <div data-testid="rule-row" className={cx("group flex items-center gap-3 border-t border-line-subtle px-5 py-2.5 hover:bg-hover data-[popup-open]:bg-hover", !rule.enabled && "text-muted")}>
+        <Switch
+          checked={rule.enabled}
+          label="Activer la règle"
+          onCheckedChange={(enabled) => update.mutate({ data: { id: rule.id, rule: { ...rule, enabled } } })}
+        />
+        <button type="button" onClick={onEdit} className="flex min-w-0 flex-1 flex-col text-left">
+          <span className={cx("truncate", rule.enabled && "text-fg-2")}>{text.conditions},</span>
+          <span className="truncate">{text.actions}.</span>
+        </button>
+        {rule.origin !== "manual" ? <Chip>{rule.origin === "imported" ? "importée" : "suggérée"}</Chip> : null}
+        <span className={cx("flex items-center gap-1", revealOnHover)}>
+          <IconButton label="Monter" size="sm" disabled={!canUp} onClick={() => onMove(-1)}>
+            <ArrowUp size={13} />
           </IconButton>
-        }
-        items={[
-          { label: "Appliquer aux opérations non catégorisées", icon: <Play size={13} />, onSelect: () => apply.mutate({ data: { id: rule.id } }) },
-          { label: "Modifier…", onSelect: onEdit },
-          { separator: true },
-          { label: "Supprimer", danger: true, icon: <Trash2 size={13} />, onSelect: async () => (await confirm({ title: "Supprimer cette règle ?" })) && remove.mutate({ data: { id: rule.id } }) },
-        ]}
-      />
-      {confirmDialog}
-    </div>
+          <IconButton label="Descendre" size="sm" disabled={!canDown} onClick={() => onMove(1)}>
+            <ArrowDown size={13} />
+          </IconButton>
+        </span>
+        <Menu
+          trigger={
+            <IconButton label="Actions" size="sm">
+              <MoreHorizontal size={14} />
+            </IconButton>
+          }
+          items={actions}
+        />
+        {confirmDialog}
+      </div>
+    </ContextMenu>
   )
 }

@@ -33,6 +33,16 @@ test("adds a manual asset and switches its retained value", async ({ page }) => 
   await expect.poll(async () => cents(await netWorth.innerText())).toBe(before + 10_200_00)
 })
 
+test("edits an asset from its row's right click menu", async ({ page }) => {
+  await open(page, "/wealth")
+  await page.getByTestId("asset-row").filter({ hasText: "Rolex Submariner" }).click({ button: "right" })
+  await page.getByRole("menuitem", { name: "Modifier" }).click()
+  const dialog = page.getByRole("dialog", { name: "Modifier « Rolex Submariner »" })
+  await expect(dialog).toBeVisible()
+  await page.keyboard.press("Escape")
+  await expect(dialog).toHaveCount(0)
+})
+
 test("the sidebar sums assets by type and opens the page on that type", async ({ page }) => {
   await open(page, "/budget")
   const sidebar = page.getByRole("complementary").first()

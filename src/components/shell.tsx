@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query"
-import { Link, useRouterState } from "@tanstack/react-router"
+import { Link, useNavigate, useRouterState } from "@tanstack/react-router"
 import {
   CalendarClock,
   ChartColumn,
@@ -19,7 +19,9 @@ import { formatMoney } from "~/domain/money"
 import { assetTypeTotals, TYPE_PLURAL_LABELS } from "~/domain/wealth"
 import { q } from "~/lib/queries"
 import { Logo } from "./logo"
-import { cx, Kbd } from "./ui"
+import { ContextMenu, cx, Kbd, type MenuItem } from "./ui"
+import { useAccountActions } from "./account-dialogs"
+import type { AccountDto } from "~/server/services/accounts"
 
 type UiContext = {
   openPalette: () => void
@@ -49,6 +51,12 @@ export function Sidebar() {
   const open = (accounts.data ?? []).filter((a) => !a.closed)
   const budgeted = open.filter((a) => !a.offBudget)
   const tracked = open.filter((a) => a.offBudget)
+  const navigate = useNavigate()
+  const accountActions = useAccountActions({
+    onRemoved: (id) => {
+      if (path === `/accounts/${id}`) void navigate({ to: "/accounts" })
+    },
+  })
 
   return (
     <aside className="sticky top-0 flex h-dvh flex-col gap-[18px] overflow-y-auto border-r border-line bg-sidebar px-2.5 py-3.5 max-[1100px]:items-center max-[1100px]:px-2">
@@ -75,8 +83,8 @@ export function Sidebar() {
         ))}
       </nav>
 
-      <AccountSection title="Comptes" accounts={budgeted} path={path} canAdd />
-      {tracked.length > 0 ? <AccountSection title="Hors budget" accounts={tracked} path={path} /> : null}
+      <AccountSection title="Comptes" accounts={budgeted} path={path} actionsFor={accountActions.actionsFor} canAdd />
+      {tracked.length > 0 ? <AccountSection title="Hors budget" accounts={tracked} path={path} actionsFor={accountActions.actionsFor} /> : null}
       <AssetTypeSection path={path} />
 
       <div className="mt-auto flex flex-col gap-px">
@@ -85,6 +93,7 @@ export function Sidebar() {
           active={path.startsWith("/settings")}
         />
       </div>
+      {accountActions.dialogs}
     </aside>
   )
 }
@@ -149,12 +158,14 @@ function AccountSection({
   title,
   accounts,
   path,
+  actionsFor,
   canAdd,
 }: {
   title: string
   canAdd?: boolean
-  accounts: ReadonlyArray<{ id: string; name: string; balance: number }>
+  accounts: ReadonlyArray<AccountDto>
   path: string
+  actionsFor: (account: AccountDto) => MenuItem[]
 }) {
   return (
     <div className="flex flex-col gap-px max-[1100px]:hidden">
@@ -171,20 +182,21 @@ function AccountSection({
       {accounts.map((a) => {
         const active = path === `/accounts/${a.id}`
         return (
-          <Link
-            key={a.id}
-            to="/accounts/$accountId"
-            params={{ accountId: a.id }}
-            className={cx(
-              "flex items-center justify-between gap-2 rounded-[6px] px-2 py-1.5 transition-colors duration-[120ms]",
-              active ? "bg-active text-fg" : "text-fg-2 hover:bg-hover",
-            )}
-          >
-            <span className="truncate" title={a.name}>{a.name}</span>
-            <span className={cx("num shrink-0 text-[12px]", a.balance < 0 ? "text-negative" : "text-muted")}>
-              {formatMoney(a.balance)}
-            </span>
-          </Link>
+          <ContextMenu key={a.id} items={actionsFor(a)}>
+            <Link
+              to="/accounts/$accountId"
+              params={{ accountId: a.id }}
+              className={cx(
+                "flex items-center justify-between gap-2 rounded-[6px] px-2 py-1.5 transition-colors duration-[120ms]",
+                active ? "bg-active text-fg" : "text-fg-2 hover:bg-hover data-[popup-open]:bg-hover",
+              )}
+            >
+              <span className="truncate" title={a.name}>{a.name}</span>
+              <span className={cx("num shrink-0 text-[12px]", a.balance < 0 ? "text-negative" : "text-muted")}>
+                {formatMoney(a.balance)}
+              </span>
+            </Link>
+          </ContextMenu>
         )
       })}
     </div>

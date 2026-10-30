@@ -1,27 +1,20 @@
-import { CalendarClock, ChevronDown, ChevronRight, Copy, MoreHorizontal, Pencil, Split, Trash2, Wand2 } from "lucide-react"
+import { CalendarClock, Check, ChevronDown, ChevronRight, MoreHorizontal, SkipForward } from "lucide-react"
 import * as React from "react"
 import { SuggestionChip } from "~/components/category-suggestions"
 import { CategoryPicker, PayeePicker } from "~/components/pickers"
-import { ScheduleDialog } from "~/components/schedule-dialog"
-import {
-  RuleFromTransactionDialog,
-  TransactionEditor,
-  payeeInputOf,
-  payeeValueOf,
-  recordedMessage,
-  useDeleteTransactions,
-} from "~/components/transaction-editor"
-import { Button, Calendar, Checkbox, Chip, cx, DateInput, IconButton, InlineEdit, Menu, Money, Popover, revealOnHover } from "~/components/ui"
+import { payeeInputOf, payeeValueOf, recordedMessage } from "~/components/transaction-editor"
+import { Button, Calendar, Checkbox, Chip, ContextMenu, cx, DateInput, IconButton, InlineEdit, Menu, Money, Popover, revealOnHover } from "~/components/ui"
 import { type Day, formatDayLong, formatDayShort, monthOf, parseDayInput } from "~/domain/dates"
 import { amountInput, formatMoney, parseAmount } from "~/domain/money"
 import { useToday } from "~/lib/hooks"
 import { patchTransactionCategory, patchTransactionPayee, patchTransactionRows, useAction } from "~/lib/queries"
 import { useWindowList } from "~/lib/use-window-list"
-import { createTransaction, setTransactionsCleared, updateTransaction } from "~/server/fns/core"
+import { updateTransaction } from "~/server/fns/core"
 import type { ScheduledRow } from "~/server/services/schedules"
 import type { TxRow } from "~/server/services/transactions"
 import { ClearedMark } from "./cleared-mark"
 import { interleave, scheduledKey, useScheduledRow } from "./scheduled"
+import { useTransactionActions } from "./transaction-actions"
 
 type Line = { kind: "tx"; tx: TxRow } | { kind: "split"; tx: TxRow } | { kind: "scheduled"; row: ScheduledRow }
 
@@ -186,12 +179,12 @@ function ScheduledLine({
   rowIndex: number
 }) {
   const s = useScheduledRow(row)
-  return (
+  const line = (
     <div
       role="row"
       aria-rowindex={rowIndex}
       data-testid="scheduled-row"
-      className={cx(columns, "group absolute inset-x-0 top-0 h-9 border-b border-line-subtle px-5 text-muted hover:bg-hover")}
+      className={cx(columns, "group absolute inset-x-0 top-0 h-9 border-b border-line-subtle px-5 text-muted hover:bg-hover data-[popup-open]:bg-hover")}
       style={{ transform: `translateY(${top}px)` }}
     >
       <CalendarClock size={13} className="text-faint" aria-label="Échéance" />
@@ -218,6 +211,17 @@ function ScheduledLine({
       {s.confirmDialog}
       <span />
     </div>
+  )
+  if (!row.next) return line
+  return (
+    <ContextMenu
+      items={[
+        { label: "Enregistrer", icon: <Check size={13} />, onSelect: s.post, disabled: s.busy },
+        { label: "Passer", icon: <SkipForward size={13} />, onSelect: s.skip, disabled: s.busy },
+      ]}
+    >
+      {line}
+    </ContextMenu>
   )
 }
 
@@ -285,7 +289,6 @@ const TransactionRow = React.memo(function TransactionRow({
   top: number
   rowIndex: number
 }) {
-  const [dialog, setDialog] = React.useState<null | "edit" | "rule" | "schedule">(null)
   const update = useAction(updateTransaction, {
     writes: ["transactions"],
     // Only an existing payee: a new one has no id yet, and a transfer adds or removes its mirror operation.
@@ -294,119 +297,75 @@ const TransactionRow = React.memo(function TransactionRow({
         ? patchTransactionPayee(client, tx.id, data.payee.id)
         : undefined,
   })
-  const cleared = useAction(setTransactionsCleared, {
-    writes: ["cleared"],
-    optimistic: ({ data }, client) => patchTransactionRows(client, data.ids, { cleared: data.cleared }),
-  })
-  const remove = useDeleteTransactions()
-  const duplicate = useAction(createTransaction, { success: "Opération dupliquée", writes: ["transactions"] })
+  const txActions = useTransactionActions({ accountId, today, splitsOf: () => splits })
   const future = tx.date > today
   const describe = `${tx.payeeName ?? "opération"} du ${formatDayShort(tx.date)}, ${formatMoney(tx.amount)}`
+  const actions = txActions.actionsFor(tx)
 
   return (
-    <div
-      role="row"
-      aria-rowindex={rowIndex}
-      data-testid="tx-row"
-      className={cx(
-        columns,
-        "group absolute inset-x-0 top-0 h-9 border-b border-line-subtle px-5 hover:bg-hover",
-        selected && "bg-accent-soft hover:bg-accent-soft",
-        future && "text-muted",
-      )}
-      style={{ transform: `translateY(${top}px)` }}
-    >
-      <Checkbox checked={selected} onCheckedChange={(c) => onSelect(tx.id, c)} label={`Sélectionner ${describe}`} />
-      <InlineDate tx={tx} />
-      <span className="flex min-w-0 items-center gap-1.5">
-        <PayeePicker
-          value={payeeValueOf(tx)}
-          onChange={(p) => update.mutate({ data: { id: tx.id, payee: payeeInputOf(p) } })}
-          currentAccountId={tx.accountId}
-          variant="inline"
-          className="min-w-0 flex-1"
-          triggerClassName="truncate"
-          placeholder="—"
-        />
-        {tx.notes ? <span className="truncate text-[12px] text-faint" title={tx.notes}>{tx.notes}</span> : null}
-      </span>
-      {tx.isParent ? (
-        <button type="button" onClick={() => onToggleExpand(tx.id)} className="flex items-center gap-1 text-muted hover:text-fg">
-          {expanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
-          Ventilée ({splits?.length ?? 0})
-        </button>
-      ) : tx.transferAccountId && !tx.categoryId ? (
-        <span className="text-faint">Virement</span>
-      ) : tx.offBudget ? (
-        <span className="text-faint">Hors budget</span>
-      ) : (
-        <InlineCategory tx={tx} />
-      )}
-      {showAccount ? <span className="truncate text-muted" title={tx.accountName}>{tx.accountName}</span> : null}
-      <InlineAmount tx={tx} future={future} />
-      {showBalance ? <Money value={tx.balance ?? 0} className="text-right text-[12px] text-muted" /> : null}
-      <button
-        type="button"
-        aria-label={tx.reconciled ? "Rapprochée" : tx.cleared ? "Pointée" : "Non pointée"}
-        title={tx.reconciled ? "Rapprochée (verrouillée)" : tx.cleared ? "Pointée" : "Non pointée"}
-        disabled={tx.reconciled}
-        onClick={() => cleared.mutate({ data: { ids: [tx.id], cleared: !tx.cleared } })}
-        className="flex h-6 w-6 items-center justify-center"
+    <ContextMenu items={actions}>
+      <div
+        role="row"
+        aria-rowindex={rowIndex}
+        data-testid="tx-row"
+        className={cx(
+          columns,
+          "group absolute inset-x-0 top-0 h-9 border-b border-line-subtle px-5 hover:bg-hover data-[popup-open]:bg-hover",
+          selected && "bg-accent-soft hover:bg-accent-soft data-[popup-open]:bg-accent-soft",
+          future && "text-muted",
+        )}
+        style={{ transform: `translateY(${top}px)` }}
       >
-        <ClearedMark tx={tx} />
-      </button>
-      <Menu
-        trigger={
-          <IconButton label={`Actions ${describe}`} size="sm" className={revealOnHover}>
-            <MoreHorizontal size={14} />
-          </IconButton>
-        }
-        items={[
-          { label: "Modifier…", icon: <Pencil size={13} />, onSelect: () => setDialog("edit") },
-          { label: "Ventiler…", icon: <Split size={13} />, onSelect: () => setDialog("edit"), disabled: !!tx.transferAccountId },
-          {
-            label: "Dupliquer",
-            icon: <Copy size={13} />,
-            onSelect: () =>
-              duplicate.mutate({
-                data: {
-                  accountId: tx.accountId,
-                  date: today,
-                  amount: tx.amount,
-                  payee: payeeInputOf(payeeValueOf(tx)),
-                  categoryId: tx.categoryId,
-                  notes: tx.notes,
-                },
-              }),
-          },
-          { label: "Toujours catégoriser ainsi…", icon: <Wand2 size={13} />, onSelect: () => setDialog("rule"), disabled: !tx.payeeName },
-          { label: "Rendre récurrente…", icon: <CalendarClock size={13} />, onSelect: () => setDialog("schedule") },
-          { separator: true },
-          {
-            label: "Supprimer",
-            icon: <Trash2 size={13} />,
-            danger: true,
-            onSelect: () => remove.mutate([tx.id]),
-            disabled: !!tx.parentId,
-          },
-        ]}
-      />
-      {dialog === "edit" ? <TransactionEditor tx={tx} splits={splits} onClose={() => setDialog(null)} /> : null}
-      {dialog === "rule" ? <RuleFromTransactionDialog tx={tx} onClose={() => setDialog(null)} /> : null}
-      {dialog === "schedule" ? (
-        <ScheduleDialog
-          initial={{
-            name: tx.payeeName ?? "",
-            payee: payeeValueOf(tx),
-            accountId: accountId ?? tx.accountId,
-            categoryId: tx.categoryId,
-            amount: tx.amount,
-            startDate: tx.date,
-          }}
-          onClose={() => setDialog(null)}
+        <Checkbox checked={selected} onCheckedChange={(c) => onSelect(tx.id, c)} label={`Sélectionner ${describe}`} />
+        <InlineDate tx={tx} />
+        <span className="flex min-w-0 items-center gap-1.5">
+          <PayeePicker
+            value={payeeValueOf(tx)}
+            onChange={(p) => update.mutate({ data: { id: tx.id, payee: payeeInputOf(p) } })}
+            currentAccountId={tx.accountId}
+            variant="inline"
+            className="min-w-0 flex-1"
+            triggerClassName="truncate"
+            placeholder="—"
+          />
+          {tx.notes ? <span className="truncate text-[12px] text-faint" title={tx.notes}>{tx.notes}</span> : null}
+        </span>
+        {tx.isParent ? (
+          <button type="button" onClick={() => onToggleExpand(tx.id)} className="flex items-center gap-1 text-muted hover:text-fg">
+            {expanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+            Ventilée ({splits?.length ?? 0})
+          </button>
+        ) : tx.transferAccountId && !tx.categoryId ? (
+          <span className="text-faint">Virement</span>
+        ) : tx.offBudget ? (
+          <span className="text-faint">Hors budget</span>
+        ) : (
+          <InlineCategory tx={tx} />
+        )}
+        {showAccount ? <span className="truncate text-muted" title={tx.accountName}>{tx.accountName}</span> : null}
+        <InlineAmount tx={tx} future={future} />
+        {showBalance ? <Money value={tx.balance ?? 0} className="text-right text-[12px] text-muted" /> : null}
+        <button
+          type="button"
+          aria-label={tx.reconciled ? "Rapprochée" : tx.cleared ? "Pointée" : "Non pointée"}
+          title={tx.reconciled ? "Rapprochée (verrouillée)" : tx.cleared ? "Pointée" : "Non pointée"}
+          disabled={tx.reconciled}
+          onClick={() => txActions.toggleCleared(tx)}
+          className="flex h-6 w-6 items-center justify-center"
+        >
+          <ClearedMark tx={tx} />
+        </button>
+        <Menu
+          trigger={
+            <IconButton label={`Actions ${describe}`} size="sm" className={revealOnHover}>
+              <MoreHorizontal size={14} />
+            </IconButton>
+          }
+          items={actions}
         />
-      ) : null}
-    </div>
+        {txActions.dialogs}
+      </div>
+    </ContextMenu>
   )
 })
 

@@ -108,6 +108,36 @@ test("deletes a selection without asking and brings it back from the toast", asy
   await expect(row).toContainText("−42,50 €")
 })
 
+test("opens a category's and an operation's actions with a right click", async ({ page }) => {
+  await open(page, "/budget")
+  const courses = page.getByTestId("category-row-Courses")
+  await courses.click({ button: "right" })
+  await expect(page.getByRole("menuitem", { name: "Remettre à zéro" })).toBeVisible()
+  await page.keyboard.press("Escape")
+  await expect(page.getByRole("menu")).toHaveCount(0)
+
+  // A text field keeps the browser's own menu, for copy and paste.
+  await page.getByRole("button", { name: /^Budget Courses/ }).click()
+  await page.getByRole("textbox", { name: "Budget Courses" }).click({ button: "right" })
+  // Our menu would take the focus, which closes the field.
+  await expect(page.getByRole("textbox", { name: "Budget Courses" })).toBeFocused()
+  await expect(page.getByRole("menu")).toHaveCount(0)
+  await page.getByRole("textbox", { name: "Budget Courses" }).press("Escape")
+
+  await courses.click({ button: "right" })
+  await page.getByRole("menuitem", { name: "Voir les opérations" }).click()
+  await expect(page).toHaveURL(/\/accounts\/all\?.*categoryId=/)
+
+  const row = page.getByTestId("tx-row").filter({ hasText: "Boulangerie" })
+  await row.click({ button: "right" })
+  await page.getByRole("menuitem", { name: "Supprimer" }).click()
+  const deleted = page.getByRole("status").filter({ hasText: "1 opération supprimée" })
+  await expect(row).toHaveCount(0)
+  await deleted.getByRole("button", { name: "Annuler" }).click()
+  await waitForToast(page, "Suppression annulée")
+  await expect(row).toContainText("−42,50 €")
+})
+
 test("plans an operation dated after today as a schedule, outside today's balance", async ({ page }) => {
   await openJointAccount(page)
   await page.getByRole("button", { name: "Opération", exact: true }).click()

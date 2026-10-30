@@ -104,3 +104,15 @@ test("closes an account, then deletes it after confirming", async ({ page }) => 
   await expect(page).toHaveURL(/\/accounts$/)
   await expect(page.getByRole("main").getByText("Compte vacances")).toHaveCount(0)
 })
+
+test("edits an account from its sidebar link's right click menu", async ({ page }) => {
+  await open(page, "/budget")
+  const sidebar = page.getByRole("complementary").first()
+  await sidebar.getByRole("link", { name: /^Compte courant/ }).click({ button: "right" })
+  await page.getByRole("menuitem", { name: "Modifier le compte" }).click()
+  const dialog = page.getByRole("dialog", { name: "Modifier le compte" })
+  await expect(dialog.getByLabel("Nom")).toHaveValue("Compte courant")
+  await page.keyboard.press("Escape")
+  await expect(dialog).toHaveCount(0)
+  await expect(page).toHaveURL(/\/budget/)
+})

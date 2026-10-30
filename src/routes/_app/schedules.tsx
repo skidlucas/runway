@@ -1,10 +1,10 @@
 import { useQuery } from "@tanstack/react-query"
 import { createFileRoute } from "@tanstack/react-router"
-import { Plus, Sparkles } from "lucide-react"
+import { Check, Pencil, Plus, SkipForward, Sparkles } from "lucide-react"
 import * as React from "react"
 import { ScheduleDialog, type ScheduleInitial } from "~/components/schedule-dialog"
 import { PageHeader } from "~/components/shell"
-import { Button, Chip, cx, EmptyState, Money, SectionTitle, SkeletonRows } from "~/components/ui"
+import { Button, Chip, ContextMenu, cx, EmptyState, type MenuItem, Money, SectionTitle, SkeletonRows } from "~/components/ui"
 import { formatDayShort, formatMonthLong, monthOf } from "~/domain/dates"
 import { formatMoney } from "~/domain/money"
 import { describeRecurrence, periodDays } from "~/domain/recurrence"
@@ -132,58 +132,70 @@ function SchedulesPage() {
 function ScheduleRow({ schedule: s, onEdit }: { schedule: ScheduleDto; onEdit: () => void }) {
   const post = useAction(postSchedule, { success: "Opération enregistrée", writes: ["transactions", "schedules"] })
   const skip = useAction(skipSchedule, { success: "Échéance passée", writes: ["schedules"] })
+  const busy = skip.isPending || post.isPending
+  const actions: MenuItem[] = [
+    { label: "Modifier…", icon: <Pencil size={13} />, onSelect: onEdit },
+    ...(s.active
+      ? [
+          { label: "Enregistrer", icon: <Check size={13} />, onSelect: () => post.mutate({ data: { id: s.id } }), disabled: busy },
+          { label: "Passer", icon: <SkipForward size={13} />, onSelect: () => skip.mutate({ data: { id: s.id } }), disabled: busy },
+        ]
+      : []),
+  ]
   return (
-    <div
-      data-testid="schedule-row"
-      className={cx(
-        "grid grid-cols-[90px_minmax(0,1fr)_170px_120px_190px] items-center gap-3 border-b border-line-subtle px-5 py-2 hover:bg-hover max-md:grid-cols-[minmax(0,1fr)_auto]",
-        !s.active && "text-muted",
-      )}
-    >
-      <span className="num text-[12px] text-muted max-md:hidden">
-        {s.overdue ? <span className="text-warning">en retard</span> : formatDayShort(s.nextDate)}
-      </span>
-      <button type="button" onClick={onEdit} className="flex min-w-0 flex-col text-left">
-        <span className="truncate font-medium" title={s.name ?? s.payeeName ?? "Échéance"}>{s.name ?? s.payeeName ?? "Échéance"}</span>
-        <span className="truncate text-[12px] text-faint">
-          {s.recurrenceLabel} · {s.accountName}
-          <span className="md:hidden"> · {formatDayShort(s.nextDate)}</span>
+    <ContextMenu items={actions}>
+      <div
+        data-testid="schedule-row"
+        className={cx(
+          "grid grid-cols-[90px_minmax(0,1fr)_170px_120px_190px] items-center gap-3 border-b border-line-subtle px-5 py-2 hover:bg-hover data-[popup-open]:bg-hover max-md:grid-cols-[minmax(0,1fr)_auto]",
+          !s.active && "text-muted",
+        )}
+      >
+        <span className="num text-[12px] text-muted max-md:hidden">
+          {s.overdue ? <span className="text-warning">en retard</span> : formatDayShort(s.nextDate)}
         </span>
-        {s.remaining ? (
+        <button type="button" onClick={onEdit} className="flex min-w-0 flex-col text-left">
+          <span className="truncate font-medium" title={s.name ?? s.payeeName ?? "Échéance"}>{s.name ?? s.payeeName ?? "Échéance"}</span>
           <span className="truncate text-[12px] text-faint">
-            reste {s.remaining.count} × {formatMoney(Math.abs(s.amount))} = {formatMoney(s.remaining.total)} · jusqu'en{" "}
-            {formatMonthLong(monthOf(s.remaining.until)).toLowerCase()}
+            {s.recurrenceLabel} · {s.accountName}
+            <span className="md:hidden"> · {formatDayShort(s.nextDate)}</span>
           </span>
-        ) : null}
-      </button>
-      <span className="max-md:hidden">
-        {s.categoryName ? <Chip>{s.categoryName}</Chip> : <Chip tone="warning">Hors budget</Chip>}
-        {s.autoPost ? <span className="ml-2 text-[11px] text-faint">auto</span> : null}
-      </span>
-      <Money value={s.amount} className="text-right text-[12px]" colored />
-      <span className="flex justify-end gap-1.5 max-md:hidden">
-        {s.active ? (
-          <>
-            <Button
-              size="sm"
-              variant="ghost"
-              onClick={() => skip.mutate({ data: { id: s.id } })}
-              loading={skip.isPending}
-              disabled={skip.isPending || post.isPending}
-            >
-              Passer
-            </Button>
-            <Button
-              size="sm"
-              onClick={() => post.mutate({ data: { id: s.id } })}
-              loading={post.isPending}
-              disabled={skip.isPending || post.isPending}
-            >
-              Enregistrer
-            </Button>
-          </>
-        ) : null}
-      </span>
-    </div>
+          {s.remaining ? (
+            <span className="truncate text-[12px] text-faint">
+              reste {s.remaining.count} × {formatMoney(Math.abs(s.amount))} = {formatMoney(s.remaining.total)} · jusqu'en{" "}
+              {formatMonthLong(monthOf(s.remaining.until)).toLowerCase()}
+            </span>
+          ) : null}
+        </button>
+        <span className="max-md:hidden">
+          {s.categoryName ? <Chip>{s.categoryName}</Chip> : <Chip tone="warning">Hors budget</Chip>}
+          {s.autoPost ? <span className="ml-2 text-[11px] text-faint">auto</span> : null}
+        </span>
+        <Money value={s.amount} className="text-right text-[12px]" colored />
+        <span className="flex justify-end gap-1.5 max-md:hidden">
+          {s.active ? (
+            <>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => skip.mutate({ data: { id: s.id } })}
+                loading={skip.isPending}
+                disabled={busy}
+              >
+                Passer
+              </Button>
+              <Button
+                size="sm"
+                onClick={() => post.mutate({ data: { id: s.id } })}
+                loading={post.isPending}
+                disabled={busy}
+              >
+                Enregistrer
+              </Button>
+            </>
+          ) : null}
+        </span>
+      </div>
+    </ContextMenu>
   )
 }
