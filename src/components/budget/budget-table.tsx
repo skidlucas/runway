@@ -3,7 +3,7 @@ import { MoreHorizontal, Plus } from "lucide-react"
 import * as React from "react"
 import { useAppUi } from "~/components/shell"
 import { ContextMenu, cx, IconButton, Menu, type MenuItem, revealOnHover, useReturnFocus } from "~/components/ui"
-import { amountInput, formatMoney, parseAmount } from "~/domain/money"
+import { amountInput, formatMoney, parseAmountChange } from "~/domain/money"
 import { count, plural } from "~/domain/text"
 import { patchBudgetAmount, useAction } from "~/lib/queries"
 import { fillBudget, setBudgetAmount } from "~/server/fns/core"
@@ -262,7 +262,7 @@ function BudgetInput({
 
   const commit = (then: "next" | "prev") => {
     if (done.current) return
-    const value = text.trim() === "" ? 0 : parseAmount(text)
+    const value = text.trim() === "" ? 0 : parseAmountChange(text, category.budgeted)
     if (value === null) {
       setInvalid(true)
       return
@@ -285,7 +285,7 @@ function BudgetInput({
       }}
       onBlur={() => {
         if (done.current) return
-        const value = text.trim() === "" ? 0 : parseAmount(text)
+        const value = text.trim() === "" ? 0 : parseAmountChange(text, category.budgeted)
         done.current = true
         // An invalid amount is dropped on blur rather than trapping focus in the cell.
         onCommit(value, "close")

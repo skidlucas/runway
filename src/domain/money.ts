@@ -82,6 +82,16 @@ export const parseAmount = (raw: string): number | null => {
   return Math.round(value * 100)
 }
 
+/**
+ * An amount typed over `current`, as in a budget cell: an operator first applies to it ("+2", "-2",
+ * "*1,1"), and a calculation needs no "=" ("18+2"). Anything else replaces it, as read by `parseAmount`.
+ */
+export const parseAmountChange = (raw: string, current: number): number | null => {
+  const input = raw.trim()
+  if (/^[+\-−–*×/÷]/.test(input)) return parseAmount(`=${current / 100}${input}`)
+  return parseAmount(input) ?? (input.startsWith("=") ? null : parseAmount(`=${input}`))
+}
+
 // With both "." and "," present, the last one is the decimal separator ("1.234,56", "1,234.56").
 const normalizeSeparators = (text: string) => {
   const lastDot = text.lastIndexOf(".")

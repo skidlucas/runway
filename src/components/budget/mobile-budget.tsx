@@ -1,6 +1,6 @@
 import * as React from "react"
 import { AmountPill, Button, ContextMenu, cx, Dialog, Field, Input } from "~/components/ui"
-import { amountInput, formatMoney, parseAmount } from "~/domain/money"
+import { amountInput, formatMoney, parseAmountChange } from "~/domain/money"
 import { patchBudgetAmount, useAction } from "~/lib/queries"
 import { setBudgetAmount } from "~/server/fns/core"
 import type { BudgetCategoryRow, BudgetMonthDto } from "~/server/services/budget"
@@ -99,7 +99,7 @@ function MobileBudgetDialog({
     scope: "budget",
     optimistic: ({ data }, client) => patchBudgetAmount(client, data),
   })
-  const value = text.trim() === "" ? 0 : parseAmount(text)
+  const value = text.trim() === "" ? 0 : parseAmountChange(text, category.budgeted)
   return (
     <Dialog
       open

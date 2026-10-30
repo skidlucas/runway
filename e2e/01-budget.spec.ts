@@ -71,6 +71,23 @@ test("budgets a category from the month view", async ({ page }) => {
   await page.reload()
   await expect(available).toHaveText("157,50 €")
   await expect(toBudget).toContainText("1 300,00 €")
+
+  // An operator first applies to the amount already budgeted instead of replacing it.
+  const budgeted = page.getByRole("button", { name: /^Budget Courses/ })
+  await budgeted.click()
+  await page.getByRole("textbox", { name: "Budget Courses" }).fill("+50")
+  await page.getByRole("textbox", { name: "Budget Courses" }).press("Escape")
+  await expect(budgeted).toHaveText("200,00 €")
+  await budgeted.click()
+  await page.getByRole("textbox", { name: "Budget Courses" }).fill("+50")
+  await page.getByRole("textbox", { name: "Budget Courses" }).press("Enter")
+  await expect(budgeted).toHaveText("250,00 €")
+  await expect(available).toHaveText("207,50 €")
+  await budgeted.click()
+  await page.getByRole("textbox", { name: "Budget Courses" }).fill("-50")
+  await page.getByRole("textbox", { name: "Budget Courses" }).press("Enter")
+  await expect(budgeted).toHaveText("200,00 €")
+  await expect(toBudget).toContainText("1 300,00 €")
 })
 
 test("shows what a schedule needs in the budget and budgets it", async ({ page }) => {

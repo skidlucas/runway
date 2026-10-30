@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { amountInput, formatCompact, formatMoney, formatPercent, parseAmount } from "~/domain/money"
+import { amountInput, formatCompact, formatMoney, formatPercent, parseAmount, parseAmountChange } from "~/domain/money"
 
 const nbsp = (s: string) => s.replace(/ /g, " ").replace(/ €/g, " €")
 
@@ -72,5 +72,28 @@ describe("parseAmount", () => {
         expect(parseAmount(text), text).toBe(cents)
       }
     }
+  })
+})
+
+describe("parseAmountChange", () => {
+  it.each([
+    ["+2", 1800, 2000],
+    ["-2", 1800, 1600],
+    ["−2,5", 1800, 1550],
+    ["+ 1 000", 1800, 101800],
+    ["*1,1", 2000, 2200],
+    ["/2", 1850, 925],
+    ["+2", -500, -300],
+    ["18,00+2", 0, 2000],
+    ["1 234,56+0,44", 0, 123500],
+    ["42", 1800, 4200],
+    ["1.234,56", 1800, 123456],
+    ["=-2", 1800, -200],
+  ])("reads %s over %i as %i", (input, current, expected) => {
+    expect(parseAmountChange(input, current)).toBe(expected)
+  })
+
+  it.each(["", "abc", "+", "+abc", "=1/0", "18+"])("rejects %s", (input) => {
+    expect(parseAmountChange(input, 1800)).toBeNull()
   })
 })
