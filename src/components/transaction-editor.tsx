@@ -210,7 +210,7 @@ export function TransactionEditor({
         </Field>
         <label className="col-span-2 flex items-center gap-2 text-fg-2 max-md:col-span-1">
           <Switch checked={cleared} onCheckedChange={setCleared} label="Pointée" />
-          Pointée (vue sur le relevé)
+          Pointée
         </label>
       </div>
       {splitting ? (

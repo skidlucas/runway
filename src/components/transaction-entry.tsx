@@ -323,7 +323,7 @@ export function TransactionEntry({
         {state.future ? null : (
           <label className="flex items-center gap-2 text-fg-2">
             <Switch checked={draft.cleared} onCheckedChange={(cleared) => state.setDraft((d) => ({ ...d, cleared }))} label="Pointée" />
-            Pointée (vue sur le relevé)
+            Pointée
           </label>
         )}
       </form>
