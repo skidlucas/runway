@@ -5,7 +5,7 @@ import { useAppUi } from "~/components/shell"
 import { ContextMenu, cx, IconButton, Menu, type MenuItem, revealOnHover, useReturnFocus } from "~/components/ui"
 import { amountInput, formatMoney, parseAmount } from "~/domain/money"
 import { count, plural } from "~/domain/text"
-import { useAction } from "~/lib/queries"
+import { patchBudgetAmount, useAction } from "~/lib/queries"
 import { fillBudget, setBudgetAmount } from "~/server/fns/core"
 import type { BudgetCategoryRow, BudgetGroupRow, BudgetMonthDto } from "~/server/services/budget"
 import { useCategoryActions } from "./category-actions"
@@ -209,7 +209,11 @@ function BudgetedCell({
   editing: boolean
   onEdit: (next: EditStep) => void
 }) {
-  const save = useAction(setBudgetAmount, { writes: ["budgets"] })
+  const save = useAction(setBudgetAmount, {
+    writes: ["budgets"],
+    scope: "budget",
+    optimistic: ({ data }, client) => patchBudgetAmount(client, data),
+  })
   const trigger = useReturnFocus<HTMLButtonElement>(editing)
   if (editing)
     return (

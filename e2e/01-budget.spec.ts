@@ -47,13 +47,29 @@ test("budgets a category from the month view", async ({ page }) => {
   const toBudget = visible(page.getByTestId("to-budget"))
   await expect(toBudget).toContainText("1 500,00 €")
 
+  // The write is held back: the row and what is left to budget must not wait for the server.
+  let release = () => {}
+  const held = new Promise<void>((resolve) => (release = resolve))
+  await page.route(/\/_serverFn\//, async (route) => {
+    if (route.request().method() === "POST") await held
+    await route.continue()
+  })
   await page.getByRole("button", { name: /^Budget Courses/ }).click()
   await page.getByRole("textbox", { name: "Budget Courses" }).fill("200")
   await page.getByRole("textbox", { name: "Budget Courses" }).press("Enter")
 
   const courses = page.getByRole("row").filter({ has: page.getByRole("link", { name: "Courses", exact: true }) })
+  const available = courses.getByRole("button", { name: "Disponible Courses" })
   await expect(courses).toContainText("200,00 €")
-  await expect(courses.getByRole("button", { name: "Disponible Courses" })).toHaveText("157,50 €")
+  await expect(available).toHaveText("157,50 €")
+  await expect(toBudget).toContainText("1 300,00 €")
+
+  const saved = page.waitForResponse((response) => response.request().method() === "POST" && /\/_serverFn\//.test(response.url()))
+  release()
+  await saved
+  await page.unroute(/\/_serverFn\//)
+  await page.reload()
+  await expect(available).toHaveText("157,50 €")
   await expect(toBudget).toContainText("1 300,00 €")
 })
 

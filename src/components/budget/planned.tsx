@@ -4,7 +4,7 @@ import { Button, cx, Popover } from "~/components/ui"
 import { formatDayLong, formatDayShort, formatMonthLong, monthOf } from "~/domain/dates"
 import { formatMoney } from "~/domain/money"
 import { type PlannedCategory, type PlannedStatus, plannedStatus } from "~/domain/planned"
-import { useAction } from "~/lib/queries"
+import { patchBudgetAmount, useAction } from "~/lib/queries"
 import { setBudgetAmount } from "~/server/fns/core"
 import type { BudgetCategoryRow } from "~/server/services/budget"
 
@@ -33,7 +33,13 @@ export function PlannedStatusNote({ category }: { category: BudgetCategoryRow })
 
 export function PlannedCell({ category, month }: { category: BudgetCategoryRow; month: string }) {
   const [open, setOpen] = React.useState(false)
-  const save = useAction(setBudgetAmount, { writes: ["budgets"], onSuccess: () => setOpen(false), awaitRefresh: false })
+  const save = useAction(setBudgetAmount, {
+    writes: ["budgets"],
+    onSuccess: () => setOpen(false),
+    awaitRefresh: false,
+    scope: "budget",
+    optimistic: ({ data }, client) => patchBudgetAmount(client, data),
+  })
   const planned = category.planned
   if (!planned) return <span className="num text-right text-[12px] text-faint">—</span>
   const status = statusOf(category)

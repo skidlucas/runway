@@ -2,7 +2,7 @@ import * as React from "react"
 import { CategoryPicker } from "~/components/pickers"
 import { AmountPill, Button, cx, Dialog, Field, Input, Money, Popover, Switch } from "~/components/ui"
 import { amountInput, formatMoney, parseAmount } from "~/domain/money"
-import { useAction } from "~/lib/queries"
+import { patchBudgetMove, useAction } from "~/lib/queries"
 import { moveBudget, setBudgetCarryover } from "~/server/fns/core"
 import type { BudgetCategoryRow, BudgetMonthDto, MoveTarget } from "~/server/services/budget"
 
@@ -80,7 +80,14 @@ export function MoveMoneyDialog({
     mode === "cover" ? (category.available < 0 ? amountInput(-category.available) : "") : amountInput(category.available),
   )
   const available = new Map(budget.groups.flatMap((g) => g.categories.map((c) => [c.id, c.available] as const)))
-  const move = useAction(moveBudget, { success: "Budget mis à jour", onSuccess: onClose, writes: ["budgets"], awaitRefresh: false })
+  const move = useAction(moveBudget, {
+    success: "Budget mis à jour",
+    onSuccess: onClose,
+    writes: ["budgets"],
+    awaitRefresh: false,
+    scope: "budget",
+    optimistic: ({ data }, client) => patchBudgetMove(client, data),
+  })
   const cents = parseAmount(amount)
   const fromToBudget = other?.kind === "toBudget"
   const submit = () => {

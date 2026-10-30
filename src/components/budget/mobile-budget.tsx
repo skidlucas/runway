@@ -1,7 +1,7 @@
 import * as React from "react"
 import { AmountPill, Button, ContextMenu, cx, Dialog, Field, Input } from "~/components/ui"
 import { amountInput, formatMoney, parseAmount } from "~/domain/money"
-import { useAction } from "~/lib/queries"
+import { patchBudgetAmount, useAction } from "~/lib/queries"
 import { setBudgetAmount } from "~/server/fns/core"
 import type { BudgetCategoryRow, BudgetMonthDto } from "~/server/services/budget"
 import { useCategoryActions } from "./category-actions"
@@ -90,7 +90,13 @@ function MobileBudgetDialog({
   onMove: (mode: MoveMode) => void
 }) {
   const [text, setText] = React.useState(category.budgeted ? amountInput(category.budgeted) : "")
-  const save = useAction(setBudgetAmount, { onSuccess: onClose, writes: ["budgets"], awaitRefresh: false })
+  const save = useAction(setBudgetAmount, {
+    onSuccess: onClose,
+    writes: ["budgets"],
+    awaitRefresh: false,
+    scope: "budget",
+    optimistic: ({ data }, client) => patchBudgetAmount(client, data),
+  })
   const value = text.trim() === "" ? 0 : parseAmount(text)
   return (
     <Dialog

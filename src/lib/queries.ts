@@ -16,10 +16,12 @@ import { getForecast, getScheduledRows, getSchedules, getScheduleSuggestions, ge
 import { getCashFlow, getCategorySpending, getDashboards, getAccountsTotal, getSpendingComparison } from "~/server/fns/reports"
 import type { InsightViewConfig } from "~/server/db/schema"
 import type { AccountDto } from "~/server/services/accounts"
+import type { BudgetMonthDto, MoveTarget } from "~/server/services/budget"
 import type { ScheduledRow } from "~/server/services/schedules"
 import type { TxCursor, TxFilter, TxPage, TxRow } from "~/server/services/transactions"
 import { toast, toastError } from "~/components/toast"
 import type { Month } from "~/domain/dates"
+import { withBudgetChanges } from "~/lib/budget-changes"
 
 const TX_PAGE = 200
 
@@ -281,6 +283,28 @@ export const patchTransactionPayee = (client: QueryClient, id: string, payeeId: 
   return patchTransactionRows(client, [id], { payeeId, payeeName })
 }
 
+const patchBudget = async (client: QueryClient, month: string, changesOf: (budget: BudgetMonthDto) => ReadonlyMap<string, number>) => {
+  const { queryKey } = q.budget(month)
+  await client.cancelQueries({ queryKey })
+  client.setQueryData(queryKey, (budget) => budget && withBudgetChanges(budget, changesOf(budget)))
+}
+
+/** Shows a category's new budget, and the totals that follow, at once; the refresh brings the months after it. */
+export const patchBudgetAmount = (client: QueryClient, edit: { month: string; categoryId: string; amount: number }) =>
+  patchBudget(client, edit.month, (budget) => {
+    const current = budget.groups.flatMap((g) => g.categories).find((c) => c.id === edit.categoryId)?.budgeted ?? 0
+    return new Map([[edit.categoryId, edit.amount - current]])
+  })
+
+/** `patchBudgetAmount` for money moved between categories, or to and from what is left to budget. */
+export const patchBudgetMove = (client: QueryClient, move: { month: string; from: MoveTarget; to: MoveTarget; amount: number }) =>
+  patchBudget(client, move.month, () => {
+    const changes = new Map<string, number>()
+    if (move.from.kind === "category") changes.set(move.from.id, -move.amount)
+    if (move.to.kind === "category") changes.set(move.to.id, (changes.get(move.to.id) ?? 0) + move.amount)
+    return changes
+  })
+
 /** Wraps a server function call in a mutation; a success refreshes what reads the data it `writes`. */
 export function useAction<TInput, TOutput>(
   fn: (input: TInput) => Promise<TOutput>,
@@ -303,10 +327,17 @@ export function useAction<TInput, TOutput>(
   return useMutation({
     mutationFn: fn,
     scope: options.scope ? { id: options.scope } : undefined,
+    mutationKey: options.scope ? [options.scope] : undefined,
     onMutate: options.optimistic && ((input) => options.optimistic?.(input, client)),
     onSuccess: async (output) => {
       const message = typeof options.success === "function" ? options.success(output) : options.success
       if (message) toast(message)
+      // A refresh now would read the database before the next call of the scope is written, and take
+      // its patch back off the screen until that call's own refresh: that one brings both.
+      if (options.optimistic && options.scope && client.isMutating({ mutationKey: [options.scope] }) > 1) {
+        options.onSuccess?.(output)
+        return
+      }
       // Callers close or navigate in `onSuccess`: wait for fresh data so the next view never shows the old one.
       if (options.awaitRefresh === false) void refreshAfter(client, options.writes)
       else await refreshAfter(client, options.writes)
